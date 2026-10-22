@@ -7,6 +7,7 @@ import { jest } from '@jest/globals';
 import { AuthConfig } from '../auth.config';
 import { AuthenticatedIdentity } from '../auth.types';
 import { AuthService } from '../services/auth.service';
+import { AuthOriginGuard } from './auth-origin.guard';
 import { AuthRequest } from './auth-request';
 import { AccessTokenGuard } from './access-token.guard';
 import { CsrfGuard } from './csrf.guard';
@@ -88,5 +89,22 @@ describe('authentication guards', () => {
     expect(() => guard.canActivate(contextFor(foreignOrigin))).toThrow(
       ForbiddenException,
     );
+  });
+
+  it('rejects missing and foreign origins on registration and login', () => {
+    const guard = new AuthOriginGuard(config);
+    expect(() => guard.canActivate(contextFor({ headers: {} } as AuthRequest))).toThrow(
+      ForbiddenException,
+    );
+    expect(() =>
+      guard.canActivate(
+        contextFor({ headers: { origin: 'https://attacker.example.test' } } as AuthRequest),
+      ),
+    ).toThrow(ForbiddenException);
+    expect(
+      guard.canActivate(
+        contextFor({ headers: { origin: 'https://app.example.test' } } as AuthRequest),
+      ),
+    ).toBe(true);
   });
 });

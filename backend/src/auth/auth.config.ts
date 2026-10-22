@@ -56,7 +56,7 @@ export class AuthConfig {
     this.allowedOrigins = parseOrigins(env.CORS_ORIGINS);
     this.cookieSecure =
       env.AUTH_COOKIE_SECURE === undefined
-        ? true
+        ? env.NODE_ENV === 'production'
         : env.AUTH_COOKIE_SECURE === 'true';
     if (
       env.AUTH_COOKIE_SECURE !== undefined &&

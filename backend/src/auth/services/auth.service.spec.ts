@@ -186,6 +186,28 @@ describe('AuthService', () => {
     ).resolves.toHaveProperty('refreshToken');
   });
 
+  it('serializes simultaneous refresh attempts so reuse revokes the affected session', async () => {
+    const { service, repository } = createHarness();
+    const issued = await service.register(
+      'user@example.com',
+      'very-long-password',
+      '127.0.0.1',
+    );
+
+    const outcomes = await Promise.allSettled([
+      service.refresh(issued.refreshToken),
+      service.refresh(issued.refreshToken),
+    ]);
+
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(
+      1,
+    );
+    expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toHaveLength(
+      1,
+    );
+    expect([...repository.sessions.values()][0]?.revokedAt).not.toBeNull();
+  });
+
   it.each(['expired idle', 'absolute expiry'])(
     'rejects refresh after %s',
     async (expiryKind) => {
