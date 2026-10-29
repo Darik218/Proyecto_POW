@@ -9,6 +9,7 @@
     "build": "prisma generate && nest build",
     "prisma:validate": "prisma validate",
     "prisma:generate": "prisma generate",
+    "prisma:seed": "tsc --project tsconfig.seed.json && node dist-seed/prisma/seed.js",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:migrate:status": "prisma migrate status",

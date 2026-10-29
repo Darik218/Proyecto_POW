@@ -25,6 +25,7 @@ describe('Training plans (PostgreSQL E2E)', () => {
   let prisma: PrismaService;
   const users: UserFixture[] = [];
   const exerciseIds: string[] = [];
+  const muscleGroupIds: string[] = [];
   const planNames = new Map<string, Set<string>>();
   const createdPlanIdsByEmail = new Map<string, Set<string>>();
   const cleanupErrors: string[] = [];
@@ -155,12 +156,16 @@ describe('Training plans (PostgreSQL E2E)', () => {
 
       if (exerciseIds.length) {
         try {
+          await prisma.exerciseSecondaryMuscleGroup.deleteMany({ where: { exerciseId: { in: exerciseIds } } });
           await prisma.exercise.deleteMany({ where: { id: { in: exerciseIds } } });
           const remaining = await prisma.exercise.count({ where: { id: { in: exerciseIds } } });
           if (remaining) cleanupErrors.push(`${remaining} test exercise fixture(s) remain`);
         } catch {
           cleanupErrors.push(`${exerciseIds.length} test exercise fixture(s) could not be cleaned`);
         }
+      }
+      if (muscleGroupIds.length) {
+        await prisma.muscleGroup.deleteMany({ where: { id: { in: muscleGroupIds } } });
       }
     }
     if (app) await app.close();
@@ -212,8 +217,27 @@ describe('Training plans (PostgreSQL E2E)', () => {
     if (await prisma.exercise.findFirst({ where: { name }, select: { id: true } })) {
       throw new Error('Generated test exercise name already exists; refusing to use it.');
     }
+    let muscleGroupId = muscleGroupIds[0];
+    if (!muscleGroupId) {
+      const group = await prisma.muscleGroup.create({
+        data: {
+          key: `test-plan-${RUN_ID}`,
+          name: `Training E2E ${RUN_ID}`,
+          description: 'Isolated training plan exercise fixture.',
+        },
+        select: { id: true },
+      });
+      muscleGroupIds.push(group.id);
+      muscleGroupId = group.id;
+    }
     const exercise = await prisma.exercise.create({
-      data: { name, muscleGroup: 'E2E fixture', equipment: 'Test barbell', isActive: active },
+      data: {
+        name,
+        primaryMuscleGroupId: muscleGroupId,
+        equipment: 'Test barbell',
+        equipmentType: 'BARBELL',
+        isActive: active,
+      },
       select: { id: true },
     });
     exerciseIds.push(exercise.id);

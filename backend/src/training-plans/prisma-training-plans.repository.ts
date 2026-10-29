@@ -42,7 +42,7 @@ const detailSelect = {
           targetLoad: true,
           notes: true,
           exercise: {
-            select: { id: true, name: true, muscleGroup: true, equipment: true, description: true },
+            select: { id: true, name: true, primaryMuscleGroup: { select: { name: true } }, equipment: true, description: true },
           },
         },
       },
@@ -80,11 +80,15 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
       ...plan,
       weeks: plan.weeks.map(({ planExercises, ...week }) => ({
         ...week,
-        exercises: planExercises.map((exercise) => ({
-          ...exercise,
-          targetRpe: exercise.targetRpe === null ? null : Number(exercise.targetRpe),
-          targetLoad: exercise.targetLoad === null ? null : Number(exercise.targetLoad),
-        })),
+        exercises: planExercises.map((exercise) => {
+          const { primaryMuscleGroup, ...exerciseFields } = exercise.exercise;
+          return {
+            ...exercise,
+            targetRpe: exercise.targetRpe === null ? null : Number(exercise.targetRpe),
+            targetLoad: exercise.targetLoad === null ? null : Number(exercise.targetLoad),
+            exercise: { ...exerciseFields, muscleGroup: primaryMuscleGroup.name },
+          };
+        }),
       })),
     };
   }
@@ -172,7 +176,7 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
       if (!week) return null;
       const exercise = await tx.exercise.findFirst({
         where: { id: input.exerciseId, isActive: true },
-        select: { id: true, name: true, muscleGroup: true, equipment: true, description: true },
+        select: { id: true, name: true, primaryMuscleGroup: { select: { name: true } }, equipment: true, description: true },
       });
       if (!exercise) return null;
       const { exerciseId, ...values } = input;
@@ -184,7 +188,7 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
         ...created,
         targetRpe: created.targetRpe === null ? null : Number(created.targetRpe),
         targetLoad: created.targetLoad === null ? null : Number(created.targetLoad),
-        exercise,
+        exercise: { ...exercise, muscleGroup: exercise.primaryMuscleGroup.name },
       };
     });
   }
@@ -204,9 +208,14 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
       const updated = await tx.planExercise.update({
         where: { id: prescription.id },
         data: input,
-        select: { id: true, position: true, targetSets: true, targetReps: true, targetRpe: true, targetLoad: true, notes: true, exercise: { select: { id: true, name: true, muscleGroup: true, equipment: true, description: true } } },
+        select: { id: true, position: true, targetSets: true, targetReps: true, targetRpe: true, targetLoad: true, notes: true, exercise: { select: { id: true, name: true, primaryMuscleGroup: { select: { name: true } }, equipment: true, description: true } } },
       });
-      return { ...updated, targetRpe: updated.targetRpe === null ? null : Number(updated.targetRpe), targetLoad: updated.targetLoad === null ? null : Number(updated.targetLoad) };
+      return {
+        ...updated,
+        targetRpe: updated.targetRpe === null ? null : Number(updated.targetRpe),
+        targetLoad: updated.targetLoad === null ? null : Number(updated.targetLoad),
+        exercise: { ...updated.exercise, muscleGroup: updated.exercise.primaryMuscleGroup.name },
+      };
     });
   }
 

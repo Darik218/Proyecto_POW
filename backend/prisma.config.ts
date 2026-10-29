@@ -5,6 +5,9 @@ const databaseUrl = process.env.DATABASE_URL;
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
-  migrations: { path: "prisma/migrations" },
+  migrations: {
+    path: "prisma/migrations",
+    seed: "npm run prisma:seed",
+  },
   ...(databaseUrl ? { datasource: { url: databaseUrl } } : {}),
 });
