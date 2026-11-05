@@ -24,7 +24,6 @@ export function useExercisesCatalog() {
   let activeController: AbortController | undefined
   let activeSignature = ''
   let activePromise: Promise<void> | undefined
-  let successfulSignature = ''
   let lastRequest: { scope: ExerciseScope; query: CatalogFilters; offset: number } = {
     scope: 'global',
     query: {},
@@ -45,7 +44,6 @@ export function useExercisesCatalog() {
     }
     const signature = JSON.stringify({ scope: selectedScope, ...parsed.data })
     lastRequest = { scope: selectedScope, query: filters, offset: nextOffset }
-    if (!force && signature === successfulSignature && !loading.value) return
     if (!force && signature === activeSignature && activePromise) return activePromise
 
     activeController?.abort()
@@ -65,7 +63,6 @@ export function useExercisesCatalog() {
         exercises.value = result.items
         total.value = result.total
         offset.value = result.offset
-        successfulSignature = signature
       } catch (error) {
         if (requestId === latestRequest && !axios.isCancel(error)) {
           errorMessage.value = exerciseErrorMessage(error, 'No se pudo cargar el catálogo.')

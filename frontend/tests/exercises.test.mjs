@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
-import { AxiosError } from 'axios'
+import { AxiosError, CanceledError } from 'axios'
 import { api, installAuthInterceptors } from '../src/services/api.ts'
 import { useExercisesCatalog } from '../src/composables/useExercisesCatalog.ts'
 import {
@@ -27,6 +27,20 @@ function page(items = [firstExercise], total = items.length, limit = 20, offset 
 }
 function response(config, data, status = 200) {
   return { config, data, status, statusText: 'OK', headers: {} }
+}
+
+async function within(operation) {
+  let timer
+  try {
+    return await Promise.race([
+      operation,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Catalog operation did not settle within 1 second.')), 1000)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 installAuthInterceptors({
@@ -171,9 +185,113 @@ test('coalesces concurrent requests with the same catalog parameters', async () 
   assert.equal(catalog.loading.value, false)
 })
 
-test('an older request cannot overwrite newer filter results', async () => {
+test('regression: returns to global after a private catalog error and clears stale state', async () => {
+  const catalog = useExercisesCatalog()
+  const calls = []
+  api.defaults.adapter = async (config) => {
+    calls.push(config.url)
+    if (config.url === '/exercises/mine') {
+      throw new AxiosError('Unavailable', AxiosError.ERR_BAD_RESPONSE, config, undefined, response(config, {}, 503))
+    }
+    return response(config, page())
+  }
+  await catalog.load({}, 'global')
+  await catalog.load({}, 'mine')
+  assert.equal(catalog.scope.value, 'mine')
+  assert.notEqual(catalog.errorMessage.value, '')
+
+  await catalog.load({}, 'global')
+  assert.equal(catalog.scope.value, 'global')
+  assert.equal(catalog.errorMessage.value, '')
+  assert.equal(catalog.loading.value, false)
+  assert.deepEqual(catalog.exercises.value, [firstExercise])
+  assert.deepEqual(calls, ['/exercises', '/exercises/mine', '/exercises'])
+})
+
+test('switches successful scopes and paginates using the current filters', async () => {
+  const catalog = useExercisesCatalog()
+  const calls = []
+  api.defaults.adapter = async (config) => {
+    calls.push({ url: config.url, ...config.params })
+    const personal = config.url === '/exercises/mine'
+    const { limit, offset } = config.params
+    const items = Array.from({ length: Math.min(limit, 41 - offset) }, (_, index) => ({
+      ...firstExercise,
+      id: '20000000-0000-4000-8000-' + String(offset + index + 1).padStart(12, '0'),
+      origin: personal ? 'PERSONAL' : 'GLOBAL', isOwner: personal,
+    }))
+    return response(config, page(items, 41, limit, offset))
+  }
+  await catalog.load({ search: 'press' }, 'global')
+  await catalog.load({ search: 'press' }, 'mine')
+  assert.equal(catalog.scope.value, 'mine')
+  assert.equal(catalog.exercises.value[0].origin, 'PERSONAL')
+  await catalog.nextPage()
+  assert.equal(catalog.offset.value, 20)
+  await catalog.nextPage()
+  assert.equal(catalog.offset.value, 40)
+  assert.equal(catalog.exercises.value.length, 1)
+  await catalog.previousPage()
+  assert.equal(catalog.offset.value, 20)
+  await catalog.load({ search: 'press' }, 'global')
+  assert.equal(catalog.scope.value, 'global')
+  assert.equal(catalog.offset.value, 0)
+  assert.equal(catalog.exercises.value[0].origin, 'GLOBAL')
+  assert.equal(catalog.errorMessage.value, '')
+  assert.deepEqual(calls.map(({ offset }) => offset), [0, 0, 20, 40, 20, 0])
+  assert.equal(calls.every(({ search, limit }) => search === 'press' && limit === 20), true)
+})
+
+test('invalid responses leave loading, show an error and allow retry', async () => {
+  const catalog = useExercisesCatalog()
+  api.defaults.adapter = async (config) => response(config, [])
+  await catalog.load()
+  assert.equal(catalog.loading.value, false)
+  assert.match(catalog.errorMessage.value, /formato inesperado/)
+  api.defaults.adapter = async (config) => response(config, page([], 0))
+  await catalog.retry()
+  assert.equal(catalog.loading.value, false)
+  assert.equal(catalog.errorMessage.value, '')
+  assert.equal(catalog.total.value, 0)
+})
+
+test('cancels the previous request without clearing the current loading state or results', async () => {
+  const catalog = useExercisesCatalog()
+  let signal
+  let startOld
+  let startNew
+  let finishNew
+  const oldStarted = new Promise((resolve) => { startOld = resolve })
+  const newStarted = new Promise((resolve) => { startNew = resolve })
+  api.defaults.adapter = (config) => new Promise((resolve, reject) => {
+    if (config.params.search === 'old') {
+      signal = config.signal
+      signal.addEventListener('abort', () => reject(new CanceledError('Obsolete request', config)), { once: true })
+      startOld()
+    } else {
+      finishNew = () => resolve(response(config, page()))
+      startNew()
+    }
+  })
+  const oldRequest = catalog.load({ search: 'old' })
+  await within(oldStarted)
+  const currentRequest = catalog.load({ search: 'new' })
+  await within(newStarted)
+  await within(oldRequest)
+  assert.equal(signal.aborted, true)
+  assert.equal(catalog.loading.value, true)
+  assert.equal(catalog.errorMessage.value, '')
+  finishNew()
+  await within(currentRequest)
+  assert.equal(catalog.loading.value, false)
+  assert.deepEqual(catalog.exercises.value, [firstExercise])
+  assert.deepEqual(catalog.query.value, { search: 'new' })
+})
+
+test('an older request cannot overwrite newer filter results', async (t) => {
   const catalog = useExercisesCatalog()
   const originalList = exercisesService.list
+  t.after(() => { exercisesService.list = originalList })
   let resolveOld
   let resolveNew
   let calls = 0
@@ -188,7 +306,6 @@ test('an older request cannot overwrite newer filter results', async () => {
   await newRequest
   resolveOld(page([firstExercise], 1))
   await oldRequest
-  exercisesService.list = originalList
   assert.equal(catalog.exercises.value.length, 0)
   assert.equal(catalog.total.value, 0)
   assert.equal(catalog.loading.value, false)

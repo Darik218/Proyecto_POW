@@ -25,7 +25,9 @@ let authContext: AuthHttpContext | undefined
 let refreshInFlight: Promise<void> | undefined
 
 function isAuthenticationEndpoint(url: string | undefined): boolean {
-  return /^\/?auth\/(login|register|refresh|logout|logout-all)(?:\?|$)/.test(
+  // /me verifies newly issued tokens before the store accepts them. Its 401
+  // must reject that operation rather than wait for the same refresh again.
+  return /^\/?auth\/(login|register|refresh|logout|logout-all|me)(?:\?|$)/.test(
     url ?? '',
   )
 }
@@ -35,7 +37,9 @@ export function installAuthInterceptors(context: AuthHttpContext): void {
 
   api.interceptors.request.use((config) => {
     const token = authContext?.getAccessToken()
-    if (token) config.headers.set('Authorization', `Bearer ${token}`)
+    if (token && !config.headers.has('Authorization')) {
+      config.headers.set('Authorization', `Bearer ${token}`)
+    }
     return config
   })
 
