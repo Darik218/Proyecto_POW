@@ -36,8 +36,9 @@ const detailSelect = {
         select: {
           id: true,
           position: true,
+          planDay: { select: { position: true } },
           targetSets: true,
-          targetReps: true,
+          targetReps: true, targetRepsMin: true, targetRepsMax: true, targetLoadUnit: true,
           targetRpe: true,
           targetLoad: true,
           notes: true,
@@ -53,6 +54,11 @@ const detailSelect = {
 @Injectable()
 export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  private async lockPlan(tx: Prisma.TransactionClient, athleteId: string, planId: string): Promise<void> {
+    // Session creation takes the same lock before capturing prescription references.
+    await tx.$queryRaw`SELECT id FROM training_plans WHERE id = ${planId}::uuid AND athlete_id = ${athleteId}::uuid FOR UPDATE`;
+  }
 
   async findAthleteId(userId: string): Promise<string | null> {
     const athlete = await this.prisma.athlete.findUnique({
@@ -80,7 +86,7 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
       ...plan,
       weeks: plan.weeks.map(({ planExercises, ...week }) => ({
         ...week,
-        exercises: planExercises.map((exercise) => {
+        exercises: [...planExercises].sort((a, b) => (a.planDay?.position ?? 0) - (b.planDay?.position ?? 0) || a.position - b.position || a.id.localeCompare(b.id)).map(({ planDay: _day, ...exercise }) => {
           const { primaryMuscleGroup, ...exerciseFields } = exercise.exercise;
           return {
             ...exercise,
@@ -102,6 +108,7 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
 
   async update(athleteId: string, planId: string, input: PlanUpdate) {
     return this.prisma.$transaction(async (tx) => {
+      await this.lockPlan(tx, athleteId, planId);
       const plan = await tx.trainingPlan.findFirst({
         where: { id: planId, athleteId, status: 'DRAFT' },
         select: {
@@ -130,6 +137,7 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
 
   async createWeek(athleteId: string, planId: string, input: NewWeek) {
     return this.prisma.$transaction(async (tx) => {
+      await this.lockPlan(tx, athleteId, planId);
       const plan = await tx.trainingPlan.findFirst({
         where: { id: planId, athleteId, status: 'DRAFT' },
         select: { id: true },
@@ -144,6 +152,7 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
 
   async updateWeek(athleteId: string, planId: string, weekId: string, input: WeekUpdate) {
     return this.prisma.$transaction(async (tx) => {
+      await this.lockPlan(tx, athleteId, planId);
       const week = await tx.planWeek.findFirst({
         where: { id: weekId, trainingPlanId: planId, trainingPlan: { athleteId, status: 'DRAFT' } },
         select: {
@@ -169,13 +178,21 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
 
   async createPrescription(athleteId: string, planId: string, weekId: string, input: NewPrescription) {
     return this.prisma.$transaction(async (tx) => {
+      await this.lockPlan(tx, athleteId, planId);
       const week = await tx.planWeek.findFirst({
         where: { id: weekId, trainingPlanId: planId, trainingPlan: { athleteId, status: 'DRAFT' } },
         select: { id: true },
       });
       if (!week) return null;
       const exercise = await tx.exercise.findFirst({
-        where: { id: input.exerciseId, isActive: true },
+        where: {
+          id: input.exerciseId,
+          isActive: true,
+          OR: [
+            { origin: 'GLOBAL' },
+            { origin: 'PERSONAL', owner: { athlete: { id: athleteId } } },
+          ],
+        },
         select: { id: true, name: true, primaryMuscleGroup: { select: { name: true } }, equipment: true, description: true },
       });
       if (!exercise) return null;
@@ -195,8 +212,9 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
 
   async updatePrescription(athleteId: string, planId: string, weekId: string, prescriptionId: string, input: PrescriptionUpdate) {
     return this.prisma.$transaction(async (tx) => {
+      await this.lockPlan(tx, athleteId, planId);
       const prescription = await tx.planExercise.findFirst({
-        where: { id: prescriptionId, planWeekId: weekId, planWeek: { trainingPlanId: planId, trainingPlan: { athleteId, status: 'DRAFT' } } },
+        where: { id: prescriptionId, planDayId: null, planWeekId: weekId, planWeek: { trainingPlanId: planId, trainingPlan: { athleteId, status: 'DRAFT' } } },
         select: {
           id: true,
           workoutExercises: { select: { id: true }, take: 1 },
@@ -207,7 +225,7 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
       if (prescription.workoutExercises.length || prescription.recommendations.length) return 'historical' as const;
       const updated = await tx.planExercise.update({
         where: { id: prescription.id },
-        data: input,
+        data: { ...input, ...(input.targetReps !== undefined ? { targetRepsMin: input.targetReps, targetRepsMax: input.targetReps } : {}) },
         select: { id: true, position: true, targetSets: true, targetReps: true, targetRpe: true, targetLoad: true, notes: true, exercise: { select: { id: true, name: true, primaryMuscleGroup: { select: { name: true } }, equipment: true, description: true } } },
       });
       return {
@@ -221,8 +239,9 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
 
   async removePrescription(athleteId: string, planId: string, weekId: string, prescriptionId: string) {
     return this.prisma.$transaction(async (tx) => {
+      await this.lockPlan(tx, athleteId, planId);
       const prescription = await tx.planExercise.findFirst({
-        where: { id: prescriptionId, planWeekId: weekId, planWeek: { trainingPlanId: planId, trainingPlan: { athleteId, status: 'DRAFT' } } },
+        where: { id: prescriptionId, planDayId: null, planWeekId: weekId, planWeek: { trainingPlanId: planId, trainingPlan: { athleteId, status: 'DRAFT' } } },
         select: { id: true },
       });
       if (!prescription) return 'missing' as const;

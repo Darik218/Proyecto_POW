@@ -1,3 +1,6 @@
+import { DailyPlanningController } from './daily-planning.controller';
+import { DailyPlanningService } from './daily-planning.service';
+import { PrismaDailyPlanningRepository } from './prisma-daily-planning.repository';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../database/prisma.module';
@@ -8,9 +11,9 @@ import { TrainingPlansService } from './training-plans.service';
 
 @Module({
   imports: [AuthModule, PrismaModule],
-  controllers: [TrainingPlansController],
+  controllers: [TrainingPlansController, DailyPlanningController],
   providers: [
-    TrainingPlansService,
+    TrainingPlansService, DailyPlanningService, PrismaDailyPlanningRepository,
     { provide: TRAINING_PLANS_REPOSITORY, useClass: PrismaTrainingPlansRepository },
   ],
 })

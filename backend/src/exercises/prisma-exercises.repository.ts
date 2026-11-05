@@ -162,6 +162,8 @@ export class PrismaExercisesRepository implements ExercisesRepository {
 
   async updatePersonal(ownerId: string, id: string, values: ExerciseUpdateValues): Promise<UpdateExerciseOutcome> {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize the history check with sessions taking references to this exercise.
+      await tx.$queryRaw`SELECT id FROM exercises WHERE id = ${id}::uuid AND owner_id = ${ownerId}::uuid FOR UPDATE`;
       const existing = await tx.exercise.findFirst({
         where: { id, ownerId, origin: ExerciseOrigin.PERSONAL, isActive: true },
         select: { id: true },

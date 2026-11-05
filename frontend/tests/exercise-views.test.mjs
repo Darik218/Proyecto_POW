@@ -25,6 +25,8 @@ test('muestra la entrada de ejercicios en la navegación privada y los estados i
         { path: '/app/profile', name: 'profile', component: { template: '<div>Perfil</div>' } },
         { path: '/app/measurements', name: 'measurements', component: { template: '<div>Medidas</div>' } },
         { path: '/app/exercises', name: 'exercise-catalog', component: { template: '<div>Catálogo</div>' } },
+        { path: '/app/training-plans', name: 'training-plans', component: { template: '<div>Planes</div>' } },
+        { path: '/app/workouts', name: 'workout-sessions', component: { template: '<div>Entrenamientos</div>' } },
         { path: '/app/exercises/:exerciseId', name: 'exercise-detail', component: { template: '<div>Detalle</div>' } },
       ],
     })

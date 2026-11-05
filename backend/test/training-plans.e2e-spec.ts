@@ -2,12 +2,15 @@ import 'dotenv/config';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { resolve } from 'node:path';
 import request from 'supertest';
 import { AuthModule } from '../src/auth/auth.module';
 import { PrismaService } from '../src/database/prisma.service';
 import { TrainingPlansModule } from '../src/training-plans/training-plans.module';
+import { ExercisesModule } from '../src/exercises/exercises.module';
 
-const DATABASE_NAME = 'proyecto_pow_dev';
+const DATABASE_NAME = process.env.R1_TEST_DATABASE_URL ? 'pulso_f06_test' : 'proyecto_pow_dev';
 const ORIGIN = process.env.CORS_ORIGINS?.split(',')[0]?.trim();
 const RUN_ID = randomUUID().slice(0, 12);
 const PASSWORD = 'training-plan-e2e-password-123';
@@ -32,12 +35,13 @@ describe('Training plans (PostgreSQL E2E)', () => {
 
   beforeAll(async () => {
     const connection = process.env.DATABASE_URL;
+    if (process.env.R1_TEST_DATABASE_URL && connection !== process.env.R1_TEST_DATABASE_URL) throw new Error('R1 isolated database mismatch.');
     if (!connection || decodeURIComponent(new URL(connection).pathname.slice(1)) !== DATABASE_NAME) {
       throw new Error(`Training plan E2E requires ${DATABASE_NAME}; refusing other databases.`);
     }
     if (!ORIGIN) throw new Error('CORS_ORIGINS must be set for training plan E2E tests.');
     const moduleRef = await Test.createTestingModule({
-      imports: [AuthModule, TrainingPlansModule],
+      imports: [AuthModule, TrainingPlansModule, ExercisesModule],
     }).compile();
     app = moduleRef.createNestApplication();
     app.setGlobalPrefix('api/v1');
@@ -115,11 +119,20 @@ describe('Training plans (PostgreSQL E2E)', () => {
             if (planIds.length) {
               cleanupStage = 'delete fixture plan exercises';
               await tx.planExercise.deleteMany({ where: { planWeek: { trainingPlanId: { in: planIds } } } });
+              cleanupStage = 'delete fixture plan days';
+              await tx.planDay.deleteMany({ where: { planWeek: { trainingPlanId: { in: planIds } } } });
               cleanupStage = 'delete fixture plan weeks';
               await tx.planWeek.deleteMany({ where: { trainingPlanId: { in: planIds } } });
               cleanupStage = 'delete fixture plans';
               await tx.trainingPlan.deleteMany({ where: { id: { in: planIds }, athleteId: athlete.id } });
             }
+            cleanupStage = 'delete fixture personal exercises';
+            const personalExercises = await tx.exercise.findMany({
+              where: { id: { in: exerciseIds }, ownerId: account.id }, select: { id: true },
+            });
+            const personalIds = personalExercises.map(({ id }) => id);
+            await tx.exerciseSecondaryMuscleGroup.deleteMany({ where: { exerciseId: { in: personalIds } } });
+            await tx.exercise.deleteMany({ where: { id: { in: personalIds }, ownerId: account.id } });
             cleanupStage = 'load fixture auth sessions';
             const sessions = await tx.authSession.findMany({
               where: { userId: account.id },
@@ -212,7 +225,7 @@ describe('Training plans (PostgreSQL E2E)', () => {
     return response;
   }
 
-  async function createExercise(active: boolean): Promise<string> {
+  async function createExercise(active: boolean, ownerId?: string): Promise<string> {
     const name = `Plan E2E ${RUN_ID} ${active ? 'Active' : 'Inactive'} ${randomUUID().slice(0, 8)}`;
     if (await prisma.exercise.findFirst({ where: { name }, select: { id: true } })) {
       throw new Error('Generated test exercise name already exists; refusing to use it.');
@@ -237,12 +250,61 @@ describe('Training plans (PostgreSQL E2E)', () => {
         equipment: 'Test barbell',
         equipmentType: 'BARBELL',
         isActive: active,
+        ...(ownerId ? { origin: 'PERSONAL' as const, ownerId } : {}),
       },
       select: { id: true },
     });
     exerciseIds.push(exercise.id);
     return exercise.id;
   }
+
+  it('integrates the Vue HTTP services and composables with real NestJS and PostgreSQL fixtures', async () => {
+    const owner = await register('frontend');
+    const exerciseId = await createExercise(true);
+    const exercise = await prisma.exercise.findUniqueOrThrow({ where: { id: exerciseId }, select: { name: true } });
+    const name = `E2E ${RUN_ID} frontend client`;
+    planNames.set(owner.fixture.email, new Set([name, `${name} edited`]));
+    await app.listen(0, '127.0.0.1');
+    const address: unknown = app.getHttpServer().address();
+    if (!address || typeof address !== 'object' || !('port' in address)) throw new Error('Missing test HTTP port.');
+    const frontendDirectory = resolve(process.cwd(), '../frontend');
+    const stdout = await new Promise<string>((resolveOutput, reject) => {
+      const child = execFile(process.execPath, [
+        '--experimental-strip-types', '--experimental-loader', './tests/typescript-loader.mjs', './tests/training-plans.http.mjs',
+      ], { cwd: frontendDirectory, timeout: 15000 }, (error, output, stderr) => {
+        if (error) {
+          const diagnostic = stderr.split('\n').find((line) => line.startsWith('{"frontendHttpFlow":"failed"'));
+          reject(new Error(`Frontend HTTP integration failed (${error.code ?? 'unknown'}): ${diagnostic ?? 'child process did not return a diagnostic'}`));
+        }
+        else resolveOutput(output);
+      });
+      child.stdin?.end(JSON.stringify({
+        baseURL: `http://127.0.0.1:${String(address.port)}/api/v1`, token: owner.token, name, exerciseId, exerciseName: exercise.name,
+      }));
+    });
+    const result = JSON.parse(stdout) as { planId: string; frontendHttpFlow: string };
+    createdPlanIdsByEmail.set(owner.fixture.email, new Set([result.planId]));
+    expect(result.frontendHttpFlow).toBe('passed');
+    expect(await prisma.trainingPlan.count({ where: { id: result.planId, athleteId: owner.fixture.athleteId } })).toBe(1);
+  }, 20000);
+
+  it('accepts owned personal exercises and hides other owners private exercises from prescriptions', async () => {
+    const owner = await register('private-owner');
+    const other = await register('private-other');
+    const created = await createPlan(owner.token, owner.fixture, `E2E ${RUN_ID} personal exercises`);
+    const planId = created.body.id as string;
+    const week = await request(app.getHttpServer()).post(`/api/v1/training-plans/${planId}/weeks`)
+      .set('Authorization', `Bearer ${owner.token}`).send({ weekNumber: 1 }).expect(201);
+    const ownExercise = await createExercise(true, owner.fixture.userId!);
+    const privateExercise = await createExercise(true, other.fixture.userId!);
+    await request(app.getHttpServer()).post(`/api/v1/training-plans/${planId}/weeks/${week.body.id}/exercises`)
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({ exerciseId: privateExercise, position: 1, targetSets: 3, targetReps: 8 }).expect(404);
+    expect(await prisma.planExercise.count({ where: { planWeekId: week.body.id, exerciseId: privateExercise } })).toBe(0);
+    await request(app.getHttpServer()).post(`/api/v1/training-plans/${planId}/weeks/${week.body.id}/exercises`)
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({ exerciseId: ownExercise, position: 1, targetSets: 3, targetReps: 8 }).expect(201);
+  });
 
   it('creates, isolates and manages draft plans, weeks and prescriptions while preserving history', async () => {
     await request(app.getHttpServer()).get('/api/v1/training-plans').expect(401);

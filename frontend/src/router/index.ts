@@ -44,6 +44,26 @@ const routes: RouteRecordRaw[] = [
         component: () => import('../views/MeasurementsView.vue'),
       },
       {
+        path: 'workouts',
+        name: 'workout-sessions',
+        component: () => import('../views/WorkoutSessionsView.vue'),
+      },
+      {
+        path: 'workouts/:sessionId',
+        name: 'workout-session-detail',
+        component: () => import('../views/WorkoutSessionDetailView.vue'),
+      },
+      {
+        path: 'training-plans',
+        name: 'training-plans',
+        component: () => import('../views/TrainingPlansView.vue'),
+      },
+      {
+        path: 'training-plans/:planId',
+        name: 'training-plan-detail',
+        component: () => import('../views/TrainingPlanDetailView.vue'),
+      },
+      {
         path: 'exercises',
         name: 'exercise-catalog',
         component: () => import('../views/ExercisesView.vue'),

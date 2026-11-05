@@ -1,0 +1,8 @@
+.workout-filter { max-width: 320px; margin-bottom: 20px; }
+.workout-summary, .workout-exercises { margin: 24px 0; padding: 24px; background: white; border: 1px solid var(--line); border-radius: 14px; }
+.workout-summary p { color: #526157; line-height: 1.6; }
+.workout-exercises li:first-child { border-top: 0; }
+.workout-preview { padding: 16px; margin-top: 18px; border-radius: 10px; background: #f1f6ec; }
+.workout-preview h3 { margin-top: 0; }
+.workouts .plan-actions { align-items: center; }
+@media (max-width: 640px) { .workout-summary, .workout-exercises { padding: 18px; } .workouts h1 { font-size: 32px; } }

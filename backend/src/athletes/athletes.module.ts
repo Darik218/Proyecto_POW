@@ -12,5 +12,6 @@ import { PrismaAthletesRepository } from './prisma-athletes.repository';
     AthletesService,
     { provide: ATHLETES_REPOSITORY, useClass: PrismaAthletesRepository },
   ],
+  exports: [AthletesService],
 })
 export class AthletesModule {}

@@ -36,7 +36,10 @@ export type PlanDetail = PlanSummary & {
       id: string;
       position: number;
       targetSets: number;
-      targetReps: number;
+      targetReps: number | null;
+      targetRepsMin?: number | null;
+      targetRepsMax?: number | null;
+      targetLoadUnit?: 'KG' | 'LB' | null;
       targetRpe: number | null;
       targetLoad: number | null;
       notes: string | null;

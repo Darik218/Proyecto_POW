@@ -1,0 +1,45 @@
+.plan-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.training-plans h1, .training-plans h2, .training-plans h3 { overflow-wrap: anywhere; }
+.plan-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; list-style: none; margin: 24px 0 0; padding: 0; }
+.plan-summary-card, .plan-week-card, .plan-form { display: block; padding: 24px; margin: 20px 0; border: 1px solid var(--line); border-radius: 14px; background: white; }
+.plan-summary-card { height: 100%; margin: 0; text-decoration: none; }
+.plan-summary-card:hover { border-color: #84b946; }
+.plan-summary-card h2, .plan-week-card h2, .plan-form h2 { margin: 0; font-size: 20px; }
+.plan-summary-card p, .plan-policy { color: #526157; line-height: 1.6; }
+.plan-status { flex-shrink: 0; padding: 6px 12px; border-radius: 20px; background: #edf5e3; color: #294c36; font-size: 13px; font-weight: 700; }
+.plan-link { color: var(--green); font-size: 14px; font-weight: 700; }
+.plan-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.plan-form .form-error { margin-top: 16px; }
+.plan-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.plan-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 18px 0; }
+.plan-actions .primary-button { margin: 0; }
+.plan-form :disabled { cursor: not-allowed; }
+.plan-form textarea { font: inherit; }
+.plan-copy { white-space: pre-line; overflow-wrap: anywhere; color: #526157; line-height: 1.6; }
+.prescription-list { list-style: none; padding: 0; }
+.prescription-list > li { border-top: 1px solid var(--line); padding: 20px 0; }
+.prescription-list h3 { margin: 0; font-size: 17px; }
+.prescription-values { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.prescription-values dt { color: #65736a; font-size: 12px; }
+.prescription-values dd { margin: 6px 0 0; font-size: 15px; }
+.plan-form fieldset.exercise-picker { margin-top: 18px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; }
+.exercise-picker legend { font-weight: 600; }
+.picker-results { max-height: 300px; overflow-y: auto; list-style: none; padding: 0; }
+.picker-results label { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.picker-results span { display: grid; gap: 5px; }
+.picker-results small { color: #526157; }
+.weeks-heading { margin-top: 32px; font-size: 23px; }
+@media (max-width: 640px) {
+  .plan-list, .plan-form-grid { grid-template-columns: 1fr; }
+  .plan-section-heading { align-items: flex-start; flex-wrap: wrap; }
+  .plan-summary-card, .plan-week-card, .plan-form { padding: 18px; }
+  .prescription-values { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.plan-day-card { background: #fff; border: 1px solid var(--border-color, #dce4dc); border-radius: 12px; padding: clamp(1rem, 3vw, 1.5rem); margin-block: .75rem 1.25rem; }
+.plan-day-card h3, .plan-day-card h4 { margin-block: 0 .5rem; }
+.pending-prescriptions { margin-top: 1.5rem; padding: 1rem; border: 1px dashed #6e806e; border-radius: 10px; background: #f3f6ef; }
+.copy-week-number { max-width: 6rem; }
+.plan-actions { flex-wrap: wrap; }
+.plan-day-card .plan-actions, .pending-prescriptions .plan-actions { gap: .75rem; }
+@media (max-width: 600px) { .plan-day-card .plan-section-heading { align-items: flex-start; flex-direction: column; } .pending-prescriptions .form-control { width: 100%; } }

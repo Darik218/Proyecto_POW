@@ -55,6 +55,10 @@ async function signOut(allSessions = false): Promise<void> {
         <RouterLink class="app-nav__link" active-class="app-nav__link--active" :to="{ name: 'exercise-catalog' }">
           Ejercicios
         </RouterLink>
+        <RouterLink class="app-nav__link" active-class="app-nav__link--active" :to="{ name: 'training-plans' }">
+          Planes de entrenamiento
+        </RouterLink>
+        <RouterLink class="app-nav__link" active-class="app-nav__link--active" :to="{ name: 'workout-sessions' }">Entrenamientos</RouterLink>
       </nav>
     </header>
     <main class="app-main">

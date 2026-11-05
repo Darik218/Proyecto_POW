@@ -25,6 +25,8 @@ test('renderiza navegación privada, perfil y estado inicial de medidas', async 
         { path: '/app/profile', name: 'profile', component: { template: '<div>Perfil</div>' } },
         { path: '/app/measurements', name: 'measurements', component: { template: '<div>Medidas</div>' } },
         { path: '/app/exercises', name: 'exercise-catalog', component: { template: '<div>Ejercicios</div>' } },
+        { path: '/app/training-plans', name: 'training-plans', component: { template: '<div>Planes</div>' } },
+        { path: '/app/workouts', name: 'workout-sessions', component: { template: '<div>Entrenamientos</div>' } },
       ],
     })
     const layoutApp = createSSRApp(layout)
