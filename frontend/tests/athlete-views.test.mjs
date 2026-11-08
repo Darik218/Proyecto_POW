@@ -11,7 +11,7 @@ test('renderiza navegación privada, perfil y estado inicial de medidas', async 
   const server = await createServer({
     configFile: resolve('vite.config.ts'),
     appType: 'custom',
-    server: { middlewareMode: true, hmr: false },
+    server: { middlewareMode: true, hmr: false, ws: false },
     logLevel: 'error',
   })
 
@@ -21,6 +21,7 @@ test('renderiza navegación privada, perfil y estado inicial de medidas', async 
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
+        {path:'/app/history',name:'workout-history',component:{template:'<div>Historial</div>'}},
         { path: '/app', name: 'home', component: { template: '<div>Inicio</div>' } },
         { path: '/app/profile', name: 'profile', component: { template: '<div>Perfil</div>' } },
         { path: '/app/measurements', name: 'measurements', component: { template: '<div>Medidas</div>' } },
@@ -37,13 +38,14 @@ test('renderiza navegación privada, perfil y estado inicial de medidas', async 
     const layoutHtml = await renderToString(layoutApp)
     assert.match(layoutHtml, /PULSO<span/)
     assert.match(layoutHtml, /Navegación principal/)
-    assert.match(layoutHtml, /Mi perfil/)
-    assert.match(layoutHtml, /Medidas corporales/)
+    assert.match(layoutHtml, /Perfil/)
+    assert.match(layoutHtml, /Mi rutina/);assert.match(layoutHtml,/Historial/);assert.doesNotMatch(layoutHtml,/Medidas corporales/)
     assert.match(layoutHtml, /Cerrar sesión/)
 
     const { default: profileView } = await server.ssrLoadModule('/src/views/ProfileView.vue')
     const profileApp = createSSRApp(profileView)
     profileApp.use(createPinia())
+    profileApp.use(router)
     const profileHtml = await renderToString(profileApp)
     assert.match(profileHtml, /Mi perfil/)
     assert.match(profileHtml, /Cargando perfil/)

@@ -4,7 +4,7 @@ import { AxiosError } from 'axios'
 import { api, installAuthInterceptors } from '../src/services/api.ts'
 import { workoutSessionsService as service, createWorkoutSchema, addWorkoutExerciseSchema, workoutErrorMessage, workoutStatusLabel } from '../src/services/workout-sessions.service.ts'
 import { useWorkoutSession, useWorkoutSessions } from '../src/composables/useWorkoutSessions.ts'
-import { id, exerciseId, operationId, summary, detail, exercise, response } from './workout-sessions.fixtures.mjs'
+import { id, intent, exerciseId, operationId, summary, detail, exercise, response } from './workout-sessions.fixtures.mjs'
 
 installAuthInterceptors({ getAccessToken: () => 'memory-workout-access', refreshSession: async () => { throw new Error('Expired') }, clearSession: () => {} })
 const fail = (config, status) => new AxiosError('HTTP', AxiosError.ERR_BAD_RESPONSE, config, undefined, response(config, {}, status))
@@ -14,20 +14,20 @@ test('uses authenticated paginated reads and explicit lifecycle endpoints', asyn
   await service.list({ status: 'IN_PROGRESS' }); await service.get(id); await service.start(id); await service.complete(id)
   assert.deepEqual(calls[0].params, { limit: 20, offset: 0, status: 'IN_PROGRESS' })
   assert.equal(calls[0].headers.get('Authorization'), 'Bearer memory-workout-access')
-  assert.deepEqual(calls.slice(2).map(c => [c.url, JSON.parse(c.data)]), [[`/workout-sessions/${id}/start`, {}], [`/workout-sessions/${id}/complete`, {}]])
+  assert.deepEqual(calls.slice(2).map(c => [c.url, JSON.parse(c.data)]), [[`/workout-sessions/${id}/start`, { expectedVersion: 0 }], [`/workout-sessions/${id}/complete`, { expectedVersion: 0, confirmWithoutResults: false }]])
 })
 test('retains creation identifiers in retries and accepts the direct detail contract', async () => {
   const calls = []
   api.defaults.adapter = async config => { calls.push(config); return response(config, detail) }
-  const input = { id, notes: 'Inicio' }
+  const input = { ...intent, notes: 'Inicio' }
   await service.create(input); await service.create(input)
   await service.addExercise(id, { id: operationId, exerciseId })
   assert.equal(JSON.parse(calls[0].data).id, JSON.parse(calls[1].data).id)
-  assert.deepEqual(JSON.parse(calls[2].data), { id: operationId, exerciseId })
+  assert.deepEqual(JSON.parse(calls[2].data), { id: operationId, exerciseId, expectedVersion: 0 })
 })
 test('rejects unmatched sources, owners, lifecycle and F07 fields before HTTP', async () => {
   assert.equal(createWorkoutSchema.safeParse({ id, trainingPlanId: id }).success, false)
-  assert.equal(createWorkoutSchema.safeParse({ id, trainingPlanId: id, planWeekId: operationId }).success, true)
+  assert.equal(createWorkoutSchema.safeParse({ ...intent, trainingPlanId: id, planWeekId: operationId, planDayId: exerciseId }).success, true)
   for (const fields of [{ athleteId: id }, { status: 'COMPLETED' }, { startedAt: '2026-01-01' }, { repetitions: 8 }]) assert.equal(createWorkoutSchema.safeParse({ id, ...fields }).success, false)
   assert.equal(addWorkoutExerciseSchema.safeParse({ id, exerciseId, rpe: 8 }).success, false)
   assert.equal(addWorkoutExerciseSchema.safeParse({ id, exerciseId, notes: 'x'.repeat(4001) }).success, false)

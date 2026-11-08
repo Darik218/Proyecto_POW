@@ -1,3 +1,6 @@
+import { FlexiblePlanningController } from './flexible-planning.controller';
+import { FlexiblePlanningService } from './flexible-planning.service';
+import { PrismaFlexiblePlanningRepository } from './prisma-flexible-planning.repository';
 import { DailyPlanningController } from './daily-planning.controller';
 import { DailyPlanningService } from './daily-planning.service';
 import { PrismaDailyPlanningRepository } from './prisma-daily-planning.repository';
@@ -11,8 +14,8 @@ import { TrainingPlansService } from './training-plans.service';
 
 @Module({
   imports: [AuthModule, PrismaModule],
-  controllers: [TrainingPlansController, DailyPlanningController],
-  providers: [
+  controllers: [FlexiblePlanningController, TrainingPlansController, DailyPlanningController],
+  providers: [FlexiblePlanningService, PrismaFlexiblePlanningRepository,
     TrainingPlansService, DailyPlanningService, PrismaDailyPlanningRepository,
     { provide: TRAINING_PLANS_REPOSITORY, useClass: PrismaTrainingPlansRepository },
   ],

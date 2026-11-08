@@ -29,6 +29,8 @@ import {
 const muscleGroupKeyPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export class CreateExerciseDto {
+  @ValidateIf((_o,v)=>v!==undefined) @IsArray() @ArrayMaxSize(20) @ArrayUnique() @IsString({each:true}) @Length(2,160,{each:true}) aliases?: string[];
+
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @Length(2, 160)
@@ -110,6 +112,8 @@ export class CreateExerciseDto {
 }
 
 export class UpdateExerciseDto {
+  @ValidateIf((_o,v)=>v!==undefined) @IsArray() @ArrayMaxSize(20) @ArrayUnique() @IsString({each:true}) @Length(2,160,{each:true}) aliases?: string[];
+
   @ValidateIf((_object, value: unknown) => value !== undefined)
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()

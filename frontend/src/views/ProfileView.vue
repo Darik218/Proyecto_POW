@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import {RouterLink} from 'vue-router'
 import {
   athleteErrorMessage,
   athletesService,
@@ -82,7 +83,7 @@ onMounted(() => void loadProfile())
   <section class="page-view">
     <div class="page-heading">
       <p class="eyebrow">TU CUENTA</p>
-      <h1>Mi perfil</h1>
+      <RouterLink class="back-link" :to="{name: 'measurements'}">Medidas corporales →</RouterLink><h1>Mi perfil</h1>
       <p class="intro">Mantén actualizados tus datos personales y la unidad que prefieres usar.</p>
     </div>
 

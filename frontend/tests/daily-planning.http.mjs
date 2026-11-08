@@ -27,12 +27,12 @@ try {
   const legacy = await trainingPlansService.get(planId)
   assert.equal(legacy.weeks[0].exercises.length, 2)
   stage = 'f06'
-  const session = await workoutSessionsService.create({ id: crypto.randomUUID(), trainingPlanId: planId, planWeekId: weekId })
-  assert.deepEqual(session.exercises.map(item => item.orderInSession), [1, 2])
-  assert.equal(session.exercises[0].prescription.targetReps, null)
-  assert.equal(session.exercises[0].prescription.targetLoadUnit, 'KG')
+  const session = await workoutSessionsService.create({ id: crypto.randomUUID(), trainingPlanId: planId, planWeekId: weekId,planDayId:day.id,performedOn:'2026-01-01',timeZone:'UTC',recordingMode:'RETROSPECTIVE' })
+  assert.deepEqual(session.exercises.map(item => item.orderInSession), [1])
+  assert.equal(session.exercises[0].original.targets.targetRepsMin, 6)
+  assert.equal(session.exercises[0].original.targets.targetLoadUnit, 'KG')
   await state.load(planId)
-  assert.equal(state.plan.value.weeks[0].days.every(day => day.hasHistory), true)
+  assert.equal(state.plan.value.weeks[0].days.find(item => item.id === day.id).hasHistory, true)
   state.dispose()
   console.log(JSON.stringify({ dailyHttpFlow: 'passed' }))
 } catch (error) {

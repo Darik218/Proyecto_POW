@@ -22,7 +22,6 @@ describe('TrainingPlansService', () => {
     findById: jest.fn<TrainingPlansRepository['findById']>(),
     create: jest.fn<TrainingPlansRepository['create']>(),
     update: jest.fn<TrainingPlansRepository['update']>(),
-    findPlanStatus: jest.fn<TrainingPlansRepository['findPlanStatus']>(),
     createWeek: jest.fn<TrainingPlansRepository['createWeek']>(),
     updateWeek: jest.fn<TrainingPlansRepository['updateWeek']>(),
     createPrescription: jest.fn<TrainingPlansRepository['createPrescription']>(),

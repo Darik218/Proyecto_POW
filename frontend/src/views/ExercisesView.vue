@@ -16,6 +16,8 @@ import { useExercisesCatalog } from '../composables/useExercisesCatalog'
 
 type EnumValue<T extends readonly string[]> = T[number]
 type ExerciseForm = {
+  aliases:string
+
   name: string
   primaryMuscleGroupKey: string
   secondaryMuscleGroupKeys: string[]
@@ -59,7 +61,7 @@ let debounceTimer: ReturnType<typeof setTimeout> | undefined
 
 function emptyForm(): ExerciseForm {
   return {
-    name: '', primaryMuscleGroupKey: '', secondaryMuscleGroupKeys: [], equipment: '', equipmentType: '',
+    aliases:'', name: '', primaryMuscleGroupKey: '', secondaryMuscleGroupKeys: [], equipment: '', equipmentType: '',
     machineType: '', resistanceType: '', movementType: '', movementPattern: '', grip: '', gripWidth: '',
     bodyPosition: '', laterality: '', movementPlane: '', difficulty: '', oneRmSuitability: 'UNDETERMINED',
     description: '', instructions: '',
@@ -127,6 +129,7 @@ function startEdit(exercise: Exercise): void {
   if (!exercise.isOwner || exercise.origin !== 'PERSONAL') return
   editingId.value = exercise.id
   Object.assign(form, {
+    aliases:(exercise.aliases??[]).join('\n'),
     name: exercise.name,
     primaryMuscleGroupKey: exercise.primaryMuscleGroup.key,
     secondaryMuscleGroupKeys: exercise.secondaryMuscleGroups.map(({ key }) => key),
@@ -154,6 +157,7 @@ function startEdit(exercise: Exercise): void {
 
 function toInput(): ExerciseInput {
   return {
+    aliases:form.aliases.split('\n').map(v=>v.trim()).filter(Boolean),
     name: form.name,
     primaryMuscleGroupKey: form.primaryMuscleGroupKey,
     secondaryMuscleGroupKeys: form.secondaryMuscleGroupKeys,
@@ -290,7 +294,7 @@ onUnmounted(() => {
         <label class="form-field"><span>Plano de movimiento</span><select v-model="form.movementPlane"><option value="">Sin especificar</option><option v-for="item in exerciseEnums.movementPlane" :key="item" :value="item">{{ exerciseEnumLabel(item) }}</option></select></label>
         <label class="form-field"><span>Dificultad</span><select v-model="form.difficulty"><option value="">Sin especificar</option><option v-for="item in exerciseEnums.difficulty" :key="item" :value="item">{{ exerciseEnumLabel(item) }}</option></select></label>
         <label class="form-field"><span>Aptitud para estimar 1RM</span><select v-model="form.oneRmSuitability"><option v-for="item in exerciseEnums.oneRmSuitability" :key="item" :value="item">{{ exerciseEnumLabel(item) }}</option></select></label>
-        <label class="form-field form-field--wide"><span>Descripción</span><textarea v-model="form.description" rows="3" maxlength="4000"></textarea></label>
+        <label class="form-field form-field--wide"><span>Alias (uno por línea, hasta 20)</span><textarea v-model="form.aliases" rows="2"></textarea></label><label class="form-field form-field--wide"><span>Descripción</span><textarea v-model="form.description" rows="3" maxlength="4000"></textarea></label>
         <label class="form-field form-field--wide"><span>Instrucciones técnicas</span><textarea v-model="form.instructions" rows="3" maxlength="4000"></textarea></label>
         <p v-if="formError" class="inline-error form-field--wide" role="alert">{{ formError }}</p>
         <div class="form-actions form-field--wide">

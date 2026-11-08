@@ -7,6 +7,7 @@ import {
   prescriptionTargets,
 } from './daily-planning.policy';
 import type {
+  PlanningRevisionDto,
   CopyPlanDayDto,
   CopyPlanWeekDto,
   CreateDailyPrescriptionDto,
@@ -34,7 +35,7 @@ export type PlanningCommand =
       prescriptionId: string;
       input: DailyPrescriptionDto;
     }
-  | { action: 'removeExercise'; dayId: string; prescriptionId: string }
+  | { action: 'removeExercise'; dayId: string; prescriptionId: string; input?:PlanningRevisionDto }
   | { action: 'reorderExercises'; dayId: string; input: ReorderPlanningDto }
   | {
       action: 'distribute';
@@ -130,6 +131,7 @@ export class PrismaDailyPlanningRepository {
         startsOn: true,
         endsOn: true,
         status: true,
+        version: true,
         createdAt: true,
         updatedAt: true,
         weeks: {
@@ -138,7 +140,21 @@ export class PrismaDailyPlanningRepository {
             id: true,
             weekNumber: true,
             objective: true,
-            days: { orderBy: [{ position: 'asc' }, { id: 'asc' }] },
+            startsOn: true,
+            days: {
+              select: {
+                id: true,
+                planWeekId: true,
+                name: true,
+                position: true,
+                weekday: true,
+                retiredAt: true,
+                retiredFromOn:true,
+                isEditableOverride: true,
+                _count: { select: { workoutSessions: true } },
+              },
+              orderBy: [{ position: 'asc' }, { id: 'asc' }],
+            },
             planExercises: {
               include: prescriptionInclude,
               orderBy: [{ position: 'asc' }, { id: 'asc' }],
@@ -169,11 +185,13 @@ export class PrismaDailyPlanningRepository {
         pendingExercises: planExercises
           .filter((row) => row.planDayId === null)
           .map(publicPrescription),
-        days: days.map(({ planWeekId: _weekId, ...day }) => ({
+        days: days.map(({ planWeekId: _weekId, _count, ...day }) => ({
           ...day,
-          hasHistory: planExercises.some(
-            (row) => row.planDayId === day.id && hasHistory(row),
-          ),
+          hasHistory:
+            _count.workoutSessions > 0 ||
+            planExercises.some(
+              (row) => row.planDayId === day.id && hasHistory(row),
+            ),
           exercises: planExercises
             .filter((row) => row.planDayId === day.id)
             .map(publicPrescription),
@@ -223,13 +241,16 @@ export class PrismaDailyPlanningRepository {
             trainingPlan: { athleteId },
           },
           include: {
-            trainingPlan: { select: { status: true } },
-            days: true,
+            trainingPlan: { select: { status: true,version:true } },
+            days: {
+              include: { _count: { select: { workoutSessions: true } } },
+            },
             planExercises: { include: prescriptionInclude },
           },
         });
         if (!week) throw new PlanningError('missing', 'Plan week not found.');
-        if (week.trainingPlan.status !== 'DRAFT')
+        if (command.input?.expectedVersion!==undefined&&command.input.expectedVersion!==week.trainingPlan.version)throw new PlanningError('conflict','The plan changed. Reload before editing.');
+        if (!['DRAFT','ACTIVE'].includes(week.trainingPlan.status))
           throw new PlanningError(
             'conflict',
             'Only draft training plans can be modified.',
@@ -248,9 +269,12 @@ export class PrismaDailyPlanningRepository {
             'missing',
             'Plan day not found in this week.',
           );
+        if (day?.retiredAt) throw new PlanningError('conflict','This programming has been withdrawn. Use the current day.');
+        if (week.trainingPlan.status === 'ACTIVE' && (!day?.isEditableOverride || day._count.workoutSessions > 0 || !['updateDay','createExercise','updateExercise','removeExercise','reorderExercises'].includes(command.action))) throw new PlanningError('conflict','Create an editable future copy before changing active programming.');
         const dayRows = week.planExercises.filter(
           (row) => row.planDayId === dayId,
         );
+        if(week.trainingPlan.status==='ACTIVE')protect(dayRows);
         switch (command.action) {
           case 'createDay':
             await tx.planDay.create({
@@ -264,6 +288,11 @@ export class PrismaDailyPlanningRepository {
             break;
           case 'updateDay':
             protect(dayRows);
+            if (day!._count.workoutSessions > 0)
+              throw new PlanningError(
+                'conflict',
+                'This day has training history. Copy it instead.',
+              );
             await tx.planDay.update({
               where: { id: command.dayId },
               data: {
@@ -273,11 +302,17 @@ export class PrismaDailyPlanningRepository {
             });
             break;
           case 'reorderDays': {
+            week.days = week.days.filter(day => !day.retiredAt);
             assertPermutation(command.input.ids, week.days);
             const changed = week.days.filter(
               (item) =>
                 item.position !== command.input.ids.indexOf(item.id) + 1,
             );
+            if (changed.some((item) => item._count.workoutSessions > 0))
+              throw new PlanningError(
+                'conflict',
+                'This day has training history. Copy it instead.',
+              );
             protect(
               week.planExercises.filter((row) =>
                 changed.some((item) => item.id === row.planDayId),
@@ -331,7 +366,7 @@ export class PrismaDailyPlanningRepository {
               },
             });
             const days = new Map<string, string>();
-            for (const source of week.days) {
+            for (const source of week.days.filter(day=>!day.retiredAt)) {
               const copy = await tx.planDay.create({
                 data: {
                   planWeekId: created.id,
@@ -342,7 +377,7 @@ export class PrismaDailyPlanningRepository {
               });
               days.set(source.id, copy.id);
             }
-            for (const row of [...week.planExercises].sort((a, b) =>
+            for (const row of week.planExercises.filter(row=>row.planDayId===null||days.has(row.planDayId)).sort((a, b) =>
               a.exerciseId.localeCompare(b.exerciseId),
             )) {
               await this.catalog(tx, athleteId, row.exerciseId);
@@ -460,6 +495,7 @@ export class PrismaDailyPlanningRepository {
             break;
           }
         }
+        await tx.trainingPlan.update({where:{id:planId},data:{version:{increment:1}}});
         return this.read(tx, athleteId, planId);
       },
       { timeout: 15000 },

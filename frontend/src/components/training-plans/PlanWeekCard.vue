@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { reactive, ref, useId } from 'vue'
+import { computed, reactive, ref, useId } from 'vue'
 import WeekForm from './WeekForm.vue'
 import PlanDayForm from './PlanDayForm.vue'
 import PlanDayCard from './PlanDayCard.vue'
 import { createPlanWeekSchema, repsLabel, trainingPlanErrorMessage, type PlanningWeek } from '../../services/training-plans.service'
 import type { useTrainingPlan } from '../../composables/useTrainingPlans'
 const props = defineProps<{ week: PlanningWeek; editable: boolean; busy: boolean; nextWeekNumber: number; actions: ReturnType<typeof useTrainingPlan> }>()
+const days=computed(()=>props.week.days.filter(d=>!d.retiredAt))
 const id = useId()
 const editingWeek = ref(false)
 const addingDay = ref(false)
@@ -23,7 +24,7 @@ function duplicateWeek() {
   return run(() => props.actions.copyWeek(props.week.id, parsed.data.weekNumber))
 }
 function move(dayId: string, direction: number) {
-  const ids = props.week.days.map(item => item.id)
+  const ids = days.value.map(item => item.id)
   const from = ids.indexOf(dayId)
   const to = from + direction
   if (to < 0 || to >= ids.length) return
@@ -43,8 +44,8 @@ function distribute(prescriptionId: string, copy: boolean) {
     <WeekForm v-if="editable && editingWeek" :initial="week" :busy="busy" :save="input => actions.updateWeek(week.id, input)" @saved="editingWeek = false" @cancel="editingWeek = false" />
     <div v-if="editable" class="plan-actions"><label class="field-label" :for="id + '-copy'">Número de la nueva semana</label><input :id="id + '-copy'" v-model="copyNumber" class="form-control copy-week-number" type="number" min="1" max="520" step="1" :disabled="busy"><button class="secondary-button" type="button" :disabled="busy" @click="duplicateWeek">Duplicar semana completa</button></div>
     <p v-if="!week.days.length" class="state-message">Esta semana todavía no tiene días de entrenamiento.</p>
-    <div v-for="(day, index) in week.days" :key="day.id" class="plan-day-group">
-      <div v-if="editable" class="plan-actions"><button class="text-button" type="button" :aria-label="'Subir día ' + day.name" :disabled="busy || week.days.some(item => item.hasHistory) || index === 0" @click="move(day.id, -1)">↑ Subir día</button><button class="text-button" type="button" :aria-label="'Bajar día ' + day.name" :disabled="busy || week.days.some(item => item.hasHistory) || index === week.days.length - 1" @click="move(day.id, 1)">↓ Bajar día</button></div>
+    <div v-for="(day, index) in days" :key="day.id" class="plan-day-group">
+      <div v-if="editable" class="plan-actions"><button class="text-button" type="button" :aria-label="'Subir día ' + day.name" :disabled="busy || days.some(item => item.hasHistory) || index === 0" @click="move(day.id, -1)">↑ Subir día</button><button class="text-button" type="button" :aria-label="'Bajar día ' + day.name" :disabled="busy || days.some(item => item.hasHistory) || index === days.length - 1" @click="move(day.id, 1)">↓ Bajar día</button></div>
       <PlanDayCard :day="day" :week-id="week.id" :editable="editable" :busy="busy" :copy-position="Math.max(0, ...week.days.map(item => item.position)) + 1" :actions="actions" />
     </div>
     <button v-if="editable && !addingDay" class="secondary-button" type="button" :disabled="busy" @click="addingDay = true">Crear día o bloque</button>

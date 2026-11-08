@@ -30,6 +30,19 @@ enum PlanStatus {
   ARCHIVED
 }
 
+enum WorkoutSetStatus {
+  PENDING
+  COMPLETED
+  INCOMPLETE
+  FAILED
+  SKIPPED
+}
+
+enum WorkoutSetKind {
+  WARMUP
+  WORK
+}
+
 enum WorkoutStatus {
   PLANNED
   IN_PROGRESS
@@ -232,6 +245,8 @@ model Athlete {
   estimates           OneRmEstimate[]
   progressionSettings ProgressionSetting[]
   recommendations     ProgressionRecommendation[]
+  activities ScheduledActivity[]
+  planningOperations PlanningOperation[]
 
   @@map("athletes")
 }
@@ -294,6 +309,10 @@ model MuscleGroup {
 }
 
 model Exercise {
+  searchName String @default("") @map("search_name") @db.Text
+  searchDescription String @default("") @map("search_description") @db.Text
+  featuredRank Int? @map("featured_rank")
+  aliases ExerciseAlias[]
   id                    String                         @id @default(uuid()) @db.Uuid
   catalogKey            String?                        @unique @map("catalog_key") @db.VarChar(140)
   origin                ExerciseOrigin                 @default(GLOBAL)
@@ -327,6 +346,9 @@ model Exercise {
   settings              ProgressionSetting[]
   recommendations       ProgressionRecommendation[]
 
+  @@index([searchName(ops: raw("gin_trgm_ops"))],type:Gin,map:"exercises_search_name_gin")
+  @@index([searchDescription(ops:raw("gin_trgm_ops"))],type:Gin,map:"exercises_search_description_gin")
+  @@index([featuredRank],map:"exercises_featured_rank_idx")
   @@index([origin, isActive, name, id])
   @@index([ownerId, isActive, name, id])
   @@index([primaryMuscleGroupId, isActive])
@@ -354,7 +376,7 @@ model TrainingPlan {
   id                  String               @id @default(uuid()) @db.Uuid
   athleteId           String               @map("athlete_id") @db.Uuid
   name                String               @db.VarChar(160)
-  startsOn            DateTime             @map("starts_on") @db.Date
+  startsOn            DateTime?            @map("starts_on") @db.Date
   endsOn              DateTime?            @map("ends_on") @db.Date
   status              PlanStatus           @default(DRAFT)
   createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -363,6 +385,9 @@ model TrainingPlan {
   weeks               PlanWeek[]
   workoutSessions     WorkoutSession[]
   progressionSettings ProgressionSetting[]
+  creationRequestHash String? @map("creation_request_hash") @db.Char(64)
+  version Int @default(0)
+  operations PlanningOperation[]
 
   @@unique([id, athleteId])
   @@index([athleteId, status, startsOn])
@@ -374,29 +399,42 @@ model PlanWeek {
   trainingPlanId  String                      @map("training_plan_id") @db.Uuid
   weekNumber      Int                         @map("week_number")
   objective       String?                     @db.Text
+  startsOn        DateTime?                   @map("starts_on") @db.Date
   trainingPlan    TrainingPlan                @relation(fields: [trainingPlanId], references: [id], onDelete: Restrict)
   planExercises   PlanExercise[]
   days            PlanDay[]
+  activities ScheduledActivity[]
   workoutSessions WorkoutSession[]
   recommendations ProgressionRecommendation[]
 
   @@unique([trainingPlanId, weekNumber])
   @@unique([id, trainingPlanId])
   @@index([trainingPlanId])
+  @@index([trainingPlanId, startsOn])
   @@map("plan_weeks")
 }
 
 model PlanDay {
-  id            String         @id @default(uuid()) @db.Uuid
-  planWeekId    String         @map("plan_week_id") @db.Uuid
-  name          String         @db.VarChar(160)
-  position      Int
-  weekday       Int?
-  planWeek      PlanWeek       @relation(fields: [planWeekId], references: [id], onDelete: Restrict)
-  exercises     PlanExercise[]
+  id                     String           @id @default(uuid()) @db.Uuid
+  planWeekId             String           @map("plan_week_id") @db.Uuid
+  name                   String           @db.VarChar(160)
+  position               Int
+  weekday                Int?
+  planWeek               PlanWeek         @relation(fields: [planWeekId], references: [id], onDelete: Restrict)
+  exercises              PlanExercise[]
+  workoutSessions        WorkoutSession[] @relation("WorkoutPlanDay")
+  retiredFromOn DateTime? @map("retired_from_on") @db.Date
+  retiredAt DateTime? @map("retired_at") @db.Timestamptz(6)
+  isEditableOverride Boolean @default(false) @map("is_editable_override")
+  activities ScheduledActivity[] @relation("CurrentActivityDay")
+  originalActivities ScheduledActivity[] @relation("OriginalActivityDay")
+  sourceWorkoutSessionId String?          @map("source_workout_session_id") @db.Uuid
+  creationRequestHash    String?          @map("creation_request_hash") @db.Char(64)
+  sourceWorkoutSession   WorkoutSession?  @relation("SavedWorkoutDay", fields: [sourceWorkoutSessionId], references: [id], onDelete: Restrict)
 
-  @@unique([planWeekId, position])
+  @@index([planWeekId, retiredAt, position])
   @@unique([id, planWeekId])
+  @@index([sourceWorkoutSessionId])
   @@map("plan_days")
 }
 
@@ -421,64 +459,106 @@ model PlanExercise {
   recommendations  ProgressionRecommendation[]
 
   @@unique([planDayId, position])
-  @@index([planWeekId])
   @@unique([id, exerciseId])
+  @@index([planWeekId])
   @@index([exerciseId])
   @@map("plan_exercises")
 }
 
 model WorkoutSession {
-  id             String                   @id @default(uuid()) @db.Uuid
-  athleteId      String                   @map("athlete_id") @db.Uuid
-  trainingPlanId String?                  @map("training_plan_id") @db.Uuid
-  planWeekId     String?                  @map("plan_week_id") @db.Uuid
-  status         WorkoutStatus            @default(PLANNED)
-  startedAt      DateTime?                @map("started_at") @db.Timestamptz(6)
-  finishedAt     DateTime?                @map("finished_at") @db.Timestamptz(6)
-  notes          String?                  @db.Text
-  createdAt      DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
-  athlete        Athlete                  @relation(fields: [athleteId], references: [id], onDelete: Restrict)
-  trainingPlan   TrainingPlan?            @relation(fields: [trainingPlanId, athleteId], references: [id, athleteId], onDelete: Restrict)
-  planWeek       PlanWeek?                @relation(fields: [planWeekId, trainingPlanId], references: [id, trainingPlanId], onDelete: Restrict)
-  exercises      WorkoutExercise[]
-  feedback       SessionFeedback?
-  evidence       RecommendationEvidence[]
+  id                  String                   @id @default(uuid()) @db.Uuid
+  athleteId           String                   @map("athlete_id") @db.Uuid
+  trainingPlanId      String?                  @map("training_plan_id") @db.Uuid
+  planWeekId          String?                  @map("plan_week_id") @db.Uuid
+  planDayId           String?                  @map("plan_day_id") @db.Uuid
+  performedOn         DateTime?                @map("performed_on") @db.Date
+  timeZone            String?                  @map("time_zone") @db.VarChar(100)
+  recordingMode       String?                  @map("recording_mode") @db.VarChar(20)
+  name                String?                  @db.VarChar(160)
+  creationRequestHash String?                  @map("creation_request_hash") @db.Char(64)
+  version             Int                      @default(0)
+  importOperations    Json?                    @map("import_operations") @db.JsonB
+  scheduledActivityId String? @map("scheduled_activity_id") @db.Uuid
+  scheduledActivity ScheduledActivity? @relation(fields: [scheduledActivityId, athleteId, planWeekId, planDayId], references: [id, athleteId, planWeekId, planDayId], onDelete: Restrict, map:"workout_sessions_scheduled_activity_id_athlete_id_fkey")
+  sourceSnapshot      Json?                    @map("source_snapshot") @db.JsonB
+  copiedFromSessionId String?                  @map("copied_from_session_id") @db.Uuid
+  copiedFromSession   WorkoutSession?          @relation("RepeatedSession", fields: [copiedFromSessionId, athleteId], references: [id, athleteId], onDelete: Restrict)
+  repeatedSessions    WorkoutSession[]         @relation("RepeatedSession")
+  savedPlanDays       PlanDay[]                @relation("SavedWorkoutDay")
+  completedAt         DateTime?                @map("completed_at") @db.Timestamptz(6)
+  status              WorkoutStatus            @default(PLANNED)
+  startedAt           DateTime?                @map("started_at") @db.Timestamptz(6)
+  finishedAt          DateTime?                @map("finished_at") @db.Timestamptz(6)
+  notes               String?                  @db.Text
+  createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  athlete             Athlete                  @relation(fields: [athleteId], references: [id], onDelete: Restrict)
+  trainingPlan        TrainingPlan?            @relation(fields: [trainingPlanId, athleteId], references: [id, athleteId], onDelete: Restrict)
+  planWeek            PlanWeek?                @relation(fields: [planWeekId, trainingPlanId], references: [id, trainingPlanId], onDelete: Restrict)
+  planDay             PlanDay?                 @relation("WorkoutPlanDay", fields: [planDayId, planWeekId], references: [id, planWeekId], onDelete: Restrict)
+  exercises           WorkoutExercise[]
+  feedback            SessionFeedback?
+  evidence            RecommendationEvidence[]
 
+  @@unique([id, athleteId])
+  @@index([copiedFromSessionId, athleteId])
+  @@index([scheduledActivityId, athleteId])
+  @@index([athleteId, performedOn, status])
+  @@index([planDayId, planWeekId])
   @@index([athleteId, startedAt, status])
   @@index([trainingPlanId, planWeekId])
   @@map("workout_sessions")
 }
 
 model WorkoutExercise {
-  id             String         @id @default(uuid()) @db.Uuid
-  sessionId      String         @map("session_id") @db.Uuid
-  exerciseId     String         @map("exercise_id") @db.Uuid
-  planExerciseId String?        @map("plan_exercise_id") @db.Uuid
-  orderInSession Int            @map("order_in_session")
-  notes          String?        @db.Text
-  session        WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
-  exercise       Exercise       @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
-  planExercise   PlanExercise?  @relation(fields: [planExerciseId, exerciseId], references: [id, exerciseId], onDelete: Restrict)
-  sets           SetRecord[]
+  id                        String            @id @default(uuid()) @db.Uuid
+  sessionId                 String            @map("session_id") @db.Uuid
+  exerciseId                String            @map("exercise_id") @db.Uuid
+  planExerciseId            String?           @map("plan_exercise_id") @db.Uuid
+  orderInSession            Int               @map("order_in_session")
+  originalSnapshot          Json?             @map("original_snapshot") @db.JsonB
+  creationRequestHash       String?           @map("creation_request_hash") @db.Char(64)
+  isOmitted                 Boolean           @default(false) @map("is_omitted")
+  targetSets                Int?              @map("target_sets")
+  targetRepsMin             Int?              @map("target_reps_min")
+  targetRepsMax             Int?              @map("target_reps_max")
+  targetLoad                Decimal?          @map("target_load") @db.Decimal(8, 3)
+  targetLoadUnit            MeasurementUnit?  @map("target_load_unit")
+  targetRpe                 Decimal?          @map("target_rpe") @db.Decimal(3, 1)
+  replacesWorkoutExerciseId String?           @map("replaces_workout_exercise_id") @db.Uuid
+  replaces                  WorkoutExercise?  @relation("ExerciseReplacement", fields: [replacesWorkoutExerciseId, sessionId], references: [id, sessionId], onDelete: Restrict)
+  replacements              WorkoutExercise[] @relation("ExerciseReplacement")
+  notes                     String?           @db.Text
+  session                   WorkoutSession    @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  exercise                  Exercise          @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+  planExercise              PlanExercise?     @relation(fields: [planExerciseId, exerciseId], references: [id, exerciseId], onDelete: Restrict)
+  sets                      SetRecord[]
 
+  @@unique([id, sessionId])
   @@unique([sessionId, orderInSession])
+  @@index([replacesWorkoutExerciseId, sessionId])
   @@index([exerciseId])
   @@map("workout_exercises")
 }
 
 model SetRecord {
-  id                String          @id @default(uuid()) @db.Uuid
-  workoutExerciseId String          @map("workout_exercise_id") @db.Uuid
-  setNumber         Int             @map("set_number")
-  load              Decimal         @db.Decimal(8, 3)
-  repetitions       Int
-  rpe               Decimal?        @db.Decimal(3, 1)
-  isCompleted       Boolean         @default(true) @map("is_completed")
-  recordedAt        DateTime        @default(now()) @map("recorded_at") @db.Timestamptz(6)
-  notes             String?         @db.Text
-  workoutExercise   WorkoutExercise @relation(fields: [workoutExerciseId], references: [id], onDelete: Restrict)
-  estimates         OneRmEstimate[]
+  id                  String            @id @default(uuid()) @db.Uuid
+  workoutExerciseId   String            @map("workout_exercise_id") @db.Uuid
+  setNumber           Int               @map("set_number")
+  load                Decimal?          @db.Decimal(8, 3)
+  loadUnit            MeasurementUnit?  @map("load_unit")
+  loadKg              Decimal?          @map("load_kg") @db.Decimal(12, 6)
+  status              WorkoutSetStatus?
+  kind                WorkoutSetKind?
+  creationRequestHash String?           @map("creation_request_hash") @db.Char(64)
+  version             Int               @default(0)
+  repetitions         Int?
+  rpe                 Decimal?          @db.Decimal(3, 1)
+  isCompleted         Boolean           @default(true) @map("is_completed")
+  recordedAt          DateTime          @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  notes               String?           @db.Text
+  workoutExercise     WorkoutExercise   @relation(fields: [workoutExerciseId], references: [id], onDelete: Restrict)
+  estimates           OneRmEstimate[]
 
   @@unique([workoutExerciseId, setNumber])
   @@index([recordedAt])
@@ -593,4 +673,58 @@ model ProgressionApplication {
 
   @@index([effectiveAt])
   @@map("progression_applications")
+}
+
+enum ScheduledActivityStatus {
+  PLANNED
+  RESCHEDULED
+  OMITTED
+  WITHDRAWN
+  REST
+}
+model ScheduledActivity {
+  id String @id @default(uuid()) @db.Uuid
+  athleteId String @map("athlete_id") @db.Uuid
+  planWeekId String? @map("plan_week_id") @db.Uuid
+  planDayId String? @map("plan_day_id") @db.Uuid
+  originalPlanDayId String? @map("original_plan_day_id") @db.Uuid
+  originalOn DateTime @map("original_on") @db.Date
+  scheduledOn DateTime @map("scheduled_on") @db.Date
+  timeZone String @map("time_zone") @db.VarChar(100)
+  title String @db.VarChar(160)
+  status ScheduledActivityStatus @default(PLANNED)
+  version Int @default(0)
+  creationRequestHash String? @map("creation_request_hash") @db.Char(64)
+  athlete Athlete @relation(fields:[athleteId],references:[id],onDelete:Restrict)
+  week PlanWeek? @relation(fields:[planWeekId],references:[id],onDelete:Restrict)
+  day PlanDay? @relation("CurrentActivityDay",fields:[planDayId,planWeekId],references:[id,planWeekId],onDelete:Restrict)
+  originalDay PlanDay? @relation("OriginalActivityDay",fields:[originalPlanDayId],references:[id],onDelete:Restrict)
+  workouts WorkoutSession[]
+  @@unique([id,athleteId])
+  @@unique([id,athleteId,planWeekId,planDayId])
+  @@index([athleteId,scheduledOn,status])
+  @@index([planDayId,scheduledOn])
+  @@map("scheduled_activities")
+}
+model PlanningOperation {
+  id String @id @db.Uuid
+  athleteId String @map("athlete_id") @db.Uuid
+  planId String @map("plan_id") @db.Uuid
+  requestHash String @map("request_hash") @db.Char(64)
+  result Json @db.JsonB
+  athlete Athlete @relation(fields:[athleteId],references:[id],onDelete:Restrict)
+  plan TrainingPlan @relation(fields:[planId,athleteId],references:[id,athleteId],onDelete:Restrict)
+  @@index([planId,athleteId])
+  @@map("planning_operations")
+}
+
+model ExerciseAlias {
+  id String @id @default(uuid()) @db.Uuid
+  exerciseId String @map("exercise_id") @db.Uuid
+  name String @db.VarChar(160)
+  normalizedName String @default("") @map("normalized_name") @db.Text
+  exercise Exercise @relation(fields:[exerciseId],references:[id],onDelete:Restrict)
+  @@unique([exerciseId,normalizedName])
+  @@index([normalizedName(ops:raw("gin_trgm_ops"))],type:Gin,map:"exercise_aliases_normalized_name_gin")
+  @@map("exercise_aliases")
 }

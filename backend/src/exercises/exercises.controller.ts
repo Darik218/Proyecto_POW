@@ -31,6 +31,10 @@ export class ExercisesController {
     return this.exercisesService.listMuscleGroups();
   }
 
+  @Get('visible')
+  @UseGuards(AccessTokenGuard)
+  listVisible(@CurrentAuth() identity:AuthenticatedIdentity,@Query() query:ListExercisesDto){return this.exercisesService.listVisible(identity,query);}
+
   @Get('mine')
   @UseGuards(AccessTokenGuard)
   listMine(

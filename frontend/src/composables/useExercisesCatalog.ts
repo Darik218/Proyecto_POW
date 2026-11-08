@@ -30,6 +30,8 @@ export function useExercisesCatalog() {
     offset: 0,
   }
 
+  function invalidate(){errorMessage.value='';latestRequest++;activeController?.abort();activeController=undefined;activeSignature='';activePromise=undefined;loading.value=false}
+
   async function load(
     filters: CatalogFilters = query.value,
     selectedScope: ExerciseScope = scope.value,
@@ -38,6 +40,7 @@ export function useExercisesCatalog() {
   ): Promise<void> {
     const parsed = listExercisesQuerySchema.safeParse({ ...filters, limit: exercisePageSize, offset: nextOffset })
     if (!parsed.success) {
+      invalidate()
       errorMessage.value = 'Los filtros del catálogo no son válidos.'
       loading.value = false
       return
@@ -107,6 +110,7 @@ export function useExercisesCatalog() {
   }
 
   return {
+    invalidate,
     exercises,
     offset,
     total,

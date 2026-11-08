@@ -31,7 +31,8 @@ async function loadExercise(): Promise<void> {
   notFound.value = false
   exercise.value = null
   try {
-    exercise.value = await exercisesService.getById(exerciseId.value, activeController.signal)
+    const result = await exercisesService.getById(exerciseId.value, activeController.signal)
+    if(currentRequest===requestId)exercise.value=result
   } catch (error) {
     if (currentRequest === requestId) {
       errorMessage.value = exerciseErrorMessage(error, 'No se pudo cargar el ejercicio.')
@@ -62,7 +63,7 @@ onUnmounted(() => {
       <RouterLink v-if="notFound" class="secondary-button detail-back-button" :to="{ name: 'exercise-catalog' }">Volver al catálogo</RouterLink>
       <button v-else class="secondary-button" type="button" @click="loadExercise">Reintentar</button>
     </div>
-    <article v-else-if="exercise" class="exercise-detail-card">
+    <article v-else-if="exercise" class="exercise-detail-card"><p v-if="exercise.aliases?.length" class="field-hint">También conocido como: {{exercise.aliases.join(' · ')}}</p>
       <div class="exercise-detail-topline">
         <p class="eyebrow">DETALLE DEL EJERCICIO</p>
         <span class="exercise-origin-badge" :class="exercise.origin === 'PERSONAL' ? 'exercise-origin-badge--personal' : ''">

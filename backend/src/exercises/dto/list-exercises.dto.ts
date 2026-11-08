@@ -1,6 +1,7 @@
 import { Transform, Type } from 'class-transformer';
 import {
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -10,6 +11,7 @@ import {
   Min,
 } from 'class-validator';
 import {
+  ExerciseOrigin,
   ExerciseDifficulty,
   ExerciseEquipmentType,
   ExerciseMachineType,
@@ -21,6 +23,8 @@ import {
 const muscleGroupKeyPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export class ListExercisesDto {
+  @IsOptional() @IsEnum(ExerciseOrigin) origin?:ExerciseOrigin;
+  @IsOptional() @IsIn(['ALL','FEATURED','RECENT']) selection?: 'ALL'|'FEATURED'|'RECENT';
   @IsOptional()
   @Type(() => Number)
   @IsInt()

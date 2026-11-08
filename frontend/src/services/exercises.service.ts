@@ -28,6 +28,7 @@ const muscleGroupSchema = z.object({
 }).strict()
 
 export const exerciseSchema = z.object({
+  aliases:z.array(z.string()).optional(),
   id: uuidV4Schema,
   name: z.string().min(1),
   description: z.string().nullable(),
@@ -61,6 +62,8 @@ export const exercisePageSchema = z.object({
 }).strict()
 
 export const listExercisesQuerySchema = z.object({
+  origin:z.enum(['GLOBAL','PERSONAL']).optional(),
+  selection:z.enum(['ALL','FEATURED','RECENT']).optional(),
   limit: z.number().int().min(1).max(100).default(20),
   offset: z.number().int().min(0).max(1_000_000).default(0),
   search: z.string().trim().max(100).optional(),
@@ -75,6 +78,7 @@ export const listExercisesQuerySchema = z.object({
 }).strict()
 
 const exerciseInputObjectSchema = z.object({
+  aliases:z.array(z.string().trim().min(2).max(160)).max(20).refine(values=>new Set(values.map(v=>v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim())).size===values.length,'Los alias deben ser diferentes, incluso sin tildes.').optional(),
   name: z.string().trim().min(2).max(160),
   primaryMuscleGroupKey: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   secondaryMuscleGroupKeys: z.array(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)).max(12).refine((keys) => new Set(keys).size === keys.length),
@@ -110,7 +114,7 @@ export const muscleGroupListSchema = z.array(muscleGroupSchema.extend({ descript
 
 export type Exercise = z.infer<typeof exerciseSchema>
 export type ExercisePage = z.infer<typeof exercisePageSchema>
-export type ExerciseScope = 'global' | 'mine'
+export type ExerciseScope = 'global' | 'mine' | 'visible'
 export type ListExercisesQuery = z.input<typeof listExercisesQuerySchema>
 export type ExerciseInput = z.input<typeof exerciseInputSchema>
 export type MuscleGroup = z.infer<typeof muscleGroupListSchema>[number]
@@ -125,7 +129,7 @@ export class InvalidExerciseIdError extends Error {
 export const exercisesService = {
   async list(input: ListExercisesQuery = {}, scope: ExerciseScope = 'global', signal?: AbortSignal): Promise<ExercisePage> {
     const params = listExercisesQuerySchema.parse(input)
-    const path = scope === 'mine' ? '/exercises/mine' : '/exercises'
+    const path = scope === 'mine' ? '/exercises/mine' : scope==='visible'?'/exercises/visible':'/exercises'
     const { data } = await api.get<unknown>(path, { params, signal })
     return exercisePageSchema.parse(data)
   },

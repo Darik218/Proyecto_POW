@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.store'
 
 const auth = useAuthStore()
 const router = useRouter()
+const route=useRoute()
+const routineRoutes=['home','routine-day','training-plans','training-plan-detail','workout-sessions','workout-session-detail','exercise-catalog','exercise-detail']
 const signingOut = ref(false)
 
 async function signOut(allSessions = false): Promise<void> {
@@ -43,22 +45,9 @@ async function signOut(allSessions = false): Promise<void> {
         </div>
       </div>
       <nav class="app-nav" aria-label="Navegación principal">
-        <RouterLink class="app-nav__link" active-class="app-nav__link--active" :to="{ name: 'home' }">
-          Inicio
-        </RouterLink>
-        <RouterLink class="app-nav__link" active-class="app-nav__link--active" :to="{ name: 'profile' }">
-          Mi perfil
-        </RouterLink>
-        <RouterLink class="app-nav__link" active-class="app-nav__link--active" :to="{ name: 'measurements' }">
-          Medidas corporales
-        </RouterLink>
-        <RouterLink class="app-nav__link" active-class="app-nav__link--active" :to="{ name: 'exercise-catalog' }">
-          Ejercicios
-        </RouterLink>
-        <RouterLink class="app-nav__link" active-class="app-nav__link--active" :to="{ name: 'training-plans' }">
-          Planes de entrenamiento
-        </RouterLink>
-        <RouterLink class="app-nav__link" active-class="app-nav__link--active" :to="{ name: 'workout-sessions' }">Entrenamientos</RouterLink>
+        <RouterLink class="app-nav__link" active-class="app-nav__link--active" :class="{'app-nav__link--active':routineRoutes.includes(String(route.name))}" :to="{name:'home'}">Mi rutina</RouterLink>
+        <RouterLink class="app-nav__link" active-class="app-nav__link--active" :to="{name:'workout-history'}">Historial</RouterLink>
+        <RouterLink class="app-nav__link" active-class="app-nav__link--active" :class="{'app-nav__link--active':route.name==='measurements'}" :to="{name:'profile'}">Perfil</RouterLink>
       </nav>
     </header>
     <main class="app-main">

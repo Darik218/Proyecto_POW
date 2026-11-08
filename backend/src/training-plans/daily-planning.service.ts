@@ -75,7 +75,7 @@ export class DailyPlanningService {
     if (
       (command.action === 'updateDay' || command.action === 'updateExercise') &&
       !Object.keys(command.input).some(
-        (key) => command.input[key as keyof typeof command.input] !== undefined,
+        (key) => key!=='expectedVersion' && command.input[key as keyof typeof command.input] !== undefined,
       )
     ) {
       throw new BadRequestException('At least one editable field is required.');

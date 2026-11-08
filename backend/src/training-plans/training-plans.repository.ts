@@ -2,9 +2,9 @@ import type { PlanStatus } from '../generated/prisma/client';
 
 export const TRAINING_PLANS_REPOSITORY = Symbol('TRAINING_PLANS_REPOSITORY');
 
-export type NewPlan = { name: string; startsOn: Date; endsOn?: Date | null };
+export type NewPlan = { name: string; startsOn: Date | null; endsOn?: Date | null };
 export type PlanUpdate = Partial<NewPlan>;
-export type NewWeek = { weekNumber: number; objective?: string | null };
+export type NewWeek = { weekNumber: number; startsOn?: Date | null; objective?: string | null };
 export type WeekUpdate = Partial<NewWeek>;
 export type NewPrescription = {
   exerciseId: string;
@@ -17,13 +17,14 @@ export type NewPrescription = {
 };
 export type PrescriptionUpdate = Partial<Omit<NewPrescription, 'exerciseId'>>;
 
-export type PlanWeekSummary = { id: string; weekNumber: number; objective: string | null };
+export type PlanWeekSummary = { id: string; weekNumber: number; startsOn?: Date | null; objective: string | null };
 export type PlanSummary = {
   id: string;
   name: string;
-  startsOn: Date;
+  startsOn: Date | null;
   endsOn: Date | null;
   status: PlanStatus;
+  version?: number;
   createdAt: Date;
   updatedAt: Date;
 };

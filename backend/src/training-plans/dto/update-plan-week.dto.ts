@@ -1,5 +1,15 @@
 import { Transform } from 'class-transformer';
-import { IsInt, IsNotEmpty, IsOptional, IsString, Max, Min, MaxLength } from 'class-validator';
+import {
+  IsDateString,
+  Matches,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  MaxLength,
+} from 'class-validator';
 
 export class UpdatePlanWeekDto {
   @Transform(({ value }) => (typeof value === 'number' ? value : Number(value)))
@@ -15,4 +25,8 @@ export class UpdatePlanWeekDto {
   @IsNotEmpty()
   @MaxLength(4000)
   objective?: string | null;
+  @IsOptional()
+  @Matches(/^(?!0000)\d{4}-\d{2}-\d{2}$/)
+  @IsDateString({ strict: true })
+  startsOn?: string | null;
 }

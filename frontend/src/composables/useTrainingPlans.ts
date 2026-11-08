@@ -37,7 +37,7 @@ export function useTrainingPlans() {
     creating.value = true
     try {
       const created = await trainingPlansService.create(input)
-      if (!disposed) plans.value = [created, ...plans.value].sort((a, b) => b.startsOn.localeCompare(a.startsOn) || b.id.localeCompare(a.id))
+      if (!disposed) plans.value = [created, ...plans.value].sort((a, b) => (b.startsOn ?? '').localeCompare(a.startsOn ?? '') || b.id.localeCompare(a.id))
       return created
     } finally { creating.value = false }
   }
@@ -79,9 +79,9 @@ export function useTrainingPlan() {
     })()
     return pending
   }
-  async function mutate<T>(operation: (id: string) => Promise<T>, apply: (result: T, current: Planning) => void) {
+  async function mutate<T>(operation: (id: string) => Promise<T>, apply: (result: T, current: Planning) => void, allowActive = false) {
     if (saving.value) throw new Error('Ya hay un cambio en curso.')
-    if (!plan.value || !editable.value) throw new Error('Solo se pueden editar planes en borrador.')
+    if (!plan.value || (!editable.value && !(allowActive && plan.value.status==='ACTIVE'))) throw new Error('Solo se pueden editar planes en borrador.')
     const id = plan.value.id
     const current = version
     saving.value = true
@@ -99,31 +99,33 @@ export function useTrainingPlan() {
   }
   function createWeek(input: CreatePlanWeek) {
     return mutate((id) => trainingPlansService.createWeek(id, input), (result, current) => {
+      if(current.version!==undefined)current.version++
       current.weeks.push({ ...result, days: [], pendingExercises: [] })
       current.weeks.sort((a, b) => a.weekNumber - b.weekNumber)
     })
   }
   function updateWeek(weekId: string, input: UpdatePlanWeek) {
     return mutate((id) => trainingPlansService.updateWeek(id, weekId, input), (result, current) => {
+      if(current.version!==undefined)current.version++
       const week = current.weeks.find((item) => item.id === weekId)
       if (week) Object.assign(week, result)
       current.weeks.sort((a, b) => a.weekNumber - b.weekNumber)
     })
   }
   function change(operation: (id: string) => Promise<Planning>) {
-    return mutate(operation, (result, current) => Object.assign(current, result))
+    return mutate(operation, (result, current) => Object.assign(current, result), true)
   }
-  const createDay = (weekId: string, input: CreatePlanDay) => change(id => trainingPlansService.createDay(id, weekId, input))
-  const updateDay = (weekId: string, dayId: string, input: UpdatePlanDay) => change(id => trainingPlansService.updateDay(id, weekId, dayId, input))
-  const reorderDays = (weekId: string, ids: string[]) => change(id => trainingPlansService.reorderDays(id, weekId, ids))
-  const copyDay = (weekId: string, dayId: string, position: number) => change(id => trainingPlansService.copyDay(id, weekId, dayId, position))
-  const copyWeek = (weekId: string, weekNumber: number) => change(id => trainingPlansService.copyWeek(id, weekId, weekNumber))
+  const createDay = (weekId: string, input: CreatePlanDay) => change(id => trainingPlansService.createDay(id, weekId, input, plan.value?.version))
+  const updateDay = (weekId: string, dayId: string, input: UpdatePlanDay) => change(id => trainingPlansService.updateDay(id, weekId, dayId, input, plan.value?.version))
+  const reorderDays = (weekId: string, ids: string[]) => change(id => trainingPlansService.reorderDays(id, weekId, ids, plan.value?.version))
+  const copyDay = (weekId: string, dayId: string, position: number) => change(id => trainingPlansService.copyDay(id, weekId, dayId, position, plan.value?.version))
+  const copyWeek = (weekId: string, weekNumber: number) => change(id => trainingPlansService.copyWeek(id, weekId, weekNumber, plan.value?.version))
   const saveDailyPrescription = (weekId: string, dayId: string, input: CreateDailyPrescription | UpdateDailyPrescription, prescriptionId?: string) => change(id => prescriptionId
-    ? trainingPlansService.updateDailyPrescription(id, weekId, dayId, prescriptionId, input)
-    : trainingPlansService.createDailyPrescription(id, weekId, dayId, input as CreateDailyPrescription))
-  const removePrescription = (weekId: string, dayId: string, prescriptionId: string) => change(id => trainingPlansService.removeDailyPrescription(id, weekId, dayId, prescriptionId))
-  const reorderExercises = (weekId: string, dayId: string, ids: string[]) => change(id => trainingPlansService.reorderExercises(id, weekId, dayId, ids))
-  const distribute = (weekId: string, prescriptionId: string, dayId: string, position: number, copy: boolean) => change(id => trainingPlansService.distribute(id, weekId, prescriptionId, dayId, position, copy))
+    ? trainingPlansService.updateDailyPrescription(id, weekId, dayId, prescriptionId, input, plan.value?.version)
+    : trainingPlansService.createDailyPrescription(id, weekId, dayId, input as CreateDailyPrescription, plan.value?.version))
+  const removePrescription = (weekId: string, dayId: string, prescriptionId: string) => change(id => trainingPlansService.removeDailyPrescription(id, weekId, dayId, prescriptionId, plan.value?.version))
+  const reorderExercises = (weekId: string, dayId: string, ids: string[]) => change(id => trainingPlansService.reorderExercises(id, weekId, dayId, ids, plan.value?.version))
+  const distribute = (weekId: string, prescriptionId: string, dayId: string, position: number, copy: boolean) => change(id => trainingPlansService.distribute(id, weekId, prescriptionId, dayId, position, copy, plan.value?.version))
   function dispose() { version++; controller?.abort() }
   return { plan, loading, saving, editable, error, notice, load, update, createWeek, updateWeek, createDay, updateDay, reorderDays, copyDay, copyWeek, saveDailyPrescription, removePrescription, reorderExercises, distribute, dispose }
 }

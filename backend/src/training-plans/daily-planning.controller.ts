@@ -14,6 +14,7 @@ import type { AuthenticatedIdentity } from '../auth/auth.types';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard';
 import { DailyPlanningService } from './daily-planning.service';
 import {
+  PlanningRevisionDto,
   CopyPlanDayDto,
   CopyPlanWeekDto,
   CreateDailyPrescriptionDto,
@@ -162,9 +163,11 @@ export class DailyPlanningController {
   removeExercise(
     @CurrentAuth() identity: AuthenticatedIdentity,
     @Param() params: ExerciseParams,
+    @Body() input:PlanningRevisionDto,
   ) {
     return this.service.change(identity, params.planId, params.weekId, {
       action: 'removeExercise',
+      input,
       dayId: params.dayId,
       prescriptionId: params.prescriptionId,
     });

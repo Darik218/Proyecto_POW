@@ -314,3 +314,15 @@ test('an older request cannot overwrite newer filter results', async (t) => {
 after(() => {
   api.defaults.adapter = undefined
 })
+
+test('an invalid filter invalidates a previous response instead of restoring stale results',async()=>{
+ let finish
+ api.defaults.adapter=async config=>new Promise(resolve=>{finish=()=>resolve(response(config,page()))})
+ const state=useExercisesCatalog(),pending=state.load({search:'press'})
+ await new Promise(resolve=>setImmediate(resolve))
+ await state.load({equipmentType:'INVALID'})
+ assert.equal(state.loading.value,false);assert.match(state.errorMessage.value,/filtros/)
+ finish();await pending
+ assert.equal(state.exercises.value.length,0);assert.match(state.errorMessage.value,/filtros/)
+ state.dispose()
+})

@@ -27,7 +27,7 @@ describe('AuthController cookie and response boundaries', () => {
       csrfToken: 'csrf-public-value',
     };
     const authService = {
-      login: jest.fn().mockResolvedValue(issued),
+      login: jest.fn<AuthService['login']>().mockResolvedValue(issued),
     } as unknown as AuthService;
     const controller = new AuthController(authService, config);
     const cookie = jest.fn();

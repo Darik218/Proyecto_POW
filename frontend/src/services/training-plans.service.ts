@@ -21,8 +21,8 @@ export const createTrainingPlanSchema = z.object(planFields).strict().refine(val
 export const updateTrainingPlanSchema = z.object(planFields).partial().strict()
   .refine(notEmpty, 'Indica al menos un cambio.')
   .refine(validDateRange, { path: ['endsOn'], message: 'La fecha final no puede ser anterior a la inicial.' })
-export const createPlanWeekSchema = z.object({ weekNumber: integer(520), objective: objective.optional() }).strict()
-export const updatePlanWeekSchema = z.object({ weekNumber: integer(520).optional(), objective: objective.nullable().optional() }).strict()
+export const createPlanWeekSchema = z.object({ weekNumber: integer(520), startsOn: date.nullable().optional(), objective: objective.optional() }).strict()
+export const updatePlanWeekSchema = z.object({ weekNumber: integer(520).optional(), startsOn: date.nullable().optional(), objective: objective.nullable().optional() }).strict()
   .refine(notEmpty, 'Indica al menos un cambio.')
 const prescriptionFields = {
   position: integer(1000), targetSets: integer(1000), targetReps: integer(10000),
@@ -33,10 +33,11 @@ export const createPrescriptionSchema = z.object({ exerciseId: uuid, ...prescrip
 export const updatePrescriptionSchema = z.object(prescriptionFields).partial().strict().refine(notEmpty, 'Indica al menos un cambio.')
 
 export const trainingPlanSchema = z.object({
-  id: uuid, name: z.string(), startsOn: timestamp, endsOn: timestamp.nullable(),
+  id: uuid, name: z.string(), startsOn: timestamp.nullable(), endsOn: timestamp.nullable(),
+  version: z.number().int().nonnegative().optional(),
   status: z.enum(['DRAFT', 'ACTIVE', 'COMPLETED', 'ARCHIVED']), createdAt: timestamp, updatedAt: timestamp,
 }).strict()
-export const planWeekSchema = z.object({ id: uuid, weekNumber: z.number().int(), objective: z.string().nullable() }).strict()
+export const planWeekSchema = z.object({ id: uuid, weekNumber: z.number().int(), startsOn: timestamp.nullable().optional(), objective: z.string().nullable() }).strict()
 export const prescriptionSchema = z.object({
   id: uuid, position: z.number().int(), targetSets: z.number().int(), targetReps: z.number().int().nullable(),
   targetRepsMin: z.number().int().nullable().optional(), targetRepsMax: z.number().int().nullable().optional(), targetLoadUnit: z.enum(['KG', 'LB']).nullable().optional(),
@@ -47,7 +48,7 @@ export const prescriptionSchema = z.object({
 export const dailyPrescriptionSchema = prescriptionSchema.extend({
   targetRepsMin: integer(10000), targetRepsMax: integer(10000), targetLoadUnit: z.enum(['KG', 'LB']).nullable(), hasHistory: z.boolean(),
 }).refine(value => value.targetRepsMin <= value.targetRepsMax && (value.targetRepsMin === value.targetRepsMax ? value.targetReps === value.targetRepsMin : value.targetReps === null), 'Rango de repeticiones incoherente.')
-export const planDaySchema = z.object({ id: uuid, name: z.string(), position: integer(1000), weekday: integer(7).nullable(), hasHistory: z.boolean(), exercises: z.array(dailyPrescriptionSchema) }).strict()
+export const planDaySchema = z.object({ retiredAt: timestamp.nullable().optional(), retiredFromOn:timestamp.nullable().optional(), isEditableOverride: z.boolean().optional(), id: uuid, name: z.string(), position: integer(1000), weekday: integer(7).nullable(), hasHistory: z.boolean(), exercises: z.array(dailyPrescriptionSchema) }).strict()
 export const planningWeekSchema = planWeekSchema.extend({ days: z.array(planDaySchema), pendingExercises: z.array(dailyPrescriptionSchema) })
 export const planningSchema = trainingPlanSchema.extend({ weeks: z.array(planningWeekSchema) })
 export const createPlanDaySchema = z.object({ name: z.string().trim().min(1, 'Escribe el nombre del día.').max(160, 'El nombre admite hasta 160 caracteres.'), position: integer(1000), weekday: integer(7).nullable().optional() }).strict()
@@ -98,8 +99,9 @@ function resourceId(id: string): string {
 const planPath = (id: string) => `${path}/${resourceId(id)}`
 const weekPath = (planId: string, weekId: string) => `${planPath(planId)}/weeks/${resourceId(weekId)}`
 
-async function planningWrite(method: 'post' | 'patch' | 'delete', url: string, input?: unknown): Promise<Planning> {
-  const { data } = await api.request<unknown>({ method, url, ...(input === undefined ? {} : { data: input }) })
+async function planningWrite(method: 'post' | 'patch' | 'delete', url: string, input?: unknown, expectedVersion?:number): Promise<Planning> {
+  const payload=expectedVersion===undefined?input:{...(input as object??{}),expectedVersion}
+  const { data } = await api.request<unknown>({ method, url, ...(payload === undefined ? {} : { data: payload }) })
   return planningSchema.parse(data)
 }
 const dayPath = (planId: string, weekId: string, dayId: string) => `${weekPath(planId, weekId)}/days/${resourceId(dayId)}`
@@ -109,35 +111,35 @@ export const trainingPlansService = {
     const { data } = await api.get<unknown>(`${planPath(id)}/planning`, { signal })
     return planningSchema.parse(data)
   },
-  async createDay(planId: string, weekId: string, input: CreatePlanDay) {
-    return planningWrite('post', `${weekPath(planId, weekId)}/days`, createPlanDaySchema.parse(input))
+  async createDay(planId: string, weekId: string, input: CreatePlanDay, expectedVersion?:number) {
+    return planningWrite('post', `${weekPath(planId, weekId)}/days`, createPlanDaySchema.parse(input), expectedVersion)
   },
-  async updateDay(planId: string, weekId: string, dayId: string, input: UpdatePlanDay) {
-    return planningWrite('patch', dayPath(planId, weekId, dayId), updatePlanDaySchema.parse(input))
+  async updateDay(planId: string, weekId: string, dayId: string, input: UpdatePlanDay, expectedVersion?:number) {
+    return planningWrite('patch', dayPath(planId, weekId, dayId), updatePlanDaySchema.parse(input), expectedVersion)
   },
-  async reorderDays(planId: string, weekId: string, ids: string[]) {
-    return planningWrite('patch', `${weekPath(planId, weekId)}/days/order`, orderSchema.parse({ ids }))
+  async reorderDays(planId: string, weekId: string, ids: string[], expectedVersion?:number) {
+    return planningWrite('patch', `${weekPath(planId, weekId)}/days/order`, orderSchema.parse({ ids }), expectedVersion)
   },
-  async copyDay(planId: string, weekId: string, dayId: string, position: number) {
-    return planningWrite('post', `${dayPath(planId, weekId, dayId)}/copy`, z.object({ position: integer(1000) }).parse({ position }))
+  async copyDay(planId: string, weekId: string, dayId: string, position: number, expectedVersion?:number) {
+    return planningWrite('post', `${dayPath(planId, weekId, dayId)}/copy`, z.object({ position: integer(1000) }).parse({ position }), expectedVersion)
   },
-  async copyWeek(planId: string, weekId: string, weekNumber: number) {
-    return planningWrite('post', `${weekPath(planId, weekId)}/copy`, createPlanWeekSchema.parse({ weekNumber }))
+  async copyWeek(planId: string, weekId: string, weekNumber: number, expectedVersion?:number) {
+    return planningWrite('post', `${weekPath(planId, weekId)}/copy`, createPlanWeekSchema.parse({ weekNumber }), expectedVersion)
   },
-  async createDailyPrescription(planId: string, weekId: string, dayId: string, input: CreateDailyPrescription) {
-    return planningWrite('post', `${dayPath(planId, weekId, dayId)}/exercises`, createDailyPrescriptionSchema.parse(input))
+  async createDailyPrescription(planId: string, weekId: string, dayId: string, input: CreateDailyPrescription, expectedVersion?:number) {
+    return planningWrite('post', `${dayPath(planId, weekId, dayId)}/exercises`, createDailyPrescriptionSchema.parse(input), expectedVersion)
   },
-  async updateDailyPrescription(planId: string, weekId: string, dayId: string, id: string, input: UpdateDailyPrescription) {
-    return planningWrite('patch', `${dayPath(planId, weekId, dayId)}/exercises/${resourceId(id)}`, updateDailyPrescriptionSchema.parse(input))
+  async updateDailyPrescription(planId: string, weekId: string, dayId: string, id: string, input: UpdateDailyPrescription, expectedVersion?:number) {
+    return planningWrite('patch', `${dayPath(planId, weekId, dayId)}/exercises/${resourceId(id)}`, updateDailyPrescriptionSchema.parse(input), expectedVersion)
   },
-  async removeDailyPrescription(planId: string, weekId: string, dayId: string, id: string) {
-    return planningWrite('delete', `${dayPath(planId, weekId, dayId)}/exercises/${resourceId(id)}`)
+  async removeDailyPrescription(planId: string, weekId: string, dayId: string, id: string, expectedVersion?:number) {
+    return planningWrite('delete', `${dayPath(planId, weekId, dayId)}/exercises/${resourceId(id)}`, undefined, expectedVersion)
   },
-  async reorderExercises(planId: string, weekId: string, dayId: string, ids: string[]) {
-    return planningWrite('patch', `${dayPath(planId, weekId, dayId)}/exercises/order`, orderSchema.parse({ ids }))
+  async reorderExercises(planId: string, weekId: string, dayId: string, ids: string[], expectedVersion?:number) {
+    return planningWrite('patch', `${dayPath(planId, weekId, dayId)}/exercises/order`, orderSchema.parse({ ids }), expectedVersion)
   },
-  async distribute(planId: string, weekId: string, id: string, dayId: string, position: number, copy: boolean) {
-    return planningWrite('post', `${weekPath(planId, weekId)}/pending-exercises/${resourceId(id)}/distribute`, z.object({ dayId: uuid, position: integer(1000), copy: z.boolean() }).parse({ dayId, position, copy }))
+  async distribute(planId: string, weekId: string, id: string, dayId: string, position: number, copy: boolean, expectedVersion?:number) {
+    return planningWrite('post', `${weekPath(planId, weekId)}/pending-exercises/${resourceId(id)}/distribute`, z.object({ dayId: uuid, position: integer(1000), copy: z.boolean() }).parse({ dayId, position, copy }), expectedVersion)
   },
   async list(signal?: AbortSignal): Promise<TrainingPlan[]> {
     const { data } = await api.get<unknown>(path, { signal })
@@ -176,7 +178,8 @@ export const trainingPlansService = {
 export function planStatusLabel(status: TrainingPlan['status']): string {
   return { DRAFT: 'Borrador', ACTIVE: 'Activo', COMPLETED: 'Completado', ARCHIVED: 'Archivado' }[status]
 }
-export function planDate(value: string): string {
+export function planDate(value: string | null): string {
+  if (!value) return 'Sin fecha asignada'
   return new Intl.DateTimeFormat('es-CO', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(value))
 }
 export function trainingPlanErrorMessage(error: unknown, fallback: string): string {
@@ -191,6 +194,11 @@ export function trainingPlanErrorMessage(error: unknown, fallback: string): stri
     case 403: return 'No tienes permiso para realizar esta operación.'
     case 404: return 'No se encontró el plan, la semana o el ejercicio, o no tienes acceso.'
     case 409:
+      if(message.includes('plan changed')||message.includes('activity changed'))return 'La programación cambió en otra operación. Actualiza antes de guardar.'
+      if(message.includes('editable future copy')||message.includes('active programming'))return 'Este día está protegido por un plan activo. Crea una copia editable para adaptar los próximos entrenamientos.'
+      if(message.includes('inactive or unavailable'))return 'Hay un ejercicio inactivo o no disponible en la rutina de origen.'
+      if(message.includes('withdrawn'))return 'Este día fue retirado para esa fecha. Elige su programación vigente.'
+      if(message.includes('read-only'))return 'El plan está archivado y solo admite consultas.'
       if (message.includes('week with this number')) return 'Ya existe una semana con ese número en el plan.'
       if (message.includes('position in the week')) return 'Ya existe una prescripción en esa posición. Elige otra posición.'
       if (message.includes('training history') || message.includes('historical')) return 'Este recurso tiene historial asociado. Conserva el original y utiliza una copia para la nueva programación.'

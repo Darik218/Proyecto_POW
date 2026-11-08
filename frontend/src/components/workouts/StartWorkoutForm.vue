@@ -1,81 +1,74 @@
 <script setup lang="ts">
-import { repsLabel } from '../../services/training-plans.service'
-import { onUnmounted, ref, useId, watch } from 'vue'
-import { trainingPlansService, planStatusLabel, type TrainingPlan, type TrainingPlanDetail } from '../../services/training-plans.service'
-import { createWorkoutSchema, workoutErrorMessage, type CreateWorkout } from '../../services/workout-sessions.service'
-const props = defineProps<{ initialPlanId?: string; save: (input: CreateWorkout) => Promise<unknown> }>()
+import { ref, useId, onUnmounted, watch } from 'vue'
+import PreviousWorkoutSelector from './PreviousWorkoutSelector.vue'
+import PlanDaySelector from './PlanDaySelector.vue'
+import { createWorkoutSchema, localTrainingDate, workoutWriteRejected, workoutErrorMessage, workoutSessionsService, type CreateWorkout, type WorkoutSuggestion } from '../../services/workout-sessions.service'
+const props = defineProps<{ initialPlanId?: string; initialWeekId?: string; initialDayId?: string; initialRepeatFromId?: string; save: (input: CreateWorkout) => Promise<unknown> }>()
 const emit = defineEmits<{ cancel: [] }>()
 const id = useId()
-const requestId = crypto.randomUUID()
-const linked = ref(Boolean(props.initialPlanId))
-const planId = ref(props.initialPlanId ?? '')
-const weekId = ref('')
+const source = ref(props.initialRepeatFromId ? 'REPEAT' : props.initialPlanId ? 'PLAN_DAY' : 'FREE')
+const repeatFromId = ref(props.initialRepeatFromId ?? '')
+const selection = ref({ trainingPlanId: props.initialPlanId ?? '', planWeekId: props.initialWeekId ?? '', planDayId: props.initialDayId ?? '' })
+const timeZone = ref(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
+const performedOn = ref(localTrainingDate(timeZone.value))
+const recordingMode = ref<'LIVE' | 'RETROSPECTIVE'>('LIVE')
+const name = ref('')
 const notes = ref('')
-const plans = ref<TrainingPlan[]>([])
-const detail = ref<TrainingPlanDetail | null>(null)
-const sourceLoading = ref(false)
-const plansLoading = ref(false)
-const sourceError = ref('')
-const error = ref('')
 const pending = ref(false)
+const error = ref('')
 const submitted = ref<CreateWorkout | null>(null)
-const listController = new AbortController()
+let requestId = crypto.randomUUID()
+const suggestions = ref<WorkoutSuggestion[]>([])
+const suggestionMessage = ref('')
+const suggesting = ref(false)
 let controller: AbortController | undefined
 let generation = 0
-let plansLoaded = false
-async function loadPlans() {
-  if (plansLoaded || plansLoading.value) return
-  plansLoading.value = true
-  try { plans.value = await trainingPlansService.list(listController.signal); plansLoaded = true }
-  catch (cause) { if (!listController.signal.aborted) sourceError.value = workoutErrorMessage(cause, 'No se pudieron cargar tus planes.') }
-  finally { plansLoading.value = false }
+watch([performedOn, timeZone], () => { generation++; controller?.abort(); suggesting.value = false; suggestions.value = []; suggestionMessage.value = '' })
+async function suggest() {
+  controller?.abort(); controller = new AbortController(); const signal = controller.signal; const current = ++generation
+  suggesting.value = true; error.value = ''; suggestions.value = []; suggestionMessage.value = ''
+  try {
+    const result = await workoutSessionsService.suggestions(performedOn.value, timeZone.value, signal)
+    if (current !== generation) return
+    suggestions.value = result.candidates
+    suggestionMessage.value = result.resolution === 'NONE' ? 'No hay una coincidencia con fechas explícitas. Selecciona un día manualmente o entrena libremente.' : result.resolution === 'SINGLE' ? 'Hay una coincidencia. Confirma si quieres utilizarla.' : 'Hay varias coincidencias. Elige una; no se seleccionará automáticamente.'
+  } catch (cause) { if (current === generation && !signal.aborted) error.value = workoutErrorMessage(cause, 'No se pudo consultar la programación.') }
+  finally { if (current === generation) suggesting.value = false }
 }
-async function loadWeekOptions() {
-  controller?.abort(); controller = new AbortController()
-  const current = ++generation
-  weekId.value = ''; detail.value = null; sourceError.value = ''; sourceLoading.value = false
-  if (!linked.value || !planId.value) return
-  sourceLoading.value = true
-  try { const result = await trainingPlansService.get(planId.value, controller.signal); if (current === generation) detail.value = result }
-  catch (cause) { if (current === generation && !controller.signal.aborted) sourceError.value = workoutErrorMessage(cause, 'No se pudieron cargar las semanas.') }
-  finally { if (current === generation) sourceLoading.value = false }
-}
-watch(linked, value => { if (value) void loadPlans(); void loadWeekOptions() }, { immediate: true })
-watch(planId, () => void loadWeekOptions())
+function accept(candidate: WorkoutSuggestion) { selection.value = { trainingPlanId: candidate.trainingPlanId, planWeekId: candidate.planWeekId, planDayId: candidate.planDayId }; source.value = 'PLAN_DAY' }
 async function submit() {
-  if (pending.value || sourceLoading.value || plansLoading.value) return
+  if (pending.value || suggesting.value) return
   error.value = ''
+  if (source.value === 'SUGGESTED') { error.value = 'Acepta una sugerencia o cambia el origen.'; return }
   if (!submitted.value) {
-    const parsed = createWorkoutSchema.safeParse({ id: requestId, ...(linked.value ? { trainingPlanId: planId.value, planWeekId: weekId.value } : {}), notes: notes.value.trim() || null })
-    if (!parsed.success) { error.value = 'Revisa el plan, la semana y las notas antes de iniciar.'; return }
+    const parsed = createWorkoutSchema.safeParse({ id: requestId, performedOn: performedOn.value, timeZone: timeZone.value, recordingMode: recordingMode.value, ...(name.value.trim() ? { name: name.value.trim() } : {}), ...(source.value === 'PLAN_DAY' ? selection.value : {}), ...(source.value === 'REPEAT' ? { repeatFromId: repeatFromId.value } : {}), notes: notes.value.trim() || null })
+    if (!parsed.success) { error.value = parsed.error.issues[0]?.message ?? 'Revisa los datos del entrenamiento.'; return }
+    if (source.value === 'REPEAT' && !repeatFromId.value) { error.value = 'Selecciona una sesión anterior.'; return }
     submitted.value = parsed.data
   }
   pending.value = true
   try { await props.save(submitted.value) }
-  catch (cause) { error.value = workoutErrorMessage(cause, 'No se pudo iniciar el entrenamiento.') }
+  catch (cause) { if (workoutWriteRejected(cause)) { submitted.value = null; requestId = crypto.randomUUID() } error.value = workoutErrorMessage(cause, 'No se pudo preparar el entrenamiento.') }
   finally { pending.value = false }
 }
-onUnmounted(() => { generation++; controller?.abort(); listController.abort() })
+onUnmounted(() => { generation++; controller?.abort() })
 </script>
-
 <template>
   <form class="plan-form" novalidate :aria-busy="pending" @submit.prevent="submit">
-    <h2>Iniciar entrenamiento</h2>
+    <h2>Nuevo entrenamiento</h2>
     <fieldset :disabled="pending || Boolean(submitted)">
-      <label class="field-label"><input v-model="linked" type="checkbox"> Usar un plan de entrenamiento</label>
-      <template v-if="linked">
-        <p v-if="plansLoading" class="state-message" role="status">Cargando planes…</p>
-        <label class="field-label" :for="id + '-plan'">Plan</label><select :id="id + '-plan'" v-model="planId" class="form-control"><option value="">Selecciona un plan</option><option v-for="plan in plans" :key="plan.id" :value="plan.id" :disabled="!['DRAFT', 'ACTIVE'].includes(plan.status)">{{ plan.name }} · {{ planStatusLabel(plan.status) }}</option></select>
-        <p v-if="sourceLoading" class="state-message" role="status">Cargando semanas…</p>
-        <label class="field-label" :for="id + '-week'">Semana</label><select :id="id + '-week'" v-model="weekId" class="form-control" :disabled="sourceLoading || !detail"><option value="">Selecciona una semana</option><option v-for="week in detail?.weeks ?? []" :key="week.id" :value="week.id">Semana {{ week.weekNumber }}{{ week.objective ? ' · ' + week.objective : '' }}</option></select>
-        <p v-if="detail && !detail.weeks.length" class="state-message">Este plan no tiene semanas. Crea una desde el detalle del plan.</p>
-        <p v-if="sourceError" class="form-error" role="alert">{{ sourceError }} <button class="text-button" type="button" @click="loadPlans(); loadWeekOptions()">Reintentar</button></p>
-        <div v-if="weekId" class="workout-preview"><h3>Ejercicios previstos</h3><p>Se incorporarán sin modificar las prescripciones del plan.</p><ul><li v-for="item in detail?.weeks.find(week => week.id === weekId)?.exercises ?? []" :key="item.id">{{ item.exercise.name }} · {{ item.targetSets }} × {{ repsLabel(item) }}</li></ul></div>
-      </template>
-      <label class="field-label" :for="id + '-notes'">Notas generales (opcional)</label><textarea :id="id + '-notes'" v-model="notes" class="form-control form-control--textarea" maxlength="4000" />
+      <label class="field-label" :for="id + '-source'">Origen</label><select :id="id + '-source'" v-model="source" class="form-control"><option value="FREE">Entrenamiento libre</option><option value="PLAN_DAY">Desde un día del plan</option><option value="REPEAT">Repetir entrenamiento anterior</option><option value="SUGGESTED">Sugerencia por fecha</option></select>
+      <label class="field-label" :for="id + '-date'">Fecha del entrenamiento</label><input :id="id + '-date'" v-model="performedOn" type="date" class="form-control" required>
+      <label class="field-label" :for="id + '-zone'">Zona horaria (IANA)</label><input :id="id + '-zone'" v-model="timeZone" class="form-control" required placeholder="Ej. America/Bogota"><p class="field-hint">La fecha local se conserva junto con esta zona horaria.</p>
+      <label class="field-label" :for="id + '-mode'">Tipo de registro</label><select :id="id + '-mode'" v-model="recordingMode" class="form-control"><option value="LIVE">Entrenar en directo</option><option value="RETROSPECTIVE">Registrar un entrenamiento anterior</option></select>
+      <p v-if="recordingMode === 'RETROSPECTIVE'" class="field-hint">El inicio y el fin indican cuándo registras los datos; la fecha anterior identifica el entrenamiento realizado.</p>
+      <PreviousWorkoutSelector v-if="source === 'REPEAT'" v-model="repeatFromId" :disabled="pending || Boolean(submitted)" />
+      <PlanDaySelector v-if="source === 'PLAN_DAY'" v-model="selection" :disabled="pending || Boolean(submitted)" />
+      <div v-if="source === 'SUGGESTED'"><button class="secondary-button" type="button" :disabled="suggesting" @click="suggest">{{ suggesting ? 'Consultando…' : 'Consultar programación' }}</button><p role="status">{{ suggestionMessage }}</p><ul><li v-for="candidate in suggestions" :key="candidate.planDayId"><button class="text-button" type="button" @click="accept(candidate)">Usar {{ candidate.planName }} · Semana {{ candidate.weekNumber }} · {{ candidate.name }}</button></li></ul><button class="text-button" type="button" @click="source = 'FREE'">Ignorar sugerencias y entrenar libremente</button></div>
+      <label class="field-label" :for="id + '-name'">Nombre (opcional)</label><input :id="id + '-name'" v-model="name" maxlength="160" class="form-control">
+      <label class="field-label" :for="id + '-notes'">Notas (opcional)</label><textarea :id="id + '-notes'" v-model="notes" maxlength="4000" class="form-control" />
     </fieldset>
-    <p v-if="submitted && error" class="field-hint">Los datos se conservan para reintentar la misma solicitud sin duplicarla. Comprueba el historial antes de iniciar otra.</p>
-    <p v-if="error" class="form-error" role="alert">{{ error }}</p>
-    <div class="plan-actions"><button class="primary-button" type="submit" :disabled="pending || sourceLoading || plansLoading">{{ pending ? 'Iniciando…' : submitted ? 'Reintentar inicio' : 'Iniciar entrenamiento' }}</button><button class="text-button" type="button" :disabled="pending" @click="emit('cancel')">Cerrar</button></div>
+    <p v-if="submitted && error" class="field-hint">Reintentar conserva los datos y el identificador para evitar duplicados.</p><p v-if="error" class="form-error" role="alert">{{ error }}</p>
+    <div class="plan-actions"><button class="primary-button" type="submit" :disabled="pending || suggesting">{{ pending ? 'Preparando…' : submitted ? 'Reintentar preparación' : 'Preparar entrenamiento' }}</button><button class="text-button" type="button" :disabled="pending" @click="emit('cancel')">Cerrar</button></div>
   </form>
 </template>

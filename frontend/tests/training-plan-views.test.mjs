@@ -124,14 +124,15 @@ test('failed saves display an error and reset the submitting state', async (t) =
 test('exercise picker loads the real catalog service contract on mount', async (t) => {
   // The SFC runs through Vite's module graph, so install the adapter there too.
   const { api: viewApi } = await server.ssrLoadModule('/src/services/api.ts')
-  let request
-  viewApi.defaults.adapter = async config => { request = config; return response(config, { items: [], total: 0, limit: 20, offset: 0 }) }
+  const requests=[]
+  viewApi.defaults.adapter = async config => { requests.push(config); return response(config, config.url.endsWith('muscle-groups')?[]:{ items: [], total: 0, limit: 20, offset: 0 }) }
   t.after(() => { viewApi.defaults.adapter = undefined })
   const picker = mount(await component('ExercisePicker'), { modelValue: '' }, t)
   await nextTick()
   await new Promise(resolve => setImmediate(resolve))
-  assert.equal(request.url, '/exercises')
-  assert.deepEqual(request.params, { limit: 20, offset: 0 })
+  const request=requests.find(r=>r.url==='/exercises/visible')
+  assert.ok(request)
+  assert.deepEqual(request.params, { limit: 20, offset: 0,selection:'FEATURED' })
   assert.equal(picker.loading, false)
   assert.equal(picker.errorMessage, '')
 })

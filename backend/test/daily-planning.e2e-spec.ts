@@ -527,46 +527,17 @@ isolated(
         }),
       ).toBe(0);
     });
-    it('keeps F06 weekly creation functional with colliding daily positions and range prescriptions', async () => {
-      const { base, plan, week } = await source();
-      const a = await day(base);
-      const b = await day(base, 2);
-      const firstPrescription = await prescription(base, a.id);
-      const secondPrescription = await prescription(base, b.id);
-      const id = randomUUID();
-      const result = await post('/api/v1/workout-sessions', {
-        id,
-        trainingPlanId: plan.id,
-        planWeekId: week.id,
-      }).expect(201);
-      expect(
-        result.body.exercises.map(
-          (row: { orderInSession: number }) => row.orderInSession,
-        ),
-      ).toEqual([1, 2]);
-      expect(
-        result.body.exercises.map(
-          (row: { prescription: { id: string } }) => row.prescription.id,
-        ),
-      ).toEqual([firstPrescription.id, secondPrescription.id]);
-      const preview = await request(app.getHttpServer())
-        .get(`/api/v1/training-plans/${plan.id}`)
-        .set('Authorization', auth())
-        .expect(200);
-      expect(
-        preview.body.weeks[0].exercises.map((row: { id: string }) => row.id),
-      ).toEqual([firstPrescription.id, secondPrescription.id]);
-      expect(result.body.exercises[0].prescription).toMatchObject({
-        targetReps: null,
-        targetRepsMin: 6,
-        targetRepsMax: 10,
-        targetLoadUnit: 'LB',
-      });
-      await post(`/api/v1/workout-sessions/${id}/complete`, {}).expect(200);
-      await request(app.getHttpServer())
-        .get(`/api/v1/workout-sessions/${id}`)
-        .set('Authorization', auth())
-        .expect(200);
+    it('creates a daily session without importing other days, preserving R1 ordering and range targets', async () => {
+      const { base, plan, week } = await source(); const a = await day(base); const b = await day(base,2);
+      const first = await prescription(base,a.id); await prescription(base,b.id);
+      const input={ id:randomUUID(),performedOn:'2026-01-01',timeZone:'UTC',recordingMode:'RETROSPECTIVE',trainingPlanId:plan.id,planWeekId:week.id,planDayId:a.id };
+      const result=await post('/api/v1/workout-sessions',input).expect(201);
+      expect(result.body.exercises).toHaveLength(1);
+      expect(result.body.exercises[0].original).toMatchObject({source:{id:first.id},targets:{targetRepsMin:6,targetRepsMax:10,targetLoadUnit:'LB'}});
+      await post('/api/v1/workout-sessions',{...input,id:randomUUID(),planDayId:undefined}).expect(400);
+      const started=await post(`/api/v1/workout-sessions/${input.id}/start`,{expectedVersion:result.body.version}).expect(200);
+      await post(`/api/v1/workout-sessions/${input.id}/complete`,{expectedVersion:started.body.version,confirmWithoutResults:true}).expect(200);
+      await request(app.getHttpServer()).get(`/api/v1/workout-sessions/${input.id}`).set('Authorization',auth()).expect(200);
     });
     it('serializes daily target changes with F06 reference capture so historical targets remain stable', async () => {
       const { base, plan, week } = await source();
@@ -574,7 +545,7 @@ isolated(
       const p = await prescription(base, d.id);
       const [started, edited] = await Promise.all([
         post('/api/v1/workout-sessions', {
-          id: randomUUID(),
+          id: randomUUID(), performedOn:'2026-01-01',timeZone:'UTC',recordingMode:'RETROSPECTIVE',planDayId:d.id,
           trainingPlanId: plan.id,
           planWeekId: week.id,
         }),
@@ -582,7 +553,7 @@ isolated(
       ]);
       expect(started.status).toBe(201);
       expect([200, 409]).toContain(edited.status);
-      expect(started.body.exercises[0].prescription.targetSets).toBe(
+      expect(started.body.exercises[0].original.targets.targetSets).toBe(
         edited.status === 200 ? 9 : 3,
       );
       await patch(`${base}/days/${d.id}/exercises/${p.id}`, {
@@ -591,7 +562,7 @@ isolated(
       expect(
         (await prisma.planExercise.findUniqueOrThrow({ where: { id: p.id } }))
           .targetSets,
-      ).toBe(started.body.exercises[0].prescription.targetSets);
+      ).toBe(started.body.exercises[0].original.targets.targetSets);
     });
 
     it('removes unreferenced daily prescriptions and serializes concurrent repeated creations', async () => {

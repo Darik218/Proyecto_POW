@@ -5,3 +5,5 @@ export const summary = { id, status: 'IN_PROGRESS', startedAt: '2026-11-05T12:00
 export const detail = { ...summary, exercises: [] }
 export const exercise = { id: operationId, orderInSession: 1, notes: null, exercise: { id: exerciseId, name: 'Press', equipment: 'Barra', muscleGroup: 'Pectorales' }, prescription: null }
 export const response = (config, data, status = 200) => ({ config, data, status, statusText: 'OK', headers: {} })
+
+export const intent = { id, performedOn: '2026-01-01', timeZone: 'UTC', recordingMode: 'RETROSPECTIVE' }

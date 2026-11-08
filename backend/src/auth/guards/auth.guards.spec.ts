@@ -46,7 +46,7 @@ describe('authentication guards', () => {
       },
       sessionId: '10000000-0000-4000-8000-000000000001',
     };
-    const authenticate = jest.fn().mockResolvedValue(identity);
+    const authenticate = jest.fn<AuthService['authenticate']>().mockResolvedValue(identity);
     const guard = new AccessTokenGuard({
       authenticate,
     } as unknown as AuthService);
@@ -67,7 +67,7 @@ describe('authentication guards', () => {
         'x-csrf-token': 'random-csrf-value-which-is-long-enough',
         cookie: 'pow_csrf=random-csrf-value-which-is-long-enough',
       },
-    } as AuthRequest;
+    } as unknown as AuthRequest;
     expect(guard.canActivate(contextFor(valid))).toBe(true);
 
     const missingHeader = {

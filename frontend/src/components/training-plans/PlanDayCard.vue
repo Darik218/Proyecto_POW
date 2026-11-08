@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { RouterLink } from 'vue-router'
+import { computed, ref } from 'vue'
 import PlanDayForm from './PlanDayForm.vue'
 import PrescriptionForm from './PrescriptionForm.vue'
 import { repsLabel, weekdayLabel, trainingPlanErrorMessage, type PlanDay, type CreateDailyPrescription, type UpdateDailyPrescription } from '../../services/training-plans.service'
 import type { useTrainingPlan } from '../../composables/useTrainingPlans'
 const props = defineProps<{ day: PlanDay; weekId: string; editable: boolean; busy: boolean; copyPosition: number; actions: ReturnType<typeof useTrainingPlan> }>()
+const sessionLink = computed(() => !props.day.retiredAt && props.actions.plan?.value ? {name:'routine-day',params:{planId:props.actions.plan.value.id,weekId:props.weekId,dayId:props.day.id}} : null)
 const editing = ref(false)
 const adding = ref(false)
 const editingPrescription = ref('')
@@ -30,6 +32,7 @@ function save(input: CreateDailyPrescription | UpdateDailyPrescription, id?: str
 <template>
   <article class="plan-day-card">
     <header class="plan-section-heading"><div><h3>{{ day.position }}. {{ day.name }}</h3><span class="plan-status">{{ weekdayLabel(day.weekday) }}{{ day.weekday ? ' · Fijo' : '' }}</span></div><div v-if="editable" class="plan-actions"><button class="text-button" type="button" :disabled="busy || day.hasHistory" @click="editing = !editing">Editar día</button><button class="secondary-button" type="button" :disabled="busy || copyPosition > 1000" @click="run(() => actions.copyDay(weekId, day.id, copyPosition))">Duplicar día</button></div></header>
+    <RouterLink v-if="sessionLink" class="back-link" :to="sessionLink">Abrir día y entrenar →</RouterLink>
     <p v-if="day.hasHistory" class="field-hint">Con historial: conserva su programación. Duplica el día para realizar cambios.</p>
     <PlanDayForm v-if="editing && editable" :initial="day" :busy="busy" :save="input => actions.updateDay(weekId, day.id, input)" @saved="editing = false" @cancel="editing = false" />
     <p v-if="!day.exercises.length" class="state-message">Este día todavía no tiene ejercicios prescritos.</p>

@@ -1,11 +1,10 @@
+import { exerciseSearchQuery } from './exercise-search.query';
 import { Injectable } from '@nestjs/common';
 import {
-  ExerciseOrigin,
   Prisma,
 } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import type {
-  ExerciseFilters,
   ExerciseListRecords,
   MuscleGroupView,
   ExercisePage,
@@ -19,6 +18,7 @@ import type {
 
 const EXERCISE_SELECT = {
   id: true,
+  aliases:{select:{name:true},orderBy:{normalizedName:'asc'}},
   name: true,
   description: true,
   equipment: true,
@@ -49,42 +49,14 @@ const EXERCISE_SELECT = {
 type SelectedExercise = Prisma.ExerciseGetPayload<{ select: typeof EXERCISE_SELECT }>;
 
 function toRecord(exercise: SelectedExercise): ExerciseRecord {
-  const { secondaryMuscleGroups, ...fields } = exercise;
+  const { secondaryMuscleGroups, aliases, ...fields } = exercise;
   return {
     ...fields,
+    aliases:aliases.map(alias=>alias.name),
     secondaryMuscleGroups: secondaryMuscleGroups
       .map(({ muscleGroup }) => muscleGroup)
       .sort((left, right) => left.key.localeCompare(right.key)),
   };
-}
-
-function filterWhere(filters: ExerciseFilters): Prisma.ExerciseWhereInput {
-  const conditions: Prisma.ExerciseWhereInput[] = [];
-  if (filters.search) {
-    conditions.push({
-      OR: [
-        { name: { contains: filters.search, mode: 'insensitive' } },
-        { description: { contains: filters.search, mode: 'insensitive' } },
-      ],
-    });
-  }
-  if (filters.primaryMuscleGroupKey) {
-    conditions.push({ primaryMuscleGroup: { key: filters.primaryMuscleGroupKey } });
-  }
-  if (filters.secondaryMuscleGroupKey) {
-    conditions.push({
-      secondaryMuscleGroups: {
-        some: { muscleGroup: { key: filters.secondaryMuscleGroupKey } },
-      },
-    });
-  }
-  if (filters.equipmentType) conditions.push({ equipmentType: filters.equipmentType });
-  if (filters.machineType) conditions.push({ machineType: filters.machineType });
-  if (filters.resistanceType) conditions.push({ resistanceType: filters.resistanceType });
-  if (filters.movementType) conditions.push({ movementType: filters.movementType });
-  if (filters.movementPattern) conditions.push({ movementPattern: filters.movementPattern });
-  if (filters.difficulty) conditions.push({ difficulty: filters.difficulty });
-  return conditions.length ? { AND: conditions } : {};
 }
 
 const HISTORY_RELATIONS: Prisma.ExerciseWhereInput[] = [
@@ -107,16 +79,16 @@ export class PrismaExercisesRepository implements ExercisesRepository {
   }
 
   async listGlobal(query: ExercisePage): Promise<ExerciseListRecords> {
-    return this.list({ origin: ExerciseOrigin.GLOBAL, isActive: true }, query);
+    return this.ranked(query,'GLOBAL');
   }
 
   async listMine(ownerId: string, query: ExercisePage): Promise<ExerciseListRecords> {
-    return this.list({ origin: ExerciseOrigin.PERSONAL, ownerId, isActive: true }, query);
+    return this.ranked(query,'PERSONAL',ownerId);
   }
 
   async findVisibleById(id: string, ownerId?: string): Promise<ExerciseRecord | null> {
-    const visibility: Prisma.ExerciseWhereInput[] = [{ origin: ExerciseOrigin.GLOBAL }];
-    if (ownerId) visibility.push({ origin: ExerciseOrigin.PERSONAL, ownerId });
+    const visibility: Prisma.ExerciseWhereInput[] = [{ origin: 'GLOBAL' }];
+    if (ownerId) visibility.push({ origin: 'PERSONAL', ownerId });
     const exercise = await this.prisma.exercise.findFirst({
       where: { id, isActive: true, OR: visibility },
       select: EXERCISE_SELECT,
@@ -130,8 +102,9 @@ export class PrismaExercisesRepository implements ExercisesRepository {
       if (groups.kind !== 'valid') return groups;
       const exercise = await tx.exercise.create({
         data: {
-          origin: ExerciseOrigin.PERSONAL,
+          origin: 'PERSONAL',
           ownerId,
+          aliases:{create:(values.aliases??[]).map(name=>({name}))},
           catalogKey: null,
           name: values.name,
           equipment: values.equipment,
@@ -165,7 +138,7 @@ export class PrismaExercisesRepository implements ExercisesRepository {
       // Serialize the history check with sessions taking references to this exercise.
       await tx.$queryRaw`SELECT id FROM exercises WHERE id = ${id}::uuid AND owner_id = ${ownerId}::uuid FOR UPDATE`;
       const existing = await tx.exercise.findFirst({
-        where: { id, ownerId, origin: ExerciseOrigin.PERSONAL, isActive: true },
+        where: { id, ownerId, origin: 'PERSONAL', isActive: true },
         select: { id: true },
       });
       if (!existing) return { kind: 'not-found' };
@@ -200,6 +173,7 @@ export class PrismaExercisesRepository implements ExercisesRepository {
       ] as const) {
         if (values[field] !== undefined) Object.assign(data, { [field]: values[field] });
       }
+      if(values.aliases!==undefined)data.aliases={deleteMany:{},create:values.aliases.map(name=>({name}))};
       if (primaryId) data.primaryMuscleGroup = { connect: { id: primaryId } };
       if (secondaryIds) {
         data.secondaryMuscleGroups = {
@@ -214,26 +188,24 @@ export class PrismaExercisesRepository implements ExercisesRepository {
 
   async deactivatePersonal(ownerId: string, id: string): Promise<boolean> {
     const result = await this.prisma.exercise.updateMany({
-      where: { id, ownerId, origin: ExerciseOrigin.PERSONAL, isActive: true },
+      where: { id, ownerId, origin: 'PERSONAL', isActive: true },
       data: { isActive: false },
     });
     return result.count === 1;
   }
 
-  private async list(where: Prisma.ExerciseWhereInput, query: ExercisePage): Promise<ExerciseListRecords> {
-    const filters = filterWhere(query);
-    const whereWithFilters = { AND: [where, filters] };
-    const [exercises, total] = await Promise.all([
-      this.prisma.exercise.findMany({
-        where: whereWithFilters,
-        orderBy: [{ name: 'asc' }, { id: 'asc' }],
-        skip: query.offset,
-        take: query.limit,
-        select: EXERCISE_SELECT,
-      }),
-      this.prisma.exercise.count({ where: whereWithFilters }),
-    ]);
-    return { items: exercises.map(toRecord), total };
+  async listVisible(ownerId:string,query:ExercisePage){return this.ranked(query,'VISIBLE',ownerId);}
+  private async ranked(query:ExercisePage,scope:'GLOBAL'|'PERSONAL'|'VISIBLE',ownerId?:string):Promise<ExerciseListRecords>{
+    return this.prisma.$transaction(async tx=>{
+      await tx.$executeRaw`SET LOCAL pg_trgm.word_similarity_threshold=0.45`;
+      const normalized=query.search?await tx.$queryRaw<{term:string}[]>`SELECT pulso_search_normalize(${query.search}) AS term`:[];
+      const sql=exerciseSearchQuery(query,scope,ownerId,normalized[0]?.term);
+      const rows=await tx.$queryRaw<{id:string}[]>(sql.ids);
+      const counts=await tx.$queryRaw<{total:number}[]>(sql.count);
+      const records=rows.length?await tx.exercise.findMany({where:{id:{in:rows.map(row=>row.id)}},select:EXERCISE_SELECT}):[];
+      const byId=new Map(records.map(row=>[row.id,row]));
+      return{items:rows.map(row=>toRecord(byId.get(row.id)!)),total:counts[0]?.total??0};
+    },{isolationLevel:Prisma.TransactionIsolationLevel.RepeatableRead,timeout:15000});
   }
 
   private async resolveGroups(

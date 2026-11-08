@@ -28,10 +28,12 @@ const routes: RouteRecordRaw[] = [
     component: AuthenticatedLayout,
     meta: { requiresAuth: true },
     children: [
+      { path:'routine/:planId/weeks/:weekId/days/:dayId', name:'routine-day', component:()=>import('../views/RoutineDayView.vue') },
+      { path:'history', name:'workout-history', component:()=>import('../views/WorkoutSessionsView.vue'), props:{historyOnly:true} },
       {
         path: '',
         name: 'home',
-        component: () => import('../views/HomeView.vue'),
+        component: () => import('../views/RoutineView.vue'),
       },
       {
         path: 'profile',

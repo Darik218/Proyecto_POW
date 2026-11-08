@@ -18,7 +18,8 @@ import {
   ValidateIf,
 } from 'class-validator';
 
-export class UpdatePlanDayDto {
+export class PlanningRevisionDto { @ValidateIf((_o,v)=>v!==undefined) @IsInt() @Min(0) expectedVersion?:number; }
+export class UpdatePlanDayDto extends PlanningRevisionDto {
   @ValidateIf((_o, value) => value !== undefined)
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
@@ -32,7 +33,7 @@ export class UpdatePlanDayDto {
   @Max(7)
   weekday?: number | null;
 }
-export class CreatePlanDayDto {
+export class CreatePlanDayDto extends PlanningRevisionDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @MinLength(1)
@@ -50,7 +51,7 @@ export class CreatePlanDayDto {
   @Max(1000)
   position!: number;
 }
-export class CopyPlanDayDto {
+export class CopyPlanDayDto extends PlanningRevisionDto {
   @IsInt()
   @Min(1)
   @Max(1000)
@@ -62,13 +63,13 @@ export class CopyPlanDayDto {
   @MaxLength(160)
   name?: string;
 }
-export class CopyPlanWeekDto {
+export class CopyPlanWeekDto extends PlanningRevisionDto {
   @IsInt()
   @Min(1)
   @Max(520)
   weekNumber!: number;
 }
-export class ReorderPlanningDto {
+export class ReorderPlanningDto extends PlanningRevisionDto {
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(1000)
@@ -76,7 +77,7 @@ export class ReorderPlanningDto {
   @IsUUID('4', { each: true })
   ids!: string[];
 }
-class PrescriptionTargetsDto {
+class PrescriptionTargetsDto extends PlanningRevisionDto {
   @IsOptional()
   @IsInt()
   @Min(1)
@@ -127,7 +128,7 @@ export class CreateDailyPrescriptionDto extends PrescriptionTargetsDto {
   @IsInt() @Min(1) @Max(1000) position!: number;
   @IsInt() @Min(1) @Max(1000) targetSets!: number;
 }
-export class DistributePrescriptionDto {
+export class DistributePrescriptionDto extends PlanningRevisionDto {
   @IsUUID('4') dayId!: string;
   @IsInt() @Min(1) @Max(1000) position!: number;
   @IsBoolean() copy!: boolean;

@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { computed, ref } from 'vue'
-import { workoutSessionsService as service, workoutErrorMessage, type Workout, type WorkoutSummary, type WorkoutQuery, type AddWorkoutExercise } from '../services/workout-sessions.service'
+import { workoutSessionsService as service, workoutErrorMessage, type Workout, type WorkoutSummary, type WorkoutQuery, type SetInput, type WorkoutTargetsInput, type UpdateWorkout, type AddWorkoutExercise } from '../services/workout-sessions.service'
 
 export function useWorkoutSessions() {
   const sessions = ref<WorkoutSummary[]>([])
@@ -39,7 +39,7 @@ export function useWorkoutSession() {
   const saving = ref(false)
   const error = ref('')
   const notice = ref('')
-  const editable = computed(() => session.value?.status === 'IN_PROGRESS' && !loading.value)
+  const editable = computed(() => Boolean(session.value && ['PLANNED', 'IN_PROGRESS'].includes(session.value.status)) && !loading.value)
   let version = 0
   let controller: AbortController | undefined
   async function load(id: string) {
@@ -58,5 +58,16 @@ export function useWorkoutSession() {
     finally { saving.value = false }
   }
   function dispose() { version++; controller?.abort() }
-  return { session, loading, saving, editable, error, notice, load, dispose, start: () => action(id => service.start(id)), complete: () => action(id => service.complete(id)), addExercise: (input: AddWorkoutExercise) => action(id => service.addExercise(id, input)) }
+  const revision = () => session.value?.version ?? 0
+  return { session, loading, saving, editable, error, notice, load, dispose,
+    update: (input: Omit<UpdateWorkout, 'expectedVersion'>) => action(id => service.update(id, { ...input, expectedVersion: revision() })),
+    associate: (input: { trainingPlanId: string; planWeekId: string; planDayId: string }) => action(id => service.associate(id, { ...input, expectedVersion: revision() })),
+    updateExercise: (exerciseId: string, input: Partial<WorkoutTargetsInput> & { isOmitted?: boolean }) => action(id => service.updateExercise(id, exerciseId, { ...input, expectedVersion: revision() })),
+    reorder: (ids: string[]) => action(id => service.reorder(id, ids, revision())),
+    importDay: (operationId: string) => action(id => service.importDay(id, operationId, revision(), session.value?.planDay?.id ?? '')),
+    recordSet: (exerciseId: string, input: SetInput, setId?: string, expectedSetVersion?: number, creationId?: string) => action(id => setId
+      ? service.updateSet(id, exerciseId, setId, { ...input, expectedVersion: revision(), expectedSetVersion: expectedSetVersion ?? 0 })
+      : service.createSet(id, exerciseId, { ...input, id: creationId ?? crypto.randomUUID(), expectedVersion: revision() })),
+    cancel: () => action(id => service.cancel(id, revision())),
+    start: () => action(id => service.start(id, revision())), complete: (confirmWithoutResults = false) => action(id => service.complete(id, revision(), confirmWithoutResults)), addExercise: (input: AddWorkoutExercise) => action(id => service.addExercise(id, { ...input, expectedVersion: input.expectedVersion ?? revision() })) }
 }

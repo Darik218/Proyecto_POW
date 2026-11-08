@@ -17,6 +17,8 @@ export type MuscleGroupSeed = { key: string; name: string; description: string }
 
 export type ExerciseSeed = {
   catalogKey: string;
+  aliases?: string[];
+  featuredRank?: number;
   name: string;
   primaryMuscleGroupKey: string;
   secondaryMuscleGroupKeys: string[];
@@ -61,6 +63,8 @@ export const muscleGroups: MuscleGroupSeed[] = [
 ];
 
 type Variant = {
+  instructions?: string;
+  description?: string;
   key: string;
   name: string;
   equipment: string;
@@ -109,6 +113,9 @@ const families: Family[] = [
     description: 'Empuje horizontal que carga principalmente el pecho; la posición, el ángulo y el agarre cambian la contribución del tríceps y del hombro.',
     instructions: 'Mantén los pies apoyados y las escápulas estables. Desciende con control hasta un rango cómodo y empuja sin perder la trayectoria.',
     variants: [
+      v('floor-press-barra', 'Press de suelo con barra', 'Barra olímpica y soportes bajos', 'BARBELL', 'FREE_WEIGHT', {bodyPosition:'SUPINE',grip:'PRONATED', instructions:'Apoya suavemente los tríceps en el suelo, pausa sin rebotar y extiende los codos manteniendo las muñecas alineadas.'}),
+      v('floor-press-mancuernas', 'Press de suelo con mancuernas', 'Mancuernas', 'DUMBBELL', 'FREE_WEIGHT', {bodyPosition:'SUPINE',grip:'NEUTRAL'}),
+      v('unilateral-polea-de-pie', 'Press unilateral de pecho de pie en polea', 'Polea ajustable y maneral', 'CABLE', 'CABLE', {machineType:'CABLE',bodyPosition:'STANDING',laterality:'UNILATERAL',oneRmSuitability:'NOT_SUITABLE'}),
       v('barra-plano', 'Press de banca plano con barra olímpica', 'Barra olímpica y banco plano', 'BARBELL', 'FREE_WEIGHT', { grip: 'PRONATED', gripWidth: 'SHOULDER_WIDTH', bodyPosition: 'SUPINE', oneRmSuitability: 'SUITABLE' }),
       v('barra-inclinado', 'Press de banca inclinado con barra olímpica', 'Barra olímpica y banco inclinado', 'BARBELL', 'FREE_WEIGHT', { grip: 'PRONATED', gripWidth: 'SHOULDER_WIDTH', bodyPosition: 'SUPINE', difficulty: 'INTERMEDIATE', oneRmSuitability: 'SUITABLE' }),
       v('barra-declinado', 'Press de banca declinado con barra olímpica', 'Barra olímpica y banco declinado', 'BARBELL', 'FREE_WEIGHT', { grip: 'PRONATED', gripWidth: 'SHOULDER_WIDTH', bodyPosition: 'SUPINE', difficulty: 'INTERMEDIATE', oneRmSuitability: 'SUITABLE' }),
@@ -183,6 +190,7 @@ const families: Family[] = [
     description: 'Abducción del hombro para trabajar sobre todo la porción lateral del deltoides.',
     instructions: 'Eleva los brazos en un plano cómodo, con control y sin impulso del tronco.',
     variants: [
+      v('polea-tumbado', 'Elevación lateral tumbado en polea', 'Polea baja y banco plano', 'CABLE', 'CABLE', {machineType:'CABLE',bodyPosition:'SUPINE',laterality:'UNILATERAL'}),
       v('mancuernas-de-pie', 'Elevación lateral con mancuernas de pie', 'Mancuernas', 'DUMBBELL', 'FREE_WEIGHT', { grip: 'NEUTRAL', bodyPosition: 'STANDING' }),
       v('mancuernas-sentado', 'Elevación lateral con mancuernas sentado', 'Mancuernas y banco', 'DUMBBELL', 'FREE_WEIGHT', { grip: 'NEUTRAL', bodyPosition: 'SEATED' }),
       v('polea-unilateral', 'Elevación lateral unilateral en polea baja', 'Polea baja y maneral', 'CABLE', 'CABLE', { machineType: 'CABLE', grip: 'NEUTRAL', bodyPosition: 'STANDING', laterality: 'UNILATERAL' }),
@@ -211,6 +219,9 @@ const families: Family[] = [
     description: 'Tracción hacia el torso; el apoyo del pecho reduce la demanda de estabilización del tronco.',
     instructions: 'Inicia con las escápulas controladas y dirige los codos según el objetivo de la variante. Evita tirones.',
     variants: [
+      v('seal-mancuernas', 'Remo seal con mancuernas', 'Mancuernas y banco horizontal elevado', 'DUMBBELL', 'FREE_WEIGHT', {bodyPosition:'PRONE',grip:'NEUTRAL',instructions:'Mantén el pecho apoyado en el banco elevado. Lleva los codos atrás sin extender la zona lumbar.'}),
+      v('meadows', 'Remo Meadows unilateral', 'Barra anclada en landmine', 'BARBELL', 'FREE_WEIGHT', {bodyPosition:'STANDING',grip:'PRONATED',laterality:'UNILATERAL',difficulty:'INTERMEDIATE'}),
+      v('pecho-apoyado-polea', 'Remo en polea con pecho apoyado', 'Polea baja, banco inclinado y agarre neutro', 'CABLE', 'CABLE', {machineType:'CABLE',bodyPosition:'PRONE',grip:'NEUTRAL'}),
       v('barra-pronado', 'Remo inclinado con barra y agarre prono', 'Barra olímpica', 'BARBELL', 'FREE_WEIGHT', { grip: 'PRONATED', gripWidth: 'SHOULDER_WIDTH', bodyPosition: 'STANDING', oneRmSuitability: 'SUITABLE' }),
       v('barra-supino', 'Remo inclinado con barra y agarre supino', 'Barra olímpica', 'BARBELL', 'FREE_WEIGHT', { grip: 'SUPINATED', gripWidth: 'SHOULDER_WIDTH', bodyPosition: 'STANDING' }),
       v('pendlay', 'Remo Pendlay desde el suelo', 'Barra olímpica', 'BARBELL', 'FREE_WEIGHT', { grip: 'PRONATED', gripWidth: 'WIDE', bodyPosition: 'STANDING', difficulty: 'ADVANCED', oneRmSuitability: 'SUITABLE' }),
@@ -247,6 +258,8 @@ const families: Family[] = [
     description: 'Flexión coordinada de cadera y rodilla. La colocación de la carga y la postura modifican el reparto de demanda.',
     instructions: 'Mantén el apoyo del pie estable y desciende hasta un rango que puedas controlar sin dolor ni pérdida de equilibrio.',
     variants: [
+      v('zercher', 'Sentadilla Zercher con barra', 'Barra olímpica y rack', 'BARBELL', 'FREE_WEIGHT', {bodyPosition:'STANDING',difficulty:'ADVANCED',oneRmSuitability:'UNDETERMINED',instructions:'Apoya la barra en los pliegues de los codos. Mantén el tronco estable y baja sin perder el equilibrio sobre el pie.'}),
+      v('landmine', 'Sentadilla con barra en landmine', 'Barra anclada en landmine', 'BARBELL', 'FREE_WEIGHT', {bodyPosition:'STANDING',grip:'NEUTRAL',oneRmSuitability:'NOT_SUITABLE'}),
       v('barra-alta', 'Sentadilla trasera con barra alta', 'Barra olímpica y rack', 'BARBELL', 'FREE_WEIGHT', { grip: 'PRONATED', gripWidth: 'WIDE', bodyPosition: 'STANDING', oneRmSuitability: 'SUITABLE' }),
       v('barra-baja', 'Sentadilla trasera con barra baja', 'Barra olímpica y rack', 'BARBELL', 'FREE_WEIGHT', { grip: 'PRONATED', gripWidth: 'WIDE', bodyPosition: 'STANDING', difficulty: 'ADVANCED', oneRmSuitability: 'SUITABLE' }),
       v('frontal-barra', 'Sentadilla frontal con barra', 'Barra olímpica y rack', 'BARBELL', 'FREE_WEIGHT', { grip: 'PRONATED', gripWidth: 'SHOULDER_WIDTH', bodyPosition: 'STANDING', difficulty: 'ADVANCED', oneRmSuitability: 'SUITABLE' }),
@@ -266,6 +279,7 @@ const families: Family[] = [
     description: 'Bisagra de cadera con carga; la variante determina el rango, la posición de la barra y la demanda de agarre.',
     instructions: 'Lleva la cadera hacia atrás manteniendo la carga cerca del cuerpo. Evita forzar la columna al final del rango.',
     variants: [
+      v('rumano-b-stance', 'Peso muerto rumano en apoyo escalonado con mancuernas', 'Mancuernas', 'DUMBBELL', 'FREE_WEIGHT', {bodyPosition:'STANDING',grip:'NEUTRAL',laterality:'UNILATERAL',instructions:'Coloca un pie ligeramente atrás como apoyo. Lleva las caderas hacia atrás cargando la pierna delantera y mantén la espalda estable.'}),
       v('peso-muerto-convencional', 'Peso muerto convencional con barra', 'Barra olímpica y discos', 'BARBELL', 'FREE_WEIGHT', { grip: 'MIXED', gripWidth: 'SHOULDER_WIDTH', bodyPosition: 'STANDING', oneRmSuitability: 'SUITABLE' }),
       v('peso-muerto-sumo', 'Peso muerto sumo con barra', 'Barra olímpica y discos', 'BARBELL', 'FREE_WEIGHT', { grip: 'MIXED', gripWidth: 'WIDE', bodyPosition: 'STANDING', difficulty: 'ADVANCED', oneRmSuitability: 'SUITABLE' }),
       v('rumano-barra', 'Peso muerto rumano con barra', 'Barra olímpica', 'BARBELL', 'FREE_WEIGHT', { grip: 'PRONATED', gripWidth: 'SHOULDER_WIDTH', bodyPosition: 'STANDING', oneRmSuitability: 'SUITABLE' }),
@@ -298,6 +312,7 @@ const families: Family[] = [
     description: 'Flexión de rodilla con resistencia para trabajar la musculatura posterior del muslo.',
     instructions: 'Alinea la rodilla con el eje y mantén la pelvis estable durante todo el recorrido.',
     variants: [
+      v('nordico-asistido', 'Curl nórdico asistido con banda', 'Anclaje para tobillos y banda', 'RESISTANCE_BAND', 'ELASTIC', {bodyPosition:'KNEELING',difficulty:'INTERMEDIATE',instructions:'Fija los tobillos y utiliza la banda como asistencia. Desciende con caderas extendidas y controla la flexión de rodilla al regresar.'}),
       v('tumbado', 'Curl femoral tumbado en máquina', 'Máquina de curl femoral tumbado', 'MACHINE', 'WEIGHT_STACK', { machineType: 'SELECTORIZED', bodyPosition: 'PRONE' }),
       v('sentado', 'Curl femoral sentado en máquina', 'Máquina de curl femoral sentado', 'MACHINE', 'WEIGHT_STACK', { machineType: 'SELECTORIZED', bodyPosition: 'SEATED' }),
       v('unilateral', 'Curl femoral unilateral en máquina', 'Máquina de curl femoral', 'MACHINE', 'WEIGHT_STACK', { machineType: 'SELECTORIZED', bodyPosition: 'SEATED', laterality: 'UNILATERAL' }),
@@ -358,6 +373,7 @@ const families: Family[] = [
     description: 'Trabajo de abducción de cadera o de control lateral con resistencia estable.',
     instructions: 'Evita rotar el tronco y usa un rango cómodo; mantén la pelvis estable.',
     variants: [
+      v('copenhague', 'Plancha de Copenhague con rodilla apoyada', 'Banco estable y colchoneta', 'BODYWEIGHT', 'ISOMETRIC', {primary:'aductores',secondary:['oblicuos'],bodyPosition:'SIDE_LYING',movementType:'ISOMETRIC',pattern:'HIP_ADDUCTION',laterality:'UNILATERAL',difficulty:'INTERMEDIATE',instructions:'Apoya la rodilla superior en el banco y el antebrazo en el suelo. Eleva la pelvis y mantén el tronco alineado.'}),
       v('abduccion-maquina', 'Abducción de cadera en máquina', 'Máquina de abducción selectorizada', 'MACHINE', 'WEIGHT_STACK', { machineType: 'SELECTORIZED', bodyPosition: 'SEATED' }),
       v('abduccion-polea', 'Abducción de cadera de pie en polea', 'Polea baja y tobillera', 'CABLE', 'CABLE', { machineType: 'CABLE', bodyPosition: 'STANDING', laterality: 'UNILATERAL' }),
       v('abduccion-banda', 'Abducción de cadera con banda', 'Banda elástica', 'RESISTANCE_BAND', 'ELASTIC', { bodyPosition: 'STANDING', laterality: 'UNILATERAL' }),
@@ -389,6 +405,9 @@ const families: Family[] = [
     description: 'Flexión de codo con el brazo estable; el agarre modifica la participación de los flexores del antebrazo.',
     instructions: 'Mantén los codos controlados junto al cuerpo o en el soporte y evita balancear el tronco.',
     variants: [
+      v('bayesiano', 'Curl bayesiano unilateral en polea', 'Polea baja y maneral', 'CABLE', 'CABLE', {machineType:'CABLE',bodyPosition:'STANDING',grip:'SUPINATED',laterality:'UNILATERAL',instructions:'Sitúate delante de la polea con el brazo ligeramente detrás del torso. Flexiona el codo sin adelantar el hombro.'}),
+      v('spider', 'Curl araña con mancuernas', 'Mancuernas y banco inclinado', 'DUMBBELL', 'FREE_WEIGHT', {bodyPosition:'PRONE',grip:'SUPINATED'}),
+      v('zottman', 'Curl Zottman con mancuernas', 'Mancuernas', 'DUMBBELL', 'FREE_WEIGHT', {bodyPosition:'STANDING',grip:'VARIABLE',instructions:'Eleva con las palmas hacia arriba, gira con control al llegar arriba y desciende con las palmas hacia abajo.'}),
       v('barra-recta', 'Curl de bíceps con barra recta', 'Barra olímpica', 'BARBELL', 'FREE_WEIGHT', { grip: 'SUPINATED', gripWidth: 'SHOULDER_WIDTH', bodyPosition: 'STANDING' }),
       v('barra-ez', 'Curl de bíceps con barra EZ', 'Barra EZ', 'EZ_BAR', 'FREE_WEIGHT', { grip: 'SUPINATED', gripWidth: 'SHOULDER_WIDTH', bodyPosition: 'STANDING' }),
       v('ez-agarre-ancho', 'Curl con barra EZ y agarre ancho', 'Barra EZ', 'EZ_BAR', 'FREE_WEIGHT', { grip: 'SUPINATED', gripWidth: 'WIDE', bodyPosition: 'STANDING' }),
@@ -408,6 +427,8 @@ const families: Family[] = [
     description: 'Extensión del codo para trabajar el tríceps; la posición del brazo modifica el recorrido y el énfasis.',
     instructions: 'Mantén el brazo estable y termina la extensión sin mover el hombro de forma brusca.',
     variants: [
+      v('katana', 'Extensión de tríceps katana en poleas', 'Dos poleas altas y manerales', 'CABLE', 'CABLE', {machineType:'CABLE',bodyPosition:'STANDING',grip:'NEUTRAL',instructions:'Cruza los cables detrás de la cabeza. Extiende los codos sin desplazar los brazos y vuelve con control.'}),
+      v('tate', 'Press Tate con mancuernas', 'Mancuernas y banco plano', 'DUMBBELL', 'FREE_WEIGHT', {bodyPosition:'SUPINE',grip:'PRONATED',instructions:'Con los codos abiertos, acerca las mancuernas al pecho flexionando los codos y extiéndelos con un recorrido cómodo.'}),
       v('pushdown-barra', 'Extensión de tríceps en polea con barra', 'Polea alta y barra recta', 'CABLE', 'CABLE', { machineType: 'CABLE', grip: 'PRONATED', bodyPosition: 'STANDING' }),
       v('pushdown-cuerda', 'Extensión de tríceps en polea con cuerda', 'Polea alta y cuerda', 'CABLE', 'CABLE', { machineType: 'CABLE', grip: 'NEUTRAL', bodyPosition: 'STANDING' }),
       v('pushdown-inverso', 'Extensión de tríceps con agarre supino', 'Polea alta y barra recta', 'CABLE', 'CABLE', { machineType: 'CABLE', grip: 'SUPINATED', bodyPosition: 'STANDING' }),
@@ -426,6 +447,8 @@ const families: Family[] = [
     description: 'Trabajo de flexión, extensión o rotación de muñeca y antebrazo con cargas ligeras y controladas.',
     instructions: 'Mantén el antebrazo apoyado cuando corresponda y usa un rango tolerable de muñeca.',
     variants: [
+      v('pronacion-mancuerna', 'Pronación de antebrazo con mancuerna', 'Mancuerna ligera y apoyo', 'DUMBBELL', 'FREE_WEIGHT', {bodyPosition:'SEATED',grip:'VARIABLE',laterality:'UNILATERAL',secondary:[],instructions:'Apoya el antebrazo y gira lentamente la palma hacia abajo. No desplaces el codo ni utilices impulso.'}),
+      v('supinacion-mancuerna', 'Supinación de antebrazo con mancuerna', 'Mancuerna ligera y apoyo', 'DUMBBELL', 'FREE_WEIGHT', {bodyPosition:'SEATED',grip:'VARIABLE',laterality:'UNILATERAL',secondary:[],instructions:'Apoya el antebrazo y gira lentamente la palma hacia arriba. Mantén la muñeca neutra durante el movimiento.'}),
       v('curl-muneca-barra', 'Flexión de muñeca con barra', 'Barra recta', 'BARBELL', 'FREE_WEIGHT', { grip: 'SUPINATED', bodyPosition: 'SEATED' }),
       v('curl-muneca-inverso', 'Extensión de muñeca con barra', 'Barra recta', 'BARBELL', 'FREE_WEIGHT', { grip: 'PRONATED', bodyPosition: 'SEATED' }),
       v('mancuerna-unilateral', 'Flexión de muñeca unilateral con mancuerna', 'Mancuerna y banco', 'DUMBBELL', 'FREE_WEIGHT', { grip: 'SUPINATED', bodyPosition: 'SEATED', laterality: 'UNILATERAL' }),
@@ -457,6 +480,7 @@ const families: Family[] = [
     description: 'Trabajo de control del tronco frente a fuerzas de rotación o inclinación lateral.',
     instructions: 'Mantén pelvis y caja torácica alineadas. Respira con normalidad y evita compensar con la zona lumbar.',
     variants: [
+      v('pallof-rodillas', 'Press Pallof de rodillas en polea', 'Polea ajustable y maneral', 'CABLE', 'ISOMETRIC', {machineType:'CABLE',bodyPosition:'KNEELING',laterality:'UNILATERAL'}),
       v('pallof-polea', 'Press Pallof en polea', 'Polea ajustable y maneral', 'CABLE', 'CABLE', { machineType: 'CABLE', grip: 'NEUTRAL', bodyPosition: 'STANDING' }),
       v('pallof-banda', 'Press Pallof con banda elástica', 'Banda elástica anclada', 'RESISTANCE_BAND', 'ELASTIC', { grip: 'NEUTRAL', bodyPosition: 'STANDING' }),
       v('plancha-frontal', 'Plancha frontal', 'Peso corporal y colchoneta', 'BODYWEIGHT', 'ISOMETRIC', { bodyPosition: 'PRONE', movementType: 'ISOMETRIC' }),
@@ -540,8 +564,8 @@ function buildExercise(family: Family, variant: Variant): ExerciseSeed {
     movementPlane: plane,
     difficulty: variant.difficulty ?? family.difficulty,
     oneRmSuitability: variant.oneRmSuitability ?? family.oneRmSuitability,
-    description: `${variant.name}. ${family.description}`,
-    instructions: family.instructions,
+    description: variant.description ?? `${variant.name}. ${family.description}`,
+    instructions: variant.instructions ?? family.instructions,
   };
 }
 

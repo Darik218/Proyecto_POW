@@ -90,6 +90,7 @@ export class TrainingPlansService {
     await this.assertOwnedDraft(athleteId, planId);
     const input: NewWeek = { weekNumber: dto.weekNumber };
     if (dto.objective !== undefined) input.objective = dto.objective;
+    if (dto.startsOn !== undefined) input.startsOn = dto.startsOn === null ? null : new Date(dto.startsOn + 'T00:00:00.000Z');
     try {
       const week = await this.repository.createWeek(athleteId, planId, input);
       if (!week) throw new ConflictException('Training plan is no longer editable.');
@@ -101,7 +102,7 @@ export class TrainingPlansService {
   }
 
   async updateWeek(identity: AuthenticatedIdentity, planId: string, weekId: string, dto: UpdatePlanWeekDto) {
-    if (dto.weekNumber === undefined && dto.objective === undefined) {
+    if (dto.weekNumber === undefined && dto.objective === undefined && dto.startsOn === undefined) {
       throw new BadRequestException('At least one editable field is required.');
     }
     const athleteId = await this.athleteId(identity);
@@ -109,6 +110,7 @@ export class TrainingPlansService {
     const update: WeekUpdate = {};
     if (dto.weekNumber !== undefined) update.weekNumber = dto.weekNumber;
     if (dto.objective !== undefined) update.objective = dto.objective;
+    if (dto.startsOn !== undefined) update.startsOn = dto.startsOn === null ? null : new Date(dto.startsOn + 'T00:00:00.000Z');
     try {
       const week = await this.repository.updateWeek(athleteId, planId, weekId, update);
       if (week === 'historical') {
@@ -226,8 +228,8 @@ export class TrainingPlansService {
     }
   }
 
-  private assertDateRange(startsOn: Date, endsOn: Date | null): void {
-    if (endsOn && endsOn < startsOn) {
+  private assertDateRange(startsOn: Date | null, endsOn: Date | null): void {
+    if (startsOn && endsOn && endsOn < startsOn) {
       throw new BadRequestException('endsOn must be on or after startsOn.');
     }
   }

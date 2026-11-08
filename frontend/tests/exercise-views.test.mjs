@@ -7,11 +7,11 @@ import { renderToString } from '@vue/server-renderer'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { createServer } from 'vite'
 
-test('muestra la entrada de ejercicios en la navegación privada y los estados iniciales de las vistas', async () => {
+test('prioriza rutina, historial y perfil y conserva el catálogo contextual', async () => {
   const server = await createServer({
     configFile: resolve('vite.config.ts'),
     appType: 'custom',
-    server: { middlewareMode: true, hmr: false },
+    server: { middlewareMode: true, hmr: false, ws: false },
     logLevel: 'error',
   })
 
@@ -21,6 +21,7 @@ test('muestra la entrada de ejercicios en la navegación privada y los estados i
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
+        {path:'/app/history',name:'workout-history',component:{template:'<div>Historial</div>'}},
         { path: '/app', name: 'home', component: { template: '<div>Inicio</div>' } },
         { path: '/app/profile', name: 'profile', component: { template: '<div>Perfil</div>' } },
         { path: '/app/measurements', name: 'measurements', component: { template: '<div>Medidas</div>' } },
@@ -36,8 +37,8 @@ test('muestra la entrada de ejercicios en la navegación privada y los estados i
     await router.push('/app')
     await router.isReady()
     const layoutHtml = await renderToString(layoutApp)
-    assert.match(layoutHtml, /Ejercicios/)
-    assert.match(layoutHtml, /href="\/app\/exercises"/)
+    assert.match(layoutHtml, /Mi rutina/);assert.match(layoutHtml,/Historial/)
+    assert.doesNotMatch(layoutHtml, /href="\/app\/exercises"/)
 
     const { default: catalogView } = await server.ssrLoadModule('/src/views/ExercisesView.vue')
     const catalogApp = createSSRApp(catalogView)

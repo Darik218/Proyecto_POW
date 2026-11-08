@@ -29,6 +29,8 @@ export class ExercisesService {
     return this.toPage(result.items.map((exercise) => this.toView(exercise, undefined)), query, result.total);
   }
 
+  async listVisible(identity:AuthenticatedIdentity,query:ExercisePage):Promise<ExercisePageResult>{const result=await this.repository.listVisible(identity.account.id,query);return this.toPage(result.items.map(exercise=>this.toView(exercise,identity.account.id)),query,result.total);}
+
   async listMine(identity: AuthenticatedIdentity, query: ExercisePage): Promise<ExercisePageResult> {
     const result = await this.repository.listMine(identity.account.id, query);
     return this.toPage(result.items.map((exercise) => this.toView(exercise, identity.account.id)), query, result.total);
@@ -41,7 +43,8 @@ export class ExercisesService {
   }
 
   async create(identity: AuthenticatedIdentity, input: ExerciseWriteValues): Promise<ExerciseView> {
-    const outcome = await this.repository.createPersonal(identity.account.id, input);
+    this.validateAliases(input.aliases);
+    const outcome = await this.repository.createPersonal(identity.account.id, input).catch(error=>this.aliasFailure(error));
     if (outcome.kind === 'missing-muscle-group') {
       throw new BadRequestException('One or more muscle group keys are invalid.');
     }
@@ -55,7 +58,8 @@ export class ExercisesService {
     if (!Object.keys(input).length) {
       throw new BadRequestException('At least one editable field is required.');
     }
-    const outcome = await this.repository.updatePersonal(identity.account.id, id, input);
+    this.validateAliases(input.aliases);
+    const outcome = await this.repository.updatePersonal(identity.account.id, id, input).catch(error=>this.aliasFailure(error));
     if (outcome.kind === 'not-found') throw new NotFoundException('Personal exercise not found.');
     if (outcome.kind === 'historical-reference') {
       throw new ConflictException('An exercise referenced by plans or training history cannot be edited.');
@@ -74,6 +78,10 @@ export class ExercisesService {
     if (!changed) throw new NotFoundException('Personal exercise not found.');
     return { deactivated: true };
   }
+
+  private aliasFailure(error:unknown):never{if(typeof error==='object'&&error!==null&&'code' in error&&error.code==='P2002')throw new BadRequestException('Aliases must have distinct normalized names.');throw error;}
+
+  private validateAliases(aliases?:string[]){if(!aliases)return;const normalized=aliases.map(value=>value.normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim());if(normalized.some(value=>!value)||new Set(normalized).size!==normalized.length)throw new BadRequestException('Aliases must have distinct normalized names.');}
 
   listMuscleGroups() {
     return this.repository.listMuscleGroups();

@@ -34,6 +34,7 @@ describe('ExercisesService', () => {
   const repository = {
     listMuscleGroups: jest.fn<ExercisesRepository['listMuscleGroups']>(),
     listGlobal: jest.fn<ExercisesRepository['listGlobal']>(),
+    listVisible: jest.fn<ExercisesRepository['listVisible']>(),
     listMine: jest.fn<ExercisesRepository['listMine']>(),
     findVisibleById: jest.fn<ExercisesRepository['findVisibleById']>(),
     createPersonal: jest.fn<ExercisesRepository['createPersonal']>(),

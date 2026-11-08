@@ -17,6 +17,8 @@ import type {
 export const EXERCISES_REPOSITORY = Symbol('EXERCISES_REPOSITORY');
 
 export type ExerciseFilters = {
+  origin?:ExerciseOrigin;
+  selection?: 'ALL' | 'FEATURED' | 'RECENT';
   search?: string;
   primaryMuscleGroupKey?: string;
   secondaryMuscleGroupKey?: string;
@@ -34,6 +36,7 @@ export type ExerciseGroupView = { key: string; name: string };
 export type MuscleGroupView = ExerciseGroupView & { description: string | null };
 
 export type ExerciseRecord = {
+  aliases?: string[];
   id: string;
   name: string;
   description: string | null;
@@ -65,6 +68,7 @@ export type ExercisePageResult = { items: ExerciseView[]; total: number; limit: 
 export type ExerciseListRecords = { items: ExerciseRecord[]; total: number };
 
 export type ExerciseWriteValues = {
+  aliases?: string[];
   name: string;
   primaryMuscleGroupKey: string;
   secondaryMuscleGroupKeys?: string[];
@@ -101,6 +105,7 @@ export type UpdateExerciseOutcome =
 export interface ExercisesRepository {
   listMuscleGroups(): Promise<MuscleGroupView[]>;
   listGlobal(query: ExercisePage): Promise<ExerciseListRecords>;
+  listVisible(ownerId: string, query: ExercisePage): Promise<ExerciseListRecords>;
   listMine(ownerId: string, query: ExercisePage): Promise<ExerciseListRecords>;
   findVisibleById(id: string, ownerId?: string): Promise<ExerciseRecord | null>;
   createPersonal(ownerId: string, values: ExerciseWriteValues): Promise<CreateExerciseOutcome>;

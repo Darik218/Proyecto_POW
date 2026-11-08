@@ -16,6 +16,7 @@ import type {
 const planSelect = {
   id: true,
   name: true,
+  version: true,
   startsOn: true,
   endsOn: true,
   status: true,
@@ -30,7 +31,7 @@ const detailSelect = {
     select: {
       id: true,
       weekNumber: true,
-      objective: true,
+      objective: true, startsOn: true,
       planExercises: {
         orderBy: [{ position: 'asc' as const }, { id: 'asc' as const }],
         select: {
@@ -131,7 +132,7 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
         plan.workoutSessions.length ||
         plan.weeks.some((week) => week.recommendations.length || week.planExercises.length)
       ) return 'historical' as const;
-      return tx.trainingPlan.update({ where: { id: plan.id }, data: input, select: planSelect });
+      return tx.trainingPlan.update({ where: { id: plan.id }, data: {...input,version:{increment:1}}, select: planSelect });
     });
   }
 
@@ -143,9 +144,10 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
         select: { id: true },
       });
       if (!plan) return null;
+      await tx.trainingPlan.update({where:{id:planId},data:{version:{increment:1}}});
       return tx.planWeek.create({
         data: { trainingPlanId: plan.id, ...input },
-        select: { id: true, weekNumber: true, objective: true },
+        select: { id: true, weekNumber: true, objective: true, startsOn: true },
       });
     });
   }
@@ -168,10 +170,11 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
       });
       if (!week) return null;
       if (week.workoutSessions.length || week.recommendations.length || week.planExercises.length) return 'historical' as const;
+      await tx.trainingPlan.update({where:{id:planId},data:{version:{increment:1}}});
       return tx.planWeek.update({
         where: { id: week.id },
         data: input,
-        select: { id: true, weekNumber: true, objective: true },
+        select: { id: true, weekNumber: true, objective: true, startsOn: true },
       });
     });
   }
@@ -197,6 +200,7 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
       });
       if (!exercise) return null;
       const { exerciseId, ...values } = input;
+      await tx.trainingPlan.update({where:{id:planId},data:{version:{increment:1}}});
       const created = await tx.planExercise.create({
         data: { planWeekId: week.id, exerciseId, ...values },
         select: { id: true, position: true, targetSets: true, targetReps: true, targetRpe: true, targetLoad: true, notes: true },
@@ -223,6 +227,7 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
       });
       if (!prescription) return null;
       if (prescription.workoutExercises.length || prescription.recommendations.length) return 'historical' as const;
+      await tx.trainingPlan.update({where:{id:planId},data:{version:{increment:1}}});
       const updated = await tx.planExercise.update({
         where: { id: prescription.id },
         data: { ...input, ...(input.targetReps !== undefined ? { targetRepsMin: input.targetReps, targetRepsMax: input.targetReps } : {}) },
@@ -250,6 +255,7 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
         select: { id: true },
       });
       if (historical) return 'historical' as const;
+      await tx.trainingPlan.update({where:{id:planId},data:{version:{increment:1}}});
       await tx.planExercise.delete({ where: { id: prescription.id } });
       return 'removed' as const;
     });
