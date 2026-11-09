@@ -1,3 +1,4 @@
+import { TrainingPlan } from '../models/training-plans/training-plan.model';
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
@@ -69,12 +70,13 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
     return athlete?.id ?? null;
   }
 
-  list(athleteId: string): Promise<PlanSummary[]> {
-    return this.prisma.trainingPlan.findMany({
+  async list(athleteId: string): Promise<PlanSummary[]> {
+    const plans = await this.prisma.trainingPlan.findMany({
       where: { athleteId },
       orderBy: [{ startsOn: 'desc' }, { id: 'desc' }],
       select: planSelect,
     });
+    return plans.map((plan) => new TrainingPlan(plan));
   }
 
   async findById(athleteId: string, planId: string): Promise<PlanDetail | null> {
@@ -83,7 +85,7 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
       select: detailSelect,
     });
     if (!plan) return null;
-    return {
+    return new TrainingPlan({
       ...plan,
       weeks: plan.weeks.map(({ planExercises, ...week }) => ({
         ...week,
@@ -91,20 +93,20 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
           const { primaryMuscleGroup, ...exerciseFields } = exercise.exercise;
           return {
             ...exercise,
-            targetRpe: exercise.targetRpe === null ? null : Number(exercise.targetRpe),
-            targetLoad: exercise.targetLoad === null ? null : Number(exercise.targetLoad),
+            targetRpe: exercise.targetRpe,
+            targetLoad: exercise.targetLoad,
             exercise: { ...exerciseFields, muscleGroup: primaryMuscleGroup.name },
           };
         }),
       })),
-    };
+    });
   }
 
   create(athleteId: string, input: NewPlan): Promise<PlanSummary> {
     return this.prisma.trainingPlan.create({
       data: { athleteId, ...input },
       select: planSelect,
-    });
+    }).then((plan) => new TrainingPlan(plan));
   }
 
   async update(athleteId: string, planId: string, input: PlanUpdate) {
@@ -132,7 +134,7 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
         plan.workoutSessions.length ||
         plan.weeks.some((week) => week.recommendations.length || week.planExercises.length)
       ) return 'historical' as const;
-      return tx.trainingPlan.update({ where: { id: plan.id }, data: {...input,version:{increment:1}}, select: planSelect });
+      return tx.trainingPlan.update({ where: { id: plan.id }, data: {...input,version:{increment:1}}, select: planSelect }).then((updated) => new TrainingPlan(updated));
     });
   }
 
@@ -207,8 +209,8 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
       });
       return {
         ...created,
-        targetRpe: created.targetRpe === null ? null : Number(created.targetRpe),
-        targetLoad: created.targetLoad === null ? null : Number(created.targetLoad),
+        targetRpe: created.targetRpe,
+        targetLoad: created.targetLoad,
         exercise: { ...exercise, muscleGroup: exercise.primaryMuscleGroup.name },
       };
     });
@@ -235,8 +237,8 @@ export class PrismaTrainingPlansRepository implements TrainingPlansRepository {
       });
       return {
         ...updated,
-        targetRpe: updated.targetRpe === null ? null : Number(updated.targetRpe),
-        targetLoad: updated.targetLoad === null ? null : Number(updated.targetLoad),
+        targetRpe: updated.targetRpe,
+        targetLoad: updated.targetLoad,
         exercise: { ...updated.exercise, muscleGroup: updated.exercise.primaryMuscleGroup.name },
       };
     });

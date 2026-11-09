@@ -8,10 +8,10 @@ import { useWorkoutSessions } from '../composables/useWorkoutSessions'
 import { routineService, type ScheduledActivity } from '../services/routine.service'
 import {
   workoutSessionsService,
-  localTrainingDate,
   workoutErrorMessage,
   type CreateWorkout,
 } from '../services/workout-sessions.service'
+import { localTrainingDate } from '../utils/dates'
 import { trainingPlanErrorMessage, weekdayLabel } from '../services/training-plans.service'
 import '../assets/training-plans.css'
 import '../assets/routine.css'

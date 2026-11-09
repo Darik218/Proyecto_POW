@@ -4,9 +4,8 @@ import { z } from 'zod'
 import {
   athleteErrorMessage,
   athletesService,
-  type AthleteProfile,
-  type BodyMeasurement,
 } from '../services/athletes.service'
+import type { AthleteProfile, BodyMeasurement } from '../types/athletes'
 
 const weightInputSchema = z
   .string()

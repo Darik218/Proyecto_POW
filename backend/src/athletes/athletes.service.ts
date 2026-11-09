@@ -5,12 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { AuthenticatedIdentity } from '../auth/auth.types';
+import type { BodyMeasurement } from '../models/athletes/body-measurement.model';
 import {
   ATHLETES_REPOSITORY,
 } from './athletes.repository';
 import type {
   AthletesRepository,
-  BodyMeasurementRecord,
   NewMeasurement,
   ProfileUpdate,
 } from './athletes.repository';
@@ -46,7 +46,7 @@ export class AthletesService {
 
   async getMyMeasurements(
     identity: AuthenticatedIdentity,
-  ): Promise<BodyMeasurementRecord[]> {
+  ): Promise<BodyMeasurement[]> {
     const profile = await this.getMyProfile(identity);
     return this.repository.findMeasurements(profile.id);
   }
@@ -54,7 +54,7 @@ export class AthletesService {
   async addMyMeasurement(
     identity: AuthenticatedIdentity,
     dto: CreateMeasurementDto,
-  ): Promise<BodyMeasurementRecord> {
+  ): Promise<BodyMeasurement> {
     const profile = await this.getMyProfile(identity);
     const input: NewMeasurement = {
       athleteId: profile.id,

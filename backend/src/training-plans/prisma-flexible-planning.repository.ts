@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { ScheduledActivity } from '../models/training-plans/scheduled-activity.model';
 import { PlanningError } from './daily-planning.policy';
 import {
   creationHash,
@@ -96,7 +97,7 @@ export class PrismaFlexiblePlanningRepository {
               'conflict',
               'Creation identifier already in use.',
             );
-          return previous.result;
+          return previous.result as T;
         }
         if (plan.version !== input.expectedVersion)
           throw new PlanningError(
@@ -573,7 +574,7 @@ export class PrismaFlexiblePlanningRepository {
     localDate(input.timeZone);
     if (input.from > input.to || plus(input.from, 370) < new Date(input.to))
       throw new PlanningError('invalid', 'Choose a date range up to 370 days.');
-    return this.prisma.scheduledActivity.findMany({
+    const activities = await this.prisma.scheduledActivity.findMany({
       where: {
         athleteId,
         timeZone: input.timeZone,
@@ -590,6 +591,7 @@ export class PrismaFlexiblePlanningRepository {
       orderBy: [{ scheduledOn: 'asc' }, { id: 'asc' }],
       take: 1000,
     });
+    return activities.map((activity) => new ScheduledActivity(activity));
   }
   async createActivity(athleteId: string, input: CreateScheduledActivityDto) {
     localDate(input.timeZone);
@@ -666,7 +668,7 @@ export class PrismaFlexiblePlanningRepository {
         },
         select: activitySelect,
       });
-    });
+    }).then((activity) => new ScheduledActivity(activity));
   }
   async updateActivity(
     athleteId: string,
@@ -727,6 +729,6 @@ export class PrismaFlexiblePlanningRepository {
         },
         select: activitySelect,
       });
-    });
+    }).then((activity) => new ScheduledActivity(activity));
   }
 }

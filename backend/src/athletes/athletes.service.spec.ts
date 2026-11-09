@@ -4,6 +4,9 @@ import type { MeasurementUnit } from '../generated/prisma/client';
 import type { AuthenticatedIdentity } from '../auth/auth.types';
 import type { AthletesRepository } from './athletes.repository';
 import { AthletesService } from './athletes.service';
+import { Athlete } from '../models/athletes/athlete.model';
+import { BodyMeasurement } from '../models/athletes/body-measurement.model';
+import { Decimal } from '@prisma/client/runtime/client';
 
 const identity: AuthenticatedIdentity = {
   account: {
@@ -38,8 +41,8 @@ describe('AthletesService', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('looks up profile by the authenticated owner and returns 404 if missing', async () => {
-    repository.findProfileByUserId.mockResolvedValueOnce(profile);
-    await expect(service.getMyProfile(identity)).resolves.toEqual(profile);
+    repository.findProfileByUserId.mockResolvedValueOnce(new Athlete(profile));
+    await expect(service.getMyProfile(identity).then((model) => model.attributes)).resolves.toEqual(profile);
     expect(mocks.findProfileByUserId).toHaveBeenCalledWith(identity.account.id);
 
     repository.findProfileByUserId.mockResolvedValueOnce(null);
@@ -47,7 +50,7 @@ describe('AthletesService', () => {
   });
 
   it('updates only supplied fields and rejects empty updates', async () => {
-    repository.updateProfile.mockResolvedValueOnce(profile);
+    repository.updateProfile.mockResolvedValueOnce(new Athlete(profile));
     await service.updateMyProfile(identity, { preferredUnit: 'LB' as MeasurementUnit });
     expect(mocks.updateProfile).toHaveBeenCalledWith(identity.account.id, {
       preferredUnit: 'LB',
@@ -58,13 +61,13 @@ describe('AthletesService', () => {
   });
 
   it('derives measurement ownership from the loaded profile', async () => {
-    repository.findProfileByUserId.mockResolvedValueOnce(profile);
-    repository.createMeasurement.mockResolvedValueOnce({
+    repository.findProfileByUserId.mockResolvedValueOnce(new Athlete(profile));
+    repository.createMeasurement.mockResolvedValueOnce(new BodyMeasurement({
       id: '30000000-0000-4000-8000-000000000001',
-      bodyWeight: 72.5,
+      bodyWeight: new Decimal('72.5'),
       measuredAt: new Date('2026-01-01T00:00:00.000Z'),
       notes: null,
-    });
+    }));
     await service.addMyMeasurement(identity, {
       bodyWeight: 72.5,
       measuredAt: '2026-01-01T00:00:00.000Z',

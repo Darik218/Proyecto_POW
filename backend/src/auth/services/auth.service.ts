@@ -19,16 +19,13 @@ import { AuthRateLimiter } from '../security/auth-rate-limiter';
 import { createOpaqueToken, hashRefreshToken } from '../security/cookie.utils';
 import { PasswordHasher } from '../security/password-hasher';
 import { DuplicateEmailError } from './errors';
+import { AuthAccount } from '../../models/auth/auth-account.model';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export type AuthResponse = {
-  user: PublicAccount;
-  accessToken: string;
-  accessTokenExpiresAt: Date;
-  csrfToken: string;
-};
+// Retain the previous type export for consumers without mixing presentation into use cases.
+export type { AuthResponse } from '../../views/auth/auth.presenter';
 
 @Injectable()
 export class AuthService {
@@ -223,13 +220,7 @@ export class AuthService {
       now.getTime() + this.config.accessTokenTtlSeconds * 1000,
     );
     return {
-      account: {
-        id: account.id,
-        email: account.email,
-        status: account.status,
-        createdAt: account.createdAt,
-        updatedAt: account.updatedAt,
-      },
+      account: new AuthAccount(account),
       accessToken: this.signAccessToken(account.id, session.id),
       accessTokenExpiresAt,
       refreshToken,

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { AuthAccount } from '../models/auth/auth-account.model';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { DuplicateEmailError } from './services/errors';
@@ -35,13 +36,7 @@ function toPublicAccount(account: {
   createdAt: Date;
   updatedAt: Date;
 }): PublicAccount {
-  return {
-    id: account.id,
-    email: account.email,
-    status: account.status,
-    createdAt: account.createdAt,
-    updatedAt: account.updatedAt,
-  };
+  return new AuthAccount(account);
 }
 
 function toStoredAccount(account: {

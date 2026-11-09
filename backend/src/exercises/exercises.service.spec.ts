@@ -1,10 +1,18 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { jest } from '@jest/globals';
 import { ExercisesService } from './exercises.service';
-import type { ExerciseRecord, ExercisesRepository } from './exercises.repository';
+import type { ExercisesRepository } from './exercises.repository';
+import { Exercise } from '../models/exercises/exercise.model';
+import type { ExerciseAttributes } from '../models/exercises/exercise.model';
+import { ExercisesPresenter } from '../views/exercises/exercises.presenter';
+const presenter = new ExercisesPresenter();
 
 describe('ExercisesService', () => {
-  const exercise: ExerciseRecord = {
+  const exercise: ExerciseAttributes = {
     id: '20000000-0000-4000-8000-000000000001',
     name: 'Press de banca con barra',
     description: 'Empuje horizontal.',
@@ -56,46 +64,98 @@ describe('ExercisesService', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('returns stable paginated public fields and excludes owner identity', async () => {
-    repository.listGlobal.mockResolvedValue({ items: [exercise], total: 27 });
-    await expect(service.listGlobal({ limit: 10, offset: 20 })).resolves.toEqual({
-      items: [{ ...exercise, isOwner: false, ownerId: undefined, isActive: undefined }].map(({ ownerId: _ownerId, isActive: _isActive, ...rest }) => rest),
+    repository.listGlobal.mockResolvedValue({
+      items: [new Exercise(exercise)],
+      total: 27,
+    });
+    await expect(
+      service
+        .listGlobal({ limit: 10, offset: 20 })
+        .then((result) => presenter.catalog(result)),
+    ).resolves.toEqual({
+      items: [
+        {
+          ...exercise,
+          isOwner: false,
+          ownerId: undefined,
+          isActive: undefined,
+        },
+      ].map(({ ownerId: _ownerId, isActive: _isActive, ...rest }) => rest),
       total: 27,
       limit: 10,
       offset: 20,
     });
-    expect(repository.listGlobal).toHaveBeenCalledWith({ limit: 10, offset: 20 });
+    expect(repository.listGlobal).toHaveBeenCalledWith({
+      limit: 10,
+      offset: 20,
+    });
   });
 
   it('keeps global and user lists isolated and marks only owned records', async () => {
-    const personal = { ...exercise, origin: 'PERSONAL' as const, ownerId: identity.account.id };
-    repository.listMine.mockResolvedValue({ items: [personal], total: 1 });
-    await expect(service.listMine(identity, { limit: 20, offset: 0 })).resolves.toMatchObject({
+    const personal = {
+      ...exercise,
+      origin: 'PERSONAL' as const,
+      ownerId: identity.account.id,
+    };
+    repository.listMine.mockResolvedValue({
+      items: [new Exercise(personal)],
+      total: 1,
+    });
+    await expect(
+      service
+        .listMine(identity, { limit: 20, offset: 0 })
+        .then((result) => presenter.catalog(result, identity.account.id)),
+    ).resolves.toMatchObject({
       items: [{ isOwner: true, origin: 'PERSONAL' }],
       total: 1,
     });
-    expect(repository.listMine).toHaveBeenCalledWith(identity.account.id, { limit: 20, offset: 0 });
+    expect(repository.listMine).toHaveBeenCalledWith(identity.account.id, {
+      limit: 20,
+      offset: 0,
+    });
   });
 
   it('returns only visible details and maps absent records to not found', async () => {
-    repository.findVisibleById.mockResolvedValueOnce(exercise);
-    await expect(service.getById(exercise.id)).resolves.toMatchObject({ id: exercise.id, isOwner: false });
+    repository.findVisibleById.mockResolvedValueOnce(new Exercise(exercise));
+    await expect(
+      service.getById(exercise.id).then((result) => presenter.exercise(result)),
+    ).resolves.toMatchObject({ id: exercise.id, isOwner: false });
     repository.findVisibleById.mockResolvedValueOnce(null);
-    await expect(service.getById(exercise.id, identity)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getById(exercise.id, identity)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('rejects invalid group sets and refuses edits that would affect history', async () => {
-    repository.createPersonal.mockResolvedValueOnce({ kind: 'missing-muscle-group' });
-    await expect(service.create(identity, {
-      name: 'Ejercicio propio', primaryMuscleGroupKey: 'missing', equipment: 'Barra', equipmentType: 'BARBELL',
-    })).rejects.toBeInstanceOf(BadRequestException);
+    repository.createPersonal.mockResolvedValueOnce({
+      kind: 'missing-muscle-group',
+    });
+    await expect(
+      service.create(identity, {
+        name: 'Ejercicio propio',
+        primaryMuscleGroupKey: 'missing',
+        equipment: 'Barra',
+        equipmentType: 'BARBELL',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
 
-    repository.updatePersonal.mockResolvedValueOnce({ kind: 'historical-reference' });
-    await expect(service.update(identity, exercise.id, { name: 'Cambio' })).rejects.toBeInstanceOf(ConflictException);
+    repository.updatePersonal.mockResolvedValueOnce({
+      kind: 'historical-reference',
+    });
+    await expect(
+      service.update(identity, exercise.id, { name: 'Cambio' }),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('rejects empty updates and deactivates rather than deleting', async () => {
-    await expect(service.update(identity, exercise.id, {})).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.update(identity, exercise.id, {}),
+    ).rejects.toBeInstanceOf(BadRequestException);
     repository.deactivatePersonal.mockResolvedValueOnce(true);
-    await expect(service.deactivate(identity, exercise.id)).resolves.toEqual({ deactivated: true });
+    await expect(
+      service
+        .deactivate(identity, exercise.id)
+        .then(() => presenter.deactivated()),
+    ).resolves.toEqual({ deactivated: true });
   });
 });

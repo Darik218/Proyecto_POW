@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { TrainingPlan } from '../models/training-plans/training-plan.model';
 import {
   assertPermutation,
   PlanningError,
@@ -91,16 +92,16 @@ function values(row: Row) {
     notes: row.notes,
   };
 }
-function publicPrescription(row: Row) {
+function prescriptionModel(row: Row) {
   return {
     id: row.id,
     position: row.position,
     targetSets: row.targetSets,
     targetReps: row.targetReps,
-    targetRepsMin: row.targetRepsMin ?? row.targetReps,
-    targetRepsMax: row.targetRepsMax ?? row.targetReps,
-    targetRpe: row.targetRpe === null ? null : Number(row.targetRpe),
-    targetLoad: row.targetLoad === null ? null : Number(row.targetLoad),
+    targetRepsMin: row.targetRepsMin,
+    targetRepsMax: row.targetRepsMax,
+    targetRpe: row.targetRpe,
+    targetLoad: row.targetLoad,
     targetLoadUnit: row.targetLoadUnit,
     notes: row.notes,
     hasHistory: hasHistory(row),
@@ -178,13 +179,13 @@ export class PrismaDailyPlanningRepository {
         'The plan contains an unavailable private resource.',
       );
     }
-    return {
+    return new TrainingPlan({
       ...plan,
       weeks: plan.weeks.map(({ days, planExercises, ...week }) => ({
         ...week,
         pendingExercises: planExercises
           .filter((row) => row.planDayId === null)
-          .map(publicPrescription),
+          .map(prescriptionModel),
         days: days.map(({ planWeekId: _weekId, _count, ...day }) => ({
           ...day,
           hasHistory:
@@ -194,10 +195,10 @@ export class PrismaDailyPlanningRepository {
             ),
           exercises: planExercises
             .filter((row) => row.planDayId === day.id)
-            .map(publicPrescription),
+            .map(prescriptionModel),
         })),
       })),
-    };
+    });
   }
   get(athleteId: string, planId: string) {
     return this.prisma.$transaction((tx) => this.read(tx, athleteId, planId), {

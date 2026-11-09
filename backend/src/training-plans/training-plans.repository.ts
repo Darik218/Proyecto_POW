@@ -1,4 +1,4 @@
-import type { PlanStatus } from '../generated/prisma/client';
+import type { TrainingPlan, PlanAttributes, PlanDetailAttributes, PlanWeekAttributes, PlanPrescription } from '../models/training-plans/training-plan.model';
 
 export const TRAINING_PLANS_REPOSITORY = Symbol('TRAINING_PLANS_REPOSITORY');
 
@@ -17,37 +17,9 @@ export type NewPrescription = {
 };
 export type PrescriptionUpdate = Partial<Omit<NewPrescription, 'exerciseId'>>;
 
-export type PlanWeekSummary = { id: string; weekNumber: number; startsOn?: Date | null; objective: string | null };
-export type PlanSummary = {
-  id: string;
-  name: string;
-  startsOn: Date | null;
-  endsOn: Date | null;
-  status: PlanStatus;
-  version?: number;
-  createdAt: Date;
-  updatedAt: Date;
-};
-export type PlanDetail = PlanSummary & {
-  weeks: Array<{
-    id: string;
-    weekNumber: number;
-    objective: string | null;
-    exercises: Array<{
-      id: string;
-      position: number;
-      targetSets: number;
-      targetReps: number | null;
-      targetRepsMin?: number | null;
-      targetRepsMax?: number | null;
-      targetLoadUnit?: 'KG' | 'LB' | null;
-      targetRpe: number | null;
-      targetLoad: number | null;
-      notes: string | null;
-      exercise: { id: string; name: string; muscleGroup: string; equipment: string; description: string | null };
-    }>;
-  }>;
-};
+export type PlanWeekSummary = PlanWeekAttributes;
+export type PlanSummary = TrainingPlan<PlanAttributes>;
+export type PlanDetail = TrainingPlan<PlanDetailAttributes>;
 
 export interface TrainingPlansRepository {
   findAthleteId(userId: string): Promise<string | null>;
@@ -57,7 +29,7 @@ export interface TrainingPlansRepository {
   update(athleteId: string, planId: string, input: PlanUpdate): Promise<PlanSummary | null | 'historical'>;
   createWeek(athleteId: string, planId: string, input: NewWeek): Promise<PlanWeekSummary | null>;
   updateWeek(athleteId: string, planId: string, weekId: string, input: WeekUpdate): Promise<PlanWeekSummary | null | 'historical'>;
-  createPrescription(athleteId: string, planId: string, weekId: string, input: NewPrescription): Promise<PlanDetail['weeks'][number]['exercises'][number] | null>;
-  updatePrescription(athleteId: string, planId: string, weekId: string, prescriptionId: string, input: PrescriptionUpdate): Promise<PlanDetail['weeks'][number]['exercises'][number] | null | 'historical'>;
+  createPrescription(athleteId: string, planId: string, weekId: string, input: NewPrescription): Promise<PlanPrescription | null>;
+  updatePrescription(athleteId: string, planId: string, weekId: string, prescriptionId: string, input: PrescriptionUpdate): Promise<PlanPrescription | null | 'historical'>;
   removePrescription(athleteId: string, planId: string, weekId: string, prescriptionId: string): Promise<'removed' | 'missing' | 'historical'>;
 }

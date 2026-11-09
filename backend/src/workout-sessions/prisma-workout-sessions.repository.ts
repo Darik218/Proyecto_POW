@@ -25,7 +25,6 @@ import { WorkoutRepositoryError } from './workout-sessions.repository';
 import type {
   WorkoutDetail,
   WorkoutSessionsRepository,
-  WorkoutSummary,
 } from './workout-sessions.repository';
 import {
   creationHash,
@@ -38,6 +37,8 @@ import type {
   WorkoutSuggestionsDto,
 } from './dto/workout-session.dto';
 import { requireInProgress, sessionTransition } from './workout-session.policy';
+import { WorkoutSession } from '../models/workout-sessions/workout-session.model';
+import type { WorkoutSummaryAttributes, WorkoutSource, WorkoutSuggestions } from '../models/workout-sessions/workout-session.model';
 
 export type PreparationCommand =
   | { action: 'update'; input: UpdateWorkoutDto }
@@ -132,9 +133,9 @@ type SummaryRow = Prisma.WorkoutSessionGetPayload<{
 type DetailRow = Prisma.WorkoutSessionGetPayload<{
   select: typeof detailSelect;
 }>;
-function summary(row: SummaryRow): WorkoutSummary {
-  const { _count, ...fields } = row;
-  return { ...fields, exerciseCount: _count.exercises };
+function summary(row: SummaryRow): WorkoutSummaryAttributes {
+  const { _count, sourceSnapshot, ...fields } = row;
+  return { ...fields, sourceSnapshot: sourceSnapshot as WorkoutSource | null, exerciseCount: _count.exercises };
 }
 function rowTargets(row: {
   targetSets: number | null;
@@ -154,23 +155,9 @@ function rowTargets(row: {
   };
 }
 function detail(row: DetailRow, athleteId: string): WorkoutDetail {
-  return {
+  return new WorkoutSession({
     ...summary(row),
-    actualSetCount: row.exercises.reduce(
-      (count, item) =>
-        count +
-        item.sets.filter(
-          (set) =>
-            set.status === null ||
-            ['COMPLETED', 'INCOMPLETE', 'FAILED'].includes(set.status),
-        ).length,
-      0,
-    ),
-    completedSetCount: row.exercises.reduce(
-      (count, item) =>
-        count + item.sets.filter((set) => set.isCompleted).length,
-      0,
-    ),
+    ...WorkoutSession.resultCounts(row.exercises),
     exercises: row.exercises.map(
       ({ exercise, planExercise, originalSnapshot, ...fields }) => {
         const { primaryMuscleGroup, origin, owner, ...catalog } = exercise;
@@ -186,14 +173,16 @@ function detail(row: DetailRow, athleteId: string): WorkoutDetail {
           notes: fields.notes,
           isOmitted: fields.isOmitted,
           replacesWorkoutExerciseId: fields.replacesWorkoutExerciseId,
-          sets: fields.sets.map((set) => ({
-            ...set,
-            load: set.load?.toString() ?? null,
-            loadKg: set.loadKg?.toString() ?? null,
-            rpe: set.rpe === null ? null : Number(set.rpe),
-          })),
+          sets: fields.sets,
           original,
-          targets: rowTargets(fields),
+          targets: {
+            targetSets: fields.targetSets,
+            targetRepsMin: fields.targetRepsMin,
+            targetRepsMax: fields.targetRepsMax,
+            targetLoad: fields.targetLoad,
+            targetLoadUnit: fields.targetLoadUnit,
+            targetRpe: fields.targetRpe,
+          },
           exercise: original?.exercise ?? {
             ...catalog,
             muscleGroup: primaryMuscleGroup.name,
@@ -201,22 +190,12 @@ function detail(row: DetailRow, athleteId: string): WorkoutDetail {
           // Legacy reference is not presented as a verified original snapshot.
           prescription:
             !original && planExercise
-              ? {
-                  ...planExercise,
-                  targetRpe:
-                    planExercise.targetRpe === null
-                      ? null
-                      : Number(planExercise.targetRpe),
-                  targetLoad:
-                    planExercise.targetLoad === null
-                      ? null
-                      : Number(planExercise.targetLoad),
-                }
+              ? planExercise
               : null,
         };
       },
     ),
-  };
+  });
 }
 
 @Injectable()
@@ -279,7 +258,7 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
                   exercise.sessionId === row.id,
               ),
             );
-            return {
+            return new WorkoutSession({
               ...summary(row),
               actualSetCount: actual.reduce(
                 (sum, count) => sum + count._count.id,
@@ -288,7 +267,7 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
               completedSetCount: actual
                 .filter((count) => count.isCompleted)
                 .reduce((sum, count) => sum + count._count.id, 0),
-            };
+            });
           }),
           total,
           limit: query.limit,
@@ -419,7 +398,7 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
       return this.read(tx, athleteId, id);
     });
   }
-  async suggestions(athleteId: string, input: WorkoutSuggestionsDto) {
+  async suggestions(athleteId: string, input: WorkoutSuggestionsDto): Promise<WorkoutSuggestions> {
     localDate(input.timeZone);
     const on = new Date(input.performedOn);
     const weekday = on.getUTCDay() || 7;
@@ -593,7 +572,7 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
           };
         } else if (input.repeatFromId) {
           await this.lockSession(tx, athleteId, input.repeatFromId);
-          const prior = await this.read(tx, athleteId, input.repeatFromId);
+          const prior = (await this.read(tx, athleteId, input.repeatFromId)).attributes;
           source = {
             kind: 'SESSION',
             session: { id: prior.id, name: prior.name ?? null },
@@ -609,7 +588,7 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
                 'conflict',
                 'A source exercise is inactive or unavailable.',
               );
-            const values = item.targets ?? emptyTargets;
+            const values = item.targets ? rowTargets(item.targets) : emptyTargets;
             const original: ExerciseSnapshot = {
               source: { kind: 'SESSION', id: item.id },
               exercise: item.exercise,
@@ -991,7 +970,7 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
     return this.prisma.$transaction(
       async (tx) => {
         await this.lockSession(tx, athleteId, id);
-        const session = await this.read(tx, athleteId, id);
+        const session = (await this.read(tx, athleteId, id)).attributes;
         if (!['COMPLETED', 'CANCELLED'].includes(session.status))
           throw new WorkoutRepositoryError(
             'conflict',
@@ -1064,7 +1043,7 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
           },
         });
         for (const [index, item] of included.entries()) {
-          const value = item.targets;
+          const value = item.targets ? rowTargets(item.targets) : undefined;
           if (
             !value?.targetSets ||
             !value.targetRepsMin ||
@@ -1235,7 +1214,7 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
   ): Promise<WorkoutDetail> {
     return this.prisma.$transaction(async (tx) => {
       await this.lockSession(tx, athleteId, id);
-      const session = await this.read(tx, athleteId, id);
+      const session = (await this.read(tx, athleteId, id)).attributes;
       const current = await tx.workoutSession.findUniqueOrThrow({
         where: { id },
       });

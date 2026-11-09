@@ -4,11 +4,9 @@ import {RouterLink} from 'vue-router'
 import {
   athleteErrorMessage,
   athletesService,
-  measurementUnitSchema,
-  updateAthleteRequestSchema,
-  type AthleteProfile,
-  type MeasurementUnit,
 } from '../services/athletes.service'
+import { measurementUnitSchema, updateAthleteRequestSchema } from '../schemas/athletes.schema'
+import type { AthleteProfile, MeasurementUnit } from '../types/athletes'
 
 const profile = ref<AthleteProfile | null>(null)
 const birthDate = ref('')

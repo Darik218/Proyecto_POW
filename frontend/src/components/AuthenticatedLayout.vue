@@ -50,8 +50,6 @@ async function signOut(allSessions = false): Promise<void> {
         <RouterLink class="app-nav__link" active-class="app-nav__link--active" :class="{'app-nav__link--active':route.name==='measurements'}" :to="{name:'profile'}">Perfil</RouterLink>
       </nav>
     </header>
-    <main class="app-main">
-      <RouterView />
-    </main>
+    <slot />
   </div>
 </template>

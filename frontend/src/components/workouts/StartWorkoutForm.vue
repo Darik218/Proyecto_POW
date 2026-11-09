@@ -2,13 +2,15 @@
 import { ref, useId, onUnmounted, watch } from 'vue'
 import PreviousWorkoutSelector from './PreviousWorkoutSelector.vue'
 import PlanDaySelector from './PlanDaySelector.vue'
-import { createWorkoutSchema, localTrainingDate, workoutWriteRejected, workoutErrorMessage, workoutSessionsService, type CreateWorkout, type WorkoutSuggestion } from '../../services/workout-sessions.service'
+import { createWorkoutSchema, workoutWriteRejected, workoutErrorMessage, workoutSessionsService, type CreateWorkout, type WorkoutSuggestion } from '../../services/workout-sessions.service'
+import { localTrainingDate } from '../../utils/dates'
 const props = defineProps<{ initialPlanId?: string; initialWeekId?: string; initialDayId?: string; initialRepeatFromId?: string; save: (input: CreateWorkout) => Promise<unknown> }>()
 const emit = defineEmits<{ cancel: [] }>()
 const id = useId()
 const source = ref(props.initialRepeatFromId ? 'REPEAT' : props.initialPlanId ? 'PLAN_DAY' : 'FREE')
 const repeatFromId = ref(props.initialRepeatFromId ?? '')
 const selection = ref({ trainingPlanId: props.initialPlanId ?? '', planWeekId: props.initialWeekId ?? '', planDayId: props.initialDayId ?? '' })
+const scheduledActivityId = ref<string | undefined>()
 const timeZone = ref(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
 const performedOn = ref(localTrainingDate(timeZone.value))
 const recordingMode = ref<'LIVE' | 'RETROSPECTIVE'>('LIVE')
@@ -23,6 +25,9 @@ const suggestionMessage = ref('')
 const suggesting = ref(false)
 let controller: AbortController | undefined
 let generation = 0
+// The accepted activity belongs to this exact origin, selection and local date/zone.
+// Invalidate synchronously so a same-tick submit cannot carry a stale association.
+watch([source, performedOn, timeZone, () => selection.value.trainingPlanId, () => selection.value.planWeekId, () => selection.value.planDayId], () => { scheduledActivityId.value = undefined }, { flush: 'sync' })
 watch([performedOn, timeZone], () => { generation++; controller?.abort(); suggesting.value = false; suggestions.value = []; suggestionMessage.value = '' })
 async function suggest() {
   controller?.abort(); controller = new AbortController(); const signal = controller.signal; const current = ++generation
@@ -35,13 +40,13 @@ async function suggest() {
   } catch (cause) { if (current === generation && !signal.aborted) error.value = workoutErrorMessage(cause, 'No se pudo consultar la programación.') }
   finally { if (current === generation) suggesting.value = false }
 }
-function accept(candidate: WorkoutSuggestion) { selection.value = { trainingPlanId: candidate.trainingPlanId, planWeekId: candidate.planWeekId, planDayId: candidate.planDayId }; source.value = 'PLAN_DAY' }
+function accept(candidate: WorkoutSuggestion) { selection.value = { trainingPlanId: candidate.trainingPlanId, planWeekId: candidate.planWeekId, planDayId: candidate.planDayId }; source.value = 'PLAN_DAY'; scheduledActivityId.value = candidate.scheduledActivityId }
 async function submit() {
   if (pending.value || suggesting.value) return
   error.value = ''
   if (source.value === 'SUGGESTED') { error.value = 'Acepta una sugerencia o cambia el origen.'; return }
   if (!submitted.value) {
-    const parsed = createWorkoutSchema.safeParse({ id: requestId, performedOn: performedOn.value, timeZone: timeZone.value, recordingMode: recordingMode.value, ...(name.value.trim() ? { name: name.value.trim() } : {}), ...(source.value === 'PLAN_DAY' ? selection.value : {}), ...(source.value === 'REPEAT' ? { repeatFromId: repeatFromId.value } : {}), notes: notes.value.trim() || null })
+    const parsed = createWorkoutSchema.safeParse({ id: requestId, performedOn: performedOn.value, timeZone: timeZone.value, recordingMode: recordingMode.value, ...(name.value.trim() ? { name: name.value.trim() } : {}), ...(source.value === 'PLAN_DAY' ? { ...selection.value, ...(scheduledActivityId.value ? { scheduledActivityId: scheduledActivityId.value } : {}) } : {}), ...(source.value === 'REPEAT' ? { repeatFromId: repeatFromId.value } : {}), notes: notes.value.trim() || null })
     if (!parsed.success) { error.value = parsed.error.issues[0]?.message ?? 'Revisa los datos del entrenamiento.'; return }
     if (source.value === 'REPEAT' && !repeatFromId.value) { error.value = 'Selecciona una sesión anterior.'; return }
     submitted.value = parsed.data
@@ -64,7 +69,7 @@ onUnmounted(() => { generation++; controller?.abort() })
       <p v-if="recordingMode === 'RETROSPECTIVE'" class="field-hint">El inicio y el fin indican cuándo registras los datos; la fecha anterior identifica el entrenamiento realizado.</p>
       <PreviousWorkoutSelector v-if="source === 'REPEAT'" v-model="repeatFromId" :disabled="pending || Boolean(submitted)" />
       <PlanDaySelector v-if="source === 'PLAN_DAY'" v-model="selection" :disabled="pending || Boolean(submitted)" />
-      <div v-if="source === 'SUGGESTED'"><button class="secondary-button" type="button" :disabled="suggesting" @click="suggest">{{ suggesting ? 'Consultando…' : 'Consultar programación' }}</button><p role="status">{{ suggestionMessage }}</p><ul><li v-for="candidate in suggestions" :key="candidate.planDayId"><button class="text-button" type="button" @click="accept(candidate)">Usar {{ candidate.planName }} · Semana {{ candidate.weekNumber }} · {{ candidate.name }}</button></li></ul><button class="text-button" type="button" @click="source = 'FREE'">Ignorar sugerencias y entrenar libremente</button></div>
+      <div v-if="source === 'SUGGESTED'"><button class="secondary-button" type="button" :disabled="suggesting" @click="suggest">{{ suggesting ? 'Consultando…' : 'Consultar programación' }}</button><p role="status">{{ suggestionMessage }}</p><ul><li v-for="candidate in suggestions" :key="candidate.scheduledActivityId ?? candidate.planDayId"><button class="text-button" type="button" @click="accept(candidate)">Usar {{ candidate.planName }} · Semana {{ candidate.weekNumber }} · {{ candidate.name }}</button></li></ul><button class="text-button" type="button" @click="source = 'FREE'">Ignorar sugerencias y entrenar libremente</button></div>
       <label class="field-label" :for="id + '-name'">Nombre (opcional)</label><input :id="id + '-name'" v-model="name" maxlength="160" class="form-control">
       <label class="field-label" :for="id + '-notes'">Notas (opcional)</label><textarea :id="id + '-notes'" v-model="notes" maxlength="4000" class="form-control" />
     </fieldset>

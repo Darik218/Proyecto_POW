@@ -1,3 +1,4 @@
+import { WorkoutSession } from '../models/workout-sessions/workout-session.model';
 import {
   BadRequestException,
   ConflictException,
@@ -6,6 +7,7 @@ import {
 import { ValidationPipe } from '@nestjs/common';
 import { jest } from '@jest/globals';
 import { AthletesService } from '../athletes/athletes.service';
+import { Athlete } from '../models/athletes/athlete.model';
 import type { AthletesRepository } from '../athletes/athletes.repository';
 import { WorkoutSessionsService } from './workout-sessions.service';
 import { WorkoutRepositoryError } from './workout-sessions.repository';
@@ -40,7 +42,7 @@ const identity = {
   },
   sessionId: id,
 };
-const workout: WorkoutDetail = {
+const workout: WorkoutDetail = new WorkoutSession({
   id,
   status: 'IN_PROGRESS',
   startedAt: now,
@@ -52,7 +54,7 @@ const workout: WorkoutDetail = {
   planWeek: null,
   exerciseCount: 0,
   exercises: [],
-};
+});
 const repository = {
   prepare: jest.fn<WorkoutSessionsRepository['prepare']>(),
   associate: jest.fn<WorkoutSessionsRepository['associate']>(),
@@ -69,13 +71,13 @@ const repository = {
 };
 const findProfile = jest
   .fn<AthletesRepository['findProfileByUserId']>()
-  .mockResolvedValue({
+  .mockResolvedValue(new Athlete({
     id: athleteId,
     birthDate: null,
     preferredUnit: 'KG',
     createdAt: now,
     updatedAt: now,
-  });
+  }));
 const athletesRepository: AthletesRepository = {
   findProfileByUserId: findProfile,
   updateProfile: jest.fn<AthletesRepository['updateProfile']>(),
@@ -155,12 +157,12 @@ describe('Workout session service and lifecycle', () => {
         now,
       ),
     ).toEqual({ status: 'IN_PROGRESS', startedAt: now });
-    expect(sessionTransition(workout, 'start', 0, now)).toBeNull();
-    const update = sessionTransition(workout, 'complete', 1, now);
+    expect(sessionTransition(workout.attributes, 'start', 0, now)).toBeNull();
+    const update = sessionTransition(workout.attributes, 'complete', 1, now);
     expect(update).toEqual({ status: 'COMPLETED', finishedAt: now });
     expect(
       sessionTransition(
-        { ...workout, status: 'COMPLETED', finishedAt: now },
+        { ...workout.attributes, status: 'COMPLETED', finishedAt: now },
         'complete',
         1,
         new Date(now.getTime() + 1000),
@@ -171,7 +173,7 @@ describe('Workout session service and lifecycle', () => {
     'rejects completion from %s',
     (status) => {
       expect(() =>
-        sessionTransition({ ...workout, status }, 'complete', 1, now),
+        sessionTransition({ ...workout.attributes, status }, 'complete', 1, now),
       ).toThrow(WorkoutRepositoryError);
     },
   );
@@ -180,7 +182,7 @@ describe('Workout session service and lifecycle', () => {
     (status) => {
       expect(() =>
         sessionTransition(
-          { ...workout, status, finishedAt: now },
+          { ...workout.attributes, status, finishedAt: now },
           'start',
           1,
           now,
@@ -189,14 +191,14 @@ describe('Workout session service and lifecycle', () => {
     },
   );
   it('rejects empty sessions and inconsistent timestamps', () => {
-    expect(() => sessionTransition(workout, 'complete', 0, now)).toThrow(
+    expect(() => sessionTransition(workout.attributes, 'complete', 0, now)).toThrow(
       WorkoutRepositoryError,
     );
     expect(() =>
-      sessionTransition({ ...workout, startedAt: null }, 'complete', 1, now),
+      sessionTransition({ ...workout.attributes, startedAt: null }, 'complete', 1, now),
     ).toThrow(WorkoutRepositoryError);
     expect(() =>
-      sessionTransition({ ...workout, finishedAt: now }, 'complete', 1, now),
+      sessionTransition({ ...workout.attributes, finishedAt: now }, 'complete', 1, now),
     ).toThrow(WorkoutRepositoryError);
   });
 });

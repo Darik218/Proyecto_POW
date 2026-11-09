@@ -52,11 +52,7 @@ const path = '/workout-sessions'
 function resourcePath(id: string) { if (!uuid.safeParse(id).success) throw new InvalidWorkoutIdError(); return `${path}/${id}` }
 const suggestionSchema = z.object({ performedOn: z.iso.date(), timeZone: z.string(), resolution: z.enum(['SINGLE', 'MULTIPLE', 'NONE']), candidates: z.array(z.object({ scheduledActivityId:uuid.optional(), trainingPlanId: uuid, planWeekId: uuid, planDayId: uuid, planName: z.string(), weekNumber: z.number().int(), name: z.string() }).strict()) }).strict()
 export type WorkoutSuggestion = z.infer<typeof suggestionSchema>['candidates'][number]
-export function localTrainingDate(timeZone: string, now = new Date()): string {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now)
-  const part = (type: string) => parts.find(item => item.type === type)!.value
-  return `${part('year')}-${part('month')}-${part('day')}`
-}
+export { localTrainingDate } from '../utils/dates'
 const versionSchema = z.number().int().nonnegative()
 export const updateWorkoutSchema = z.object({ expectedVersion: versionSchema, name: z.string().trim().min(1).max(160).optional(), notes, performedOn: z.iso.date().optional(), timeZone: zoneSchema.optional(), recordingMode: z.enum(['LIVE', 'RETROSPECTIVE']).optional() }).strict()
 export type UpdateWorkout = z.infer<typeof updateWorkoutSchema>

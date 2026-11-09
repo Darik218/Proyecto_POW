@@ -65,7 +65,7 @@ export class TrainingPlansService {
     const athleteId = await this.athleteId(identity);
     const plan = await this.repository.findById(athleteId, planId);
     if (!plan) throw new NotFoundException('Training plan not found.');
-    this.assertDraft(plan.status);
+    this.assertDraft(plan);
 
     const update: PlanUpdate = {};
     if (dto.name !== undefined) update.name = dto.name;
@@ -73,8 +73,8 @@ export class TrainingPlansService {
     if (dto.endsOn !== undefined) {
       update.endsOn = dto.endsOn === null ? null : new Date(`${dto.endsOn}T00:00:00.000Z`);
     }
-    const startsOn = update.startsOn ?? plan.startsOn;
-    const endsOn = update.endsOn !== undefined ? update.endsOn : plan.endsOn;
+    const startsOn = update.startsOn ?? plan.attributes.startsOn;
+    const endsOn = update.endsOn !== undefined ? update.endsOn : plan.attributes.endsOn;
     this.assertDateRange(startsOn, endsOn);
 
     const updated = await this.repository.update(athleteId, planId, update);
@@ -126,7 +126,7 @@ export class TrainingPlansService {
 
   async listWeekExercises(identity: AuthenticatedIdentity, planId: string, weekId: string) {
     const plan = await this.get(identity, planId);
-    const week = plan.weeks.find((item) => item.id === weekId);
+    const week = plan.attributes.weeks.find((item) => item.id === weekId);
     if (!week) throw new NotFoundException('Plan week not found.');
     return week.exercises;
   }
@@ -141,7 +141,7 @@ export class TrainingPlansService {
   async createWeekExercise(identity: AuthenticatedIdentity, planId: string, weekId: string, dto: CreatePlanExerciseDto) {
     const athleteId = await this.athleteId(identity);
     const plan = await this.assertOwnedDraft(athleteId, planId);
-    if (!plan.weeks.some((week) => week.id === weekId)) {
+    if (!plan.attributes.weeks.some((week) => week.id === weekId)) {
       throw new NotFoundException('Plan week not found.');
     }
     const input: NewPrescription = {
@@ -206,7 +206,7 @@ export class TrainingPlansService {
       throw new ConflictException('A prescription linked to training history cannot be removed.');
     }
     if (outcome === 'missing') throw new NotFoundException('Plan exercise not found.');
-    return { deleted: true };
+
   }
 
   private async athleteId(identity: AuthenticatedIdentity): Promise<string> {
@@ -218,12 +218,12 @@ export class TrainingPlansService {
   private async assertOwnedDraft(athleteId: string, planId: string): Promise<PlanDetail> {
     const plan = await this.repository.findById(athleteId, planId);
     if (!plan) throw new NotFoundException('Training plan not found.');
-    this.assertDraft(plan.status);
+    this.assertDraft(plan);
     return plan;
   }
 
-  private assertDraft(status: PlanDetail['status']): void {
-    if (status !== 'DRAFT') {
+  private assertDraft(plan: PlanDetail): void {
+    if (!plan.isDraft) {
       throw new ConflictException('Only draft training plans can be modified.');
     }
   }

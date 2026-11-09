@@ -322,6 +322,162 @@ test('un segundo 401 tras renovar rechaza la petición y limpia la sesión', asy
   assert.equal(store.accessToken, null)
 })
 
+test('logout global renueva una sola vez tras 401 y usa el bearer y CSRF nuevos', async () => {
+  const store = createAuthStore(true)
+  const calls = []
+  let attempts = 0
+  api.defaults.adapter = async config => {
+    calls.push(config.url)
+    if (config.url === '/auth/logout-all') {
+      if (++attempts === 1) { assert.equal(config.headers.get('X-CSRF-Token'), 'csrf-old'); throw httpError(config) }
+      assert.equal(config.headers.get('Authorization'), 'Bearer access-new')
+      assert.equal(config.headers.get('X-CSRF-Token'), 'csrf-new')
+      return response(config, undefined, 204)
+    }
+    if (config.url === '/auth/refresh') return response(config, authResponse('access-new', 'csrf-new'))
+    if (config.url === '/auth/me') { assert.equal(config.headers.get('Authorization'), 'Bearer access-new'); return response(config, account) }
+    throw new Error('Unexpected request')
+  }
+  await within(store.logoutAll())
+  assert.deepEqual(calls, ['/auth/logout-all', '/auth/refresh', '/auth/me', '/auth/logout-all'])
+  assert.equal(store.status, 'anonymous'); assert.equal(store.accessToken, null)
+})
+
+test('logout global propaga fallos de refresh y red sin confirmar una revocación inexistente', async () => {
+  for (const failure of [401, 503, 'network']) {
+    const store = createAuthStore(true)
+    let logoutCalls = 0, refreshCalls = 0
+    api.defaults.adapter = async config => {
+      if (config.url === '/auth/logout-all') { logoutCalls++; throw httpError(config) }
+      if (config.url === '/auth/refresh') { refreshCalls++; if (failure === 'network') throw new AxiosError('Connection failed', AxiosError.ERR_NETWORK, config); throw httpError(config, failure) }
+      throw new Error('Unexpected request')
+    }
+    await within(assert.rejects(store.logoutAll(), error => failure === 'network'
+      ? !error.response && /conectar/.test(apiErrorMessage(error, 'fallback'))
+      : error.response?.status === failure))
+    assert.equal(logoutCalls, 1); assert.equal(refreshCalls, 1)
+    assert.equal(store.status, 'anonymous')
+  }
+})
+
+test('logout global no reintenta errores de red, CSRF ni un segundo 401 indefinidamente', async () => {
+  for (const failure of [403, 503, 'network', 'twice401']) {
+    const store = createAuthStore(true)
+    let logouts = 0, refreshes = 0
+    api.defaults.adapter = async config => {
+      if (config.url === '/auth/logout-all') { logouts++; if (failure === 'network') throw new AxiosError('Connection failed', AxiosError.ERR_NETWORK, config); throw httpError(config, failure === 'twice401' ? 401 : failure) }
+      if (config.url === '/auth/refresh') { refreshes++; return response(config, authResponse('access-new', 'csrf-new')) }
+      if (config.url === '/auth/me') return response(config, account)
+      throw new Error('Unexpected request')
+    }
+    await within(assert.rejects(store.logoutAll()))
+    assert.equal(logouts, failure === 'twice401' ? 2 : 1)
+    assert.equal(refreshes, failure === 'twice401' ? 1 : 0)
+  }
+})
+
+const tick = () => new Promise(resolve => setImmediate(resolve))
+test('logout global comparte un refresh ya iniciado por una petición privada', async () => {
+  const store = createAuthStore(true)
+  let release, refreshes = 0, logouts = 0
+  api.defaults.adapter = async config => {
+    if (config.url === '/auth/refresh') { refreshes++; await new Promise(resolve => { release = resolve }); return response(config, authResponse('access-new', 'csrf-new')) }
+    if (config.url === '/auth/me') return response(config, account)
+    if (config.url === '/auth/logout-all') { logouts++; assert.equal(config.headers.get('X-CSRF-Token'), 'csrf-new'); return response(config, undefined, 204) }
+    if (config.headers.get('Authorization') !== 'Bearer access-new') throw httpError(config)
+    return response(config, {})
+  }
+  const pending = api.get('/athletes/me'); await tick()
+  const closing = store.logoutAll(); await tick()
+  release(); await within(Promise.all([pending, closing]))
+  assert.equal(refreshes, 1); assert.equal(logouts, 1); assert.equal(store.status, 'anonymous')
+})
+
+test('dos cierres globales comparten la operación y reutilizan credenciales renovadas mientras esperaban', async () => {
+  const store = createAuthStore(true)
+  let rejectFirst, logouts = 0, refreshes = 0
+  api.defaults.adapter = async config => {
+    if (config.url === '/auth/logout-all') {
+      if (++logouts === 1) return new Promise((_resolve, reject) => { rejectFirst = () => reject(httpError(config)) })
+      assert.equal(config.headers.get('X-CSRF-Token'), 'csrf-new'); return response(config, undefined, 204)
+    }
+    if (config.url === '/auth/refresh') { refreshes++; return response(config, authResponse('access-new', 'csrf-new')) }
+    if (config.url === '/auth/me') return response(config, account)
+    throw new Error('Unexpected request')
+  }
+  const first = store.logoutAll(); const second = store.logoutAll(); await tick()
+  await store.refreshSession(); rejectFirst()
+  await within(Promise.all([first, second]))
+  assert.equal(logouts, 2); assert.equal(refreshes, 1)
+})
+
+test('un refresh tardío no restaura la sesión después de logout global ni elimina un login posterior', async () => {
+  const store = createAuthStore(true)
+  let finishLogout, finishVerification
+  api.defaults.adapter = async config => {
+    if (config.url === '/auth/logout-all') return new Promise(resolve => { finishLogout = () => resolve(response(config, undefined, 204)) })
+    if (config.url === '/auth/refresh') return response(config, authResponse('access-new', 'csrf-new'))
+    if (config.url === '/auth/login') return response(config, authResponse('access-last', 'csrf-last'))
+    if (config.url === '/auth/me' && config.headers.get('Authorization') === 'Bearer access-new') return new Promise(resolve => { finishVerification = () => resolve(response(config, account)) })
+    if (config.url === '/auth/me') return response(config, account)
+    if (config.url === '/athletes/me') throw httpError(config)
+    throw new Error('Unexpected request')
+  }
+  const closing = store.logoutAll(); await tick()
+  const renewing = api.get('/athletes/me'); const outcome = assert.rejects(renewing); await tick()
+  finishLogout(); await within(closing)
+  assert.equal(store.status, 'anonymous')
+  await store.login({ email: account.email, password: 'valid-password' })
+  finishVerification(); await within(outcome)
+  assert.equal(store.accessToken, 'access-last'); assert.equal(store.status, 'authenticated')
+})
+
+test('un cierre global pendiente no reintenta ni limpia un login posterior, incluso para la misma cuenta', async () => {
+  for (const statusCode of [401, 403, 204]) {
+    for (const sameAccount of [true, false]) {
+      const store = createAuthStore(true)
+      const laterAccount = sameAccount ? account : { ...account, id: '8205d8f8-e294-4235-aaf4-d9d59453e6a3', email: 'otra@example.test' }
+      let finish, logouts = 0
+      api.defaults.adapter = async config => {
+        if (config.url === '/auth/logout-all') {
+          logouts++
+          if (logouts > 1) return response(config, undefined, 204)
+          return new Promise((resolve, reject) => { finish = () => statusCode === 204
+            ? resolve(response(config, undefined, 204)) : reject(httpError(config, statusCode)) })
+        }
+        if (config.url === '/auth/login') return response(config, { ...authResponse('access-last', 'csrf-last'), user: laterAccount })
+        if (config.url === '/auth/me') return response(config, laterAccount)
+        throw new Error('Unexpected request')
+      }
+      const closing = store.logoutAll()
+      const outcome = statusCode === 204 ? closing : assert.rejects(closing, error => error.response?.status === statusCode)
+      await tick()
+      await store.login({ email: laterAccount.email, password: 'valid-password' })
+      finish(); await within(outcome)
+      assert.equal(logouts, 1, 'an old logout must not target a later login')
+      assert.equal(store.accessToken, 'access-last')
+      assert.equal(store.user.id, laterAccount.id)
+      assert.equal(store.status, 'authenticated')
+    }
+  }
+})
+
+test('logout global actualiza un CSRF obsoleto solo si hubo una renovación concurrente conocida', async () => {
+  const store = createAuthStore(true)
+  let rejectFirst, calls = 0, refreshes = 0
+  api.defaults.adapter = async config => {
+    if (config.url === '/auth/logout-all') {
+      if (++calls === 1) return new Promise((_resolve, reject) => { rejectFirst = () => reject(httpError(config, 403)) })
+      assert.equal(config.headers.get('X-CSRF-Token'), 'csrf-new'); return response(config, undefined, 204)
+    }
+    if (config.url === '/auth/refresh') { refreshes++; return response(config, authResponse('access-new', 'csrf-new')) }
+    if (config.url === '/auth/me') return response(config, account)
+    throw new Error('Unexpected request')
+  }
+  const closing = store.logoutAll(); await tick(); await store.refreshSession(); rejectFirst()
+  await within(closing); assert.equal(calls, 2); assert.equal(refreshes, 1)
+})
+
 after(() => {
   api.defaults.adapter = undefined
 })

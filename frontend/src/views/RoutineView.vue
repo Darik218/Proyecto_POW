@@ -7,7 +7,7 @@ import { requestIntent } from '../composables/requestIntent'
 import { useTrainingPlans, useTrainingPlan } from '../composables/useTrainingPlans'
 import { useWorkoutSessions } from '../composables/useWorkoutSessions'
 import { routineService, activityLabel, type ScheduledActivity } from '../services/routine.service'
-import { localTrainingDate } from '../services/workout-sessions.service'
+import { localTrainingDate } from '../utils/dates'
 import {
   weekdayLabel,
   trainingPlanErrorMessage,

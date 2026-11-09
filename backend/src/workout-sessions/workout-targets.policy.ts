@@ -1,32 +1,8 @@
 import { Decimal } from '@prisma/client/runtime/client';
 import type { WorkoutTargetsDto } from './dto/workout-preparation.dto';
 import { WorkoutRepositoryError } from './workout-sessions.repository';
-export type WorkoutTargets = {
-  targetSets: number | null;
-  targetRepsMin: number | null;
-  targetRepsMax: number | null;
-  targetLoad: string | null;
-  targetLoadUnit: 'KG' | 'LB' | null;
-  targetRpe: number | null;
-};
-export type ExerciseSnapshot = {
-  source: {
-    kind: 'PLAN_DAY' | 'SESSION' | 'FREE';
-    id: string | null;
-    plan?: { id: string; name: string };
-    week?: { id: string; weekNumber: number };
-    day?: { id: string; name: string; weekday: number | null };
-  };
-  exercise: {
-    id: string;
-    name: string;
-    equipment: string;
-    muscleGroup: string;
-  };
-  targets: WorkoutTargets;
-  position: number;
-  notes: string | null;
-};
+import type { WorkoutTargets } from '../models/workout-sessions/workout-exercise.model';
+export type { WorkoutTargets, ExerciseSnapshot } from '../models/workout-sessions/workout-exercise.model';
 export const emptyTargets: WorkoutTargets = {
   targetSets: null,
   targetRepsMin: null,

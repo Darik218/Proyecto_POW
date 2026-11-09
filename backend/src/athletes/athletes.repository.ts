@@ -1,14 +1,8 @@
 import type { MeasurementUnit } from '../generated/prisma/client';
+import type { Athlete } from '../models/athletes/athlete.model';
+import type { BodyMeasurement } from '../models/athletes/body-measurement.model';
 
 export const ATHLETES_REPOSITORY = Symbol('ATHLETES_REPOSITORY');
-
-export type AthleteProfile = {
-  id: string;
-  birthDate: Date | null;
-  preferredUnit: MeasurementUnit;
-  createdAt: Date;
-  updatedAt: Date;
-};
 
 export type ProfileUpdate = {
   birthDate?: Date | null;
@@ -22,16 +16,9 @@ export type NewMeasurement = {
   notes?: string;
 };
 
-export type BodyMeasurementRecord = {
-  id: string;
-  bodyWeight: number;
-  measuredAt: Date;
-  notes: string | null;
-};
-
 export interface AthletesRepository {
-  findProfileByUserId(userId: string): Promise<AthleteProfile | null>;
-  updateProfile(userId: string, update: ProfileUpdate): Promise<AthleteProfile | null>;
-  findMeasurements(athleteId: string): Promise<BodyMeasurementRecord[]>;
-  createMeasurement(input: NewMeasurement): Promise<BodyMeasurementRecord>;
+  findProfileByUserId(userId: string): Promise<Athlete | null>;
+  updateProfile(userId: string, update: ProfileUpdate): Promise<Athlete | null>;
+  findMeasurements(athleteId: string): Promise<BodyMeasurement[]>;
+  createMeasurement(input: NewMeasurement): Promise<BodyMeasurement>;
 }

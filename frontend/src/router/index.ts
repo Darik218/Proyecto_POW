@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { authRouteGuard } from './auth.guard'
-import AuthenticatedLayout from '../components/AuthenticatedLayout.vue'
+import AppLayout from '../layouts/AppLayout.vue'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -25,7 +25,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/app',
-    component: AuthenticatedLayout,
+    component: AppLayout,
     meta: { requiresAuth: true },
     children: [
       { path:'routine/:planId/weeks/:weekId/days/:dayId', name:'routine-day', component:()=>import('../views/RoutineDayView.vue') },

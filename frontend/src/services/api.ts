@@ -2,6 +2,7 @@ import axios, {
   type AxiosError,
   type InternalAxiosRequestConfig,
 } from 'axios'
+import { apiConfig } from '../config/api.config'
 
 export interface AuthHttpContext {
   getAccessToken: () => string | null
@@ -12,14 +13,7 @@ export interface AuthHttpContext {
 type RetryableRequest = InternalAxiosRequestConfig & { _authRetry?: boolean }
 type ApiErrorBody = { message?: string | string[]; error?: string }
 
-const configuredBaseUrl = import.meta.env?.VITE_API_BASE_URL?.trim()
-
-export const api = axios.create({
-  baseURL: configuredBaseUrl || '/api/v1',
-  timeout: 15_000,
-  withCredentials: true,
-  headers: { 'Content-Type': 'application/json' },
-})
+export const api = axios.create(apiConfig)
 
 let authContext: AuthHttpContext | undefined
 let refreshInFlight: Promise<void> | undefined
@@ -58,6 +52,7 @@ export function installAuthInterceptors(context: AuthHttpContext): void {
       }
 
       original._authRetry = true
+      let requestToken = authContext.getAccessToken()
       try {
         refreshInFlight ??= authContext.refreshSession().finally(() => {
           refreshInFlight = undefined
@@ -65,10 +60,12 @@ export function installAuthInterceptors(context: AuthHttpContext): void {
         await refreshInFlight
         const token = authContext.getAccessToken()
         if (!token) throw new Error('Session refresh returned no access token.')
+        requestToken = token
         original.headers.set('Authorization', `Bearer ${token}`)
         return await api.request(original)
       } catch (refreshError) {
-        authContext.clearSession()
+        // A request from a session closed meanwhile must not clear a later login.
+        if (authContext.getAccessToken() === requestToken) authContext.clearSession()
         return Promise.reject(refreshError)
       }
     },

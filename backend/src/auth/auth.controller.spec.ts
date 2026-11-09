@@ -2,7 +2,8 @@ import type { Request, Response } from 'express';
 import { jest } from '@jest/globals';
 import { AuthConfig } from './auth.config';
 import { AuthService } from './services/auth.service';
-import { AuthController } from './auth.controller';
+import { AuthController } from '../controllers/auth/auth.controller';
+import { AuthPresenter } from '../views/auth/auth.presenter';
 
 describe('AuthController cookie and response boundaries', () => {
   it('sets a secure HttpOnly refresh cookie and never returns its value in JSON', async () => {
@@ -29,7 +30,11 @@ describe('AuthController cookie and response boundaries', () => {
     const authService = {
       login: jest.fn<AuthService['login']>().mockResolvedValue(issued),
     } as unknown as AuthService;
-    const controller = new AuthController(authService, config);
+    const controller = new AuthController(
+      authService,
+      config,
+      new AuthPresenter(),
+    );
     const cookie = jest.fn();
     const response = { cookie } as unknown as Response;
     const body = await controller.login(

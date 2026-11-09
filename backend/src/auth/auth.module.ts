@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../database/prisma.module';
 import { AuthConfig } from './auth.config';
-import { AuthController } from './auth.controller';
+import { AuthController } from '../controllers/auth/auth.controller';
+import { AuthPresenter } from '../views/auth/auth.presenter';
 import { AUTH_REPOSITORY } from './auth.repository';
 import { AuthOriginGuard } from './guards/auth-origin.guard';
 import { AccessTokenGuard } from './guards/access-token.guard';
@@ -17,6 +18,7 @@ import { AuthService } from './services/auth.service';
   providers: [
     { provide: AuthConfig, useFactory: () => new AuthConfig() },
     AuthService,
+    AuthPresenter,
     PasswordHasher,
     AuthRateLimiter,
     AuthOriginGuard,

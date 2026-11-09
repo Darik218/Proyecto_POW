@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import {
-  AthleteProfile,
+import { Athlete } from '../models/athletes/athlete.model';
+import { BodyMeasurement } from '../models/athletes/body-measurement.model';
+import type {
   AthletesRepository,
-  BodyMeasurementRecord,
   NewMeasurement,
   ProfileUpdate,
 } from './athletes.repository';
@@ -12,8 +12,8 @@ import {
 export class PrismaAthletesRepository implements AthletesRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  findProfileByUserId(userId: string): Promise<AthleteProfile | null> {
-    return this.prisma.athlete.findUnique({
+  async findProfileByUserId(userId: string): Promise<Athlete | null> {
+    const profile = await this.prisma.athlete.findUnique({
       where: { userId },
       select: {
         id: true,
@@ -23,12 +23,13 @@ export class PrismaAthletesRepository implements AthletesRepository {
         updatedAt: true,
       },
     });
+    return profile ? new Athlete(profile) : null;
   }
 
   updateProfile(
     userId: string,
     update: ProfileUpdate,
-  ): Promise<AthleteProfile | null> {
+  ): Promise<Athlete | null> {
     return this.prisma.athlete
       .update({
         where: { userId },
@@ -41,6 +42,7 @@ export class PrismaAthletesRepository implements AthletesRepository {
           updatedAt: true,
         },
       })
+      .then((profile) => new Athlete(profile))
       .catch((error: unknown) => {
         if (
           typeof error === 'object' &&
@@ -54,19 +56,16 @@ export class PrismaAthletesRepository implements AthletesRepository {
       });
   }
 
-  async findMeasurements(athleteId: string): Promise<BodyMeasurementRecord[]> {
+  async findMeasurements(athleteId: string): Promise<BodyMeasurement[]> {
     const measurements = await this.prisma.bodyMeasurement.findMany({
       where: { athleteId },
       orderBy: [{ measuredAt: 'desc' }, { id: 'desc' }],
       select: { id: true, bodyWeight: true, measuredAt: true, notes: true },
     });
-    return measurements.map((item) => ({
-      ...item,
-      bodyWeight: Number(item.bodyWeight),
-    }));
+    return measurements.map((item) => new BodyMeasurement(item));
   }
 
-  async createMeasurement(input: NewMeasurement): Promise<BodyMeasurementRecord> {
+  async createMeasurement(input: NewMeasurement): Promise<BodyMeasurement> {
     const measurement = await this.prisma.bodyMeasurement.create({
       data: {
         athleteId: input.athleteId,
@@ -76,6 +75,6 @@ export class PrismaAthletesRepository implements AthletesRepository {
       },
       select: { id: true, bodyWeight: true, measuredAt: true, notes: true },
     });
-    return { ...measurement, bodyWeight: Number(measurement.bodyWeight) };
+    return new BodyMeasurement(measurement);
   }
 }

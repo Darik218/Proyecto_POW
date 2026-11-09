@@ -1,3 +1,4 @@
+import { TrainingPlan } from '../models/training-plans/training-plan.model';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { jest } from '@jest/globals';
 import type { AuthenticatedIdentity } from '../auth/auth.types';
@@ -64,7 +65,7 @@ describe('TrainingPlansService', () => {
     expect(mocks.findAthleteId).not.toHaveBeenCalled();
 
     mocks.findAthleteId.mockResolvedValueOnce('30000000-0000-4000-8000-000000000001');
-    mocks.findById.mockResolvedValueOnce({
+    mocks.findById.mockResolvedValueOnce(new TrainingPlan({
       id: '40000000-0000-4000-8000-000000000001',
       name: 'Plan',
       startsOn: now,
@@ -73,7 +74,7 @@ describe('TrainingPlansService', () => {
       createdAt: now,
       updatedAt: now,
       weeks: [],
-    });
+    }));
     await expect(
       service.update(identity, '40000000-0000-4000-8000-000000000001', { name: 'Updated' }),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -91,7 +92,7 @@ describe('TrainingPlansService', () => {
 
   it('rejects plan edits when the repository reports linked training history', async () => {
     mocks.findAthleteId.mockResolvedValueOnce('30000000-0000-4000-8000-000000000001');
-    mocks.findById.mockResolvedValueOnce({
+    mocks.findById.mockResolvedValueOnce(new TrainingPlan({
       id: '40000000-0000-4000-8000-000000000001',
       name: 'Plan',
       startsOn: now,
@@ -100,7 +101,7 @@ describe('TrainingPlansService', () => {
       createdAt: now,
       updatedAt: now,
       weeks: [],
-    });
+    }));
     mocks.update.mockResolvedValueOnce('historical');
     await expect(
       service.update(identity, '40000000-0000-4000-8000-000000000001', { name: 'Updated' }),

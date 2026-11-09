@@ -70,6 +70,46 @@ test('daily origin requires an explicit plan/week/day and suggestions never auto
   state.accept({trainingPlanId:exerciseId,planWeekId:exerciseId,planDayId:exerciseId})
   assert.equal(state.source,'PLAN_DAY');assert.equal(state.selection.planDayId,exerciseId);assert.equal(writes,0)
 })
+const calendarSuggestion = {
+  scheduledActivityId: '60000000-0000-4000-8000-000000000001',
+  trainingPlanId: '60000000-0000-4000-8000-000000000002',
+  planWeekId: '60000000-0000-4000-8000-000000000003',
+  planDayId: '60000000-0000-4000-8000-000000000004',
+  name: 'Push', planName: 'Rutina', weekNumber: 1,
+}
+test('calendarized suggestion association survives acceptance and updates to a different activity', async t => {
+  const saved = []
+  const Component = await component('StartWorkoutForm')
+  const state = mount(Component, { save: async input => { saved.push(input) } }, t)
+  state.accept(calendarSuggestion)
+  const other = { ...calendarSuggestion, scheduledActivityId: '60000000-0000-4000-8000-000000000005' }
+  state.accept(other)
+  await state.submit()
+  assert.equal(saved[0].scheduledActivityId, other.scheduledActivityId)
+  assert.equal(saved[0].planDayId, other.planDayId)
+})
+test('calendarized suggestion association is discarded on any origin, date, zone or selection change', async t => {
+  const Component = await component('StartWorkoutForm')
+  for (const change of [
+    state => { state.source = 'FREE' },
+    state => { state.performedOn = '2030-01-02' },
+    state => { state.timeZone = 'Pacific/Auckland' },
+    state => { state.selection.planDayId = exerciseId },
+    state => { state.selection.planWeekId = exerciseId },
+    state => { state.selection.trainingPlanId = exerciseId },
+    state => { state.accept({ ...calendarSuggestion, scheduledActivityId: undefined }) },
+  ]) {
+    let saved
+    const state = mount(Component, { save: async input => { saved = input } }, t)
+    state.performedOn = '2030-01-01'; state.timeZone = 'America/Bogota'
+    state.accept(calendarSuggestion)
+    change(state)
+    // Submit in the same tick: stale association must not survive watch batching.
+    await state.submit()
+    assert.ok(saved)
+    assert.equal(saved.scheduledActivityId, undefined)
+  }
+})
 test('target edits validate ranges and retain unknown-unit historical values',async t=>{
   let saved
   const initial={targetSets:3,targetRepsMin:8,targetRepsMax:8,targetLoad:'42.125',targetLoadUnit:null,targetRpe:null}

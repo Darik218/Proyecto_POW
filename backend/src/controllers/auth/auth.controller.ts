@@ -11,26 +11,32 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { AuthConfig } from './auth.config';
-import { CurrentAuth } from './decorators/current-auth.decorator';
-import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
-import { AccessTokenGuard } from './guards/access-token.guard';
-import { AuthOriginGuard } from './guards/auth-origin.guard';
-import { CsrfGuard } from './guards/csrf.guard';
-import type { AuthenticatedIdentity, IssuedSession } from './auth.types';
+import { AuthConfig } from '../../auth/auth.config';
+import { CurrentAuth } from '../../auth/decorators/current-auth.decorator';
+import { LoginDto } from '../../auth/dto/login.dto';
+import { RegisterDto } from '../../auth/dto/register.dto';
+import { AccessTokenGuard } from '../../auth/guards/access-token.guard';
+import { AuthOriginGuard } from '../../auth/guards/auth-origin.guard';
+import { CsrfGuard } from '../../auth/guards/csrf.guard';
+import type {
+  AuthenticatedIdentity,
+  IssuedSession,
+} from '../../auth/auth.types';
 import {
   clearAuthCookies,
   readCookie,
   setAuthCookies,
-} from './security/cookie.utils';
-import { AuthResponse, AuthService } from './services/auth.service';
+} from '../../auth/security/cookie.utils';
+import { AuthService } from '../../auth/services/auth.service';
+import { AuthPresenter } from '../../views/auth/auth.presenter';
+import type { AuthResponse } from '../../views/auth/auth.presenter';
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly config: AuthConfig,
+    private readonly presenter: AuthPresenter,
   ) {}
 
   @Post('register')
@@ -105,8 +111,10 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(AccessTokenGuard)
-  getMe(@CurrentAuth() identity: AuthenticatedIdentity) {
-    return this.authService.getCurrentAccount(identity);
+  async getMe(@CurrentAuth() identity: AuthenticatedIdentity) {
+    return this.presenter.account(
+      await this.authService.getCurrentAccount(identity),
+    );
   }
 
   private completeLogin(
@@ -120,11 +128,6 @@ export class AuthController {
       session.csrfToken,
       session.refreshExpiresAt,
     );
-    return {
-      user: session.account,
-      accessToken: session.accessToken,
-      accessTokenExpiresAt: session.accessTokenExpiresAt,
-      csrfToken: session.csrfToken,
-    };
+    return this.presenter.session(session);
   }
 }

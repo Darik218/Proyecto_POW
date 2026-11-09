@@ -52,7 +52,7 @@ export class DailyPlanningService {
   }
   async days(identity: AuthenticatedIdentity, planId: string, weekId: string) {
     const plan = await this.get(identity, planId);
-    const week = plan.weeks.find((item) => item.id === weekId);
+    const week = plan.attributes.weeks.find((item) => item.id === weekId);
     if (!week) throw new NotFoundException('Plan week not found.');
     return week.days;
   }
@@ -62,7 +62,7 @@ export class DailyPlanningService {
     weekId: string,
   ) {
     const plan = await this.get(identity, planId);
-    const week = plan.weeks.find((item) => item.id === weekId);
+    const week = plan.attributes.weeks.find((item) => item.id === weekId);
     if (!week) throw new NotFoundException('Plan week not found.');
     return week.pendingExercises;
   }

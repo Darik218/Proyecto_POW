@@ -1,3 +1,4 @@
+import type { Exercise, MuscleGroup } from '../models/exercises/exercise.model';
 import type {
   ExerciseBodyPosition,
   ExerciseDifficulty,
@@ -17,7 +18,7 @@ import type {
 export const EXERCISES_REPOSITORY = Symbol('EXERCISES_REPOSITORY');
 
 export type ExerciseFilters = {
-  origin?:ExerciseOrigin;
+  origin?: ExerciseOrigin;
   selection?: 'ALL' | 'FEATURED' | 'RECENT';
   search?: string;
   primaryMuscleGroupKey?: string;
@@ -32,40 +33,7 @@ export type ExerciseFilters = {
 
 export type ExercisePage = ExerciseFilters & { limit: number; offset: number };
 
-export type ExerciseGroupView = { key: string; name: string };
-export type MuscleGroupView = ExerciseGroupView & { description: string | null };
-
-export type ExerciseRecord = {
-  aliases?: string[];
-  id: string;
-  name: string;
-  description: string | null;
-  equipment: string;
-  equipmentType: ExerciseEquipmentType;
-  machineType: ExerciseMachineType | null;
-  resistanceType: ExerciseResistanceType | null;
-  movementType: ExerciseMovementType | null;
-  movementPattern: ExerciseMovementPattern | null;
-  grip: ExerciseGrip | null;
-  gripWidth: ExerciseGripWidth | null;
-  bodyPosition: ExerciseBodyPosition | null;
-  laterality: ExerciseLaterality | null;
-  movementPlane: ExerciseMovementPlane | null;
-  difficulty: ExerciseDifficulty | null;
-  oneRmSuitability: OneRmSuitability;
-  instructions: string | null;
-  origin: ExerciseOrigin;
-  isActive: boolean;
-  ownerId: string | null;
-  primaryMuscleGroup: ExerciseGroupView;
-  secondaryMuscleGroups: ExerciseGroupView[];
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-export type ExerciseView = Omit<ExerciseRecord, 'ownerId' | 'isActive'> & { isOwner: boolean };
-export type ExercisePageResult = { items: ExerciseView[]; total: number; limit: number; offset: number };
-export type ExerciseListRecords = { items: ExerciseRecord[]; total: number };
+export type ExerciseListResult = { items: Exercise[]; total: number };
 
 export type ExerciseWriteValues = {
   aliases?: string[];
@@ -92,23 +60,33 @@ export type ExerciseWriteValues = {
 export type ExerciseUpdateValues = Partial<ExerciseWriteValues>;
 
 export type CreateExerciseOutcome =
-  | { kind: 'created'; exercise: ExerciseRecord }
+  | { kind: 'created'; exercise: Exercise }
   | { kind: 'missing-muscle-group' }
   | { kind: 'duplicate-muscle-group' };
 export type UpdateExerciseOutcome =
-  | { kind: 'updated'; exercise: ExerciseRecord }
+  | { kind: 'updated'; exercise: Exercise }
   | { kind: 'missing-muscle-group' }
   | { kind: 'duplicate-muscle-group' }
   | { kind: 'not-found' }
   | { kind: 'historical-reference' };
 
 export interface ExercisesRepository {
-  listMuscleGroups(): Promise<MuscleGroupView[]>;
-  listGlobal(query: ExercisePage): Promise<ExerciseListRecords>;
-  listVisible(ownerId: string, query: ExercisePage): Promise<ExerciseListRecords>;
-  listMine(ownerId: string, query: ExercisePage): Promise<ExerciseListRecords>;
-  findVisibleById(id: string, ownerId?: string): Promise<ExerciseRecord | null>;
-  createPersonal(ownerId: string, values: ExerciseWriteValues): Promise<CreateExerciseOutcome>;
-  updatePersonal(ownerId: string, id: string, values: ExerciseUpdateValues): Promise<UpdateExerciseOutcome>;
+  listMuscleGroups(): Promise<MuscleGroup[]>;
+  listGlobal(query: ExercisePage): Promise<ExerciseListResult>;
+  listVisible(
+    ownerId: string,
+    query: ExercisePage,
+  ): Promise<ExerciseListResult>;
+  listMine(ownerId: string, query: ExercisePage): Promise<ExerciseListResult>;
+  findVisibleById(id: string, ownerId?: string): Promise<Exercise | null>;
+  createPersonal(
+    ownerId: string,
+    values: ExerciseWriteValues,
+  ): Promise<CreateExerciseOutcome>;
+  updatePersonal(
+    ownerId: string,
+    id: string,
+    values: ExerciseUpdateValues,
+  ): Promise<UpdateExerciseOutcome>;
   deactivatePersonal(ownerId: string, id: string): Promise<boolean>;
 }

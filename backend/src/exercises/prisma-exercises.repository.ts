@@ -1,3 +1,5 @@
+import { Exercise } from '../models/exercises/exercise.model';
+import type {MuscleGroup} from '../models/exercises/exercise.model';
 import { exerciseSearchQuery } from './exercise-search.query';
 import { Injectable } from '@nestjs/common';
 import {
@@ -5,10 +7,8 @@ import {
 } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import type {
-  ExerciseListRecords,
-  MuscleGroupView,
+  ExerciseListResult,
   ExercisePage,
-  ExerciseRecord,
   ExerciseUpdateValues,
   CreateExerciseOutcome,
   UpdateExerciseOutcome,
@@ -48,15 +48,15 @@ const EXERCISE_SELECT = {
 
 type SelectedExercise = Prisma.ExerciseGetPayload<{ select: typeof EXERCISE_SELECT }>;
 
-function toRecord(exercise: SelectedExercise): ExerciseRecord {
+function toModel(exercise: SelectedExercise): Exercise {
   const { secondaryMuscleGroups, aliases, ...fields } = exercise;
-  return {
+  return new Exercise({
     ...fields,
     aliases:aliases.map(alias=>alias.name),
     secondaryMuscleGroups: secondaryMuscleGroups
       .map(({ muscleGroup }) => muscleGroup)
       .sort((left, right) => left.key.localeCompare(right.key)),
-  };
+  });
 }
 
 const HISTORY_RELATIONS: Prisma.ExerciseWhereInput[] = [
@@ -71,29 +71,29 @@ const HISTORY_RELATIONS: Prisma.ExerciseWhereInput[] = [
 export class PrismaExercisesRepository implements ExercisesRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  listMuscleGroups(): Promise<MuscleGroupView[]> {
+  listMuscleGroups(): Promise<MuscleGroup[]> {
     return this.prisma.muscleGroup.findMany({
       orderBy: [{ name: 'asc' }, { key: 'asc' }],
       select: { key: true, name: true, description: true },
     });
   }
 
-  async listGlobal(query: ExercisePage): Promise<ExerciseListRecords> {
+  async listGlobal(query: ExercisePage): Promise<ExerciseListResult> {
     return this.ranked(query,'GLOBAL');
   }
 
-  async listMine(ownerId: string, query: ExercisePage): Promise<ExerciseListRecords> {
+  async listMine(ownerId: string, query: ExercisePage): Promise<ExerciseListResult> {
     return this.ranked(query,'PERSONAL',ownerId);
   }
 
-  async findVisibleById(id: string, ownerId?: string): Promise<ExerciseRecord | null> {
+  async findVisibleById(id: string, ownerId?: string): Promise<Exercise | null> {
     const visibility: Prisma.ExerciseWhereInput[] = [{ origin: 'GLOBAL' }];
     if (ownerId) visibility.push({ origin: 'PERSONAL', ownerId });
     const exercise = await this.prisma.exercise.findFirst({
       where: { id, isActive: true, OR: visibility },
       select: EXERCISE_SELECT,
     });
-    return exercise ? toRecord(exercise) : null;
+    return exercise ? toModel(exercise) : null;
   }
 
   async createPersonal(ownerId: string, values: ExerciseWriteValues): Promise<CreateExerciseOutcome> {
@@ -129,7 +129,7 @@ export class PrismaExercisesRepository implements ExercisesRepository {
         },
         select: EXERCISE_SELECT,
       });
-      return { kind: 'created', exercise: toRecord(exercise) };
+      return { kind: 'created', exercise: toModel(exercise) };
     });
   }
 
@@ -182,7 +182,7 @@ export class PrismaExercisesRepository implements ExercisesRepository {
         };
       }
       const exercise = await tx.exercise.update({ where: { id }, data, select: EXERCISE_SELECT });
-      return { kind: 'updated', exercise: toRecord(exercise) };
+      return { kind: 'updated', exercise: toModel(exercise) };
     });
   }
 
@@ -195,7 +195,7 @@ export class PrismaExercisesRepository implements ExercisesRepository {
   }
 
   async listVisible(ownerId:string,query:ExercisePage){return this.ranked(query,'VISIBLE',ownerId);}
-  private async ranked(query:ExercisePage,scope:'GLOBAL'|'PERSONAL'|'VISIBLE',ownerId?:string):Promise<ExerciseListRecords>{
+  private async ranked(query:ExercisePage,scope:'GLOBAL'|'PERSONAL'|'VISIBLE',ownerId?:string):Promise<ExerciseListResult>{
     return this.prisma.$transaction(async tx=>{
       await tx.$executeRaw`SET LOCAL pg_trgm.word_similarity_threshold=0.45`;
       const normalized=query.search?await tx.$queryRaw<{term:string}[]>`SELECT pulso_search_normalize(${query.search}) AS term`:[];
@@ -204,7 +204,7 @@ export class PrismaExercisesRepository implements ExercisesRepository {
       const counts=await tx.$queryRaw<{total:number}[]>(sql.count);
       const records=rows.length?await tx.exercise.findMany({where:{id:{in:rows.map(row=>row.id)}},select:EXERCISE_SELECT}):[];
       const byId=new Map(records.map(row=>[row.id,row]));
-      return{items:rows.map(row=>toRecord(byId.get(row.id)!)),total:counts[0]?.total??0};
+      return{items:rows.map(row=>toModel(byId.get(row.id)!)),total:counts[0]?.total??0};
     },{isolationLevel:Prisma.TransactionIsolationLevel.RepeatableRead,timeout:15000});
   }
 
