@@ -8,7 +8,7 @@ try {
   let raw = ''; for await (const chunk of process.stdin) raw += chunk
   const { baseURL, token, planId, weekId, pushId, pullId } = JSON.parse(raw)
   api.defaults.baseURL = baseURL
-  installAuthInterceptors({ getAccessToken: () => token, refreshSession: async () => { throw new Error('Fixture access expired') }, clearSession: () => {} })
+  installAuthInterceptors({ getSessionGeneration: () => 0, getAccessToken: () => token, refreshSession: async () => { throw new Error('Fixture access expired') }, clearSession: () => {} })
   const input = { id: crypto.randomUUID(), performedOn:'2026-01-08',timeZone:'America/Bogota',recordingMode:'RETROSPECTIVE',trainingPlanId:planId,planWeekId:weekId,planDayId:pushId }
   stage='prepare'; const created = await service.create(input); assert.equal(created.status,'PLANNED'); assert.equal(created.exercises.length,1)
   const state = useWorkoutSession(); await state.load(created.id)

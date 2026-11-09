@@ -59,6 +59,19 @@ function toStoredAccount(account: {
 export class PrismaAuthRepository implements AuthRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  async findActiveSessionByRefreshHash(tokenHash: string, now: Date): Promise<{ id: string } | null> {
+    return this.prisma.authSession.findFirst({
+      where: {
+        refreshTokenHash: tokenHash,
+        revokedAt: null,
+        expiresAt: { gt: now },
+        absoluteExpiresAt: { gt: now },
+        user: { status: 'ACTIVE' },
+      },
+      select: { id: true },
+    });
+  }
+
   async createAccount(input: NewAccount): Promise<StoredAccount> {
     try {
       const account = await this.prisma.user.create({

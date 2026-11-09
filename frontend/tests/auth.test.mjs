@@ -50,13 +50,30 @@ async function within(operation) {
 let currentStore
 installAuthInterceptors({
   getAccessToken: () => currentStore?.accessToken ?? null,
+  getSessionGeneration: () => currentStore?.getSessionGeneration() ?? 0,
   refreshSession: () => currentStore.refreshSession(),
   clearSession: () => currentStore?.clearSession(),
+})
+
+let contextCsrf = 'csrf-old'
+let testAdapter
+Object.defineProperty(api.defaults, 'adapter', {
+  configurable: true,
+  get: () => testAdapter,
+  set: handler => {
+    testAdapter = handler ? async config => {
+      if (config.url === '/auth/context') return response(config, { contextId: 'a'.repeat(64), csrfToken: contextCsrf })
+      const result = await handler(config)
+      if (result.data?.csrfToken) contextCsrf = result.data.csrfToken
+      return result
+    } : undefined
+  },
 })
 
 function createAuthStore(authenticated = false) {
   const store = useAuthStore(createPinia())
   currentStore = store
+  contextCsrf = 'csrf-old'
   if (authenticated) {
     store.accessToken = 'access-old'
     store.csrfToken = 'csrf-old'
@@ -198,7 +215,8 @@ test('no intenta renovar después de un 401 de login', async () => {
 
 test('recupera la sesión al iniciar con el CSRF emitido por backend', async () => {
   const store = createAuthStore()
-  const values = new Map([['pow_csrf_token', 'csrf-from-cookie']])
+  contextCsrf = 'csrf-from-cookie'
+  const values = new Map([['pow_csrf_token', 'legacy-to-remove']])
   globalThis.sessionStorage = {
     getItem: (key) => values.get(key) ?? null,
     setItem: (key, value) => values.set(key, value),
@@ -219,7 +237,7 @@ test('recupera la sesión al iniciar con el CSRF emitido por backend', async () 
   assert.equal(store.isAuthenticated, true)
   assert.equal(store.accessToken, 'access-restored')
   assert.equal(store.csrfToken, 'csrf-rotated')
-  assert.equal(values.get('pow_csrf_token'), 'csrf-rotated')
+  assert.equal(values.has('pow_csrf_token'), false)
   assert.equal(values.has('accessToken'), false)
   store.clearSession()
   assert.equal(values.has('pow_csrf_token'), false)

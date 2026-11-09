@@ -39,6 +39,23 @@ export class AuthController {
     private readonly presenter: AuthPresenter,
   ) {}
 
+  // Read-only bootstrap. POST ensures the browser sends Origin even when the
+  // SPA cannot read the path-scoped CSRF cookie. No session/cookie is changed.
+  @Post('context')
+  @UseGuards(AuthOriginGuard)
+  @HttpCode(HttpStatus.OK)
+  async browserContext(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('Pragma', 'no-cache');
+    return this.presenter.browserContext(await this.authService.getBrowserContext(
+      readCookie(request, this.config.refreshCookieName),
+      readCookie(request, this.config.csrfCookieName),
+    ));
+  }
+
   @Post('register')
   @UseGuards(AuthOriginGuard)
   @HttpCode(HttpStatus.CREATED)

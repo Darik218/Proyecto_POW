@@ -1,5 +1,8 @@
 import type { AuthAccountAttributes } from './auth-account.model';
 
+// Correlation only: this cannot authenticate a request or rotate a token.
+export type BrowserSessionContext = { contextId: string; csrfToken: string };
+
 // Internal application contracts. Credential/session material is never a public view.
 export type PublicAccount = AuthAccountAttributes;
 

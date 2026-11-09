@@ -5,7 +5,7 @@ import {
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { sign, verify, JwtPayload } from 'jsonwebtoken';
 import { AuthConfig } from '../auth.config';
 import { AUTH_REPOSITORY } from '../auth.repository';
@@ -20,6 +20,7 @@ import { createOpaqueToken, hashRefreshToken } from '../security/cookie.utils';
 import { PasswordHasher } from '../security/password-hasher';
 import { DuplicateEmailError } from './errors';
 import { AuthAccount } from '../../models/auth/auth-account.model';
+import type { BrowserSessionContext } from '../../models/auth/auth-session.model';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -37,6 +38,19 @@ export class AuthService {
     private readonly rateLimiter: AuthRateLimiter,
     private readonly config: AuthConfig,
   ) {}
+
+  async getBrowserContext(refreshToken: string | null, csrfToken: string | null): Promise<BrowserSessionContext> {
+    if (!refreshToken || !csrfToken) throw new UnauthorizedException('Refresh session is invalid.');
+    const session = await this.repository.findActiveSessionByRefreshHash(
+      hashRefreshToken(refreshToken, this.config.refreshTokenPepper), new Date(),
+    );
+    if (!session) throw new UnauthorizedException('Refresh session is invalid.');
+    return {
+      contextId: createHmac('sha256', this.config.refreshTokenPepper)
+        .update('browser-context:' + session.id).digest('hex'),
+      csrfToken,
+    };
+  }
 
   async register(
     emailInput: string,

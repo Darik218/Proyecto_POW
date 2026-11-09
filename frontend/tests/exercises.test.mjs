@@ -43,7 +43,7 @@ async function within(operation) {
   }
 }
 
-installAuthInterceptors({
+installAuthInterceptors({ getSessionGeneration: () => 0,
   getAccessToken: () => 'exercise-test-token',
   refreshSession: async () => {},
   clearSession: () => {},

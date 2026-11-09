@@ -126,7 +126,7 @@ isolated('MVC-6 integrated functional journeys', () => {
       actor,
     );
 
-  it('resolves real Nest providers and registers all 68 functional routes exactly once', () => {
+  it('resolves real Nest providers and registers all 69 functional routes exactly once', () => {
     const modules = [...h.app.get(ModulesContainer).values()];
     const controllers = modules.flatMap((module) => [
       ...module.controllers.values(),
@@ -150,8 +150,8 @@ isolated('MVC-6 integrated functional journeys', () => {
       }
     }
     expect(controllers).toHaveLength(7);
-    expect(routes).toHaveLength(68);
-    expect(new Set(routes).size).toBe(68);
+    expect(routes).toHaveLength(69);
+    expect(new Set(routes).size).toBe(69);
     // This harness deliberately excludes AppModule/Observe and the root scaffold route.
   });
 
@@ -585,10 +585,10 @@ isolated('MVC-6 integrated functional journeys', () => {
       api.defaults.headers.common.Origin='http://localhost:5173';api.defaults.headers.common.Cookie=cookie+'; pow_csrf='+csrf;
       const calls=[];api.interceptors.request.use(config=>{calls.push(config.url);return config});
       setActivePinia(createPinia());const store=useAuthStore();store.accessToken=expired;store.csrfToken=csrf;store.status='authenticated';
-      installAuthInterceptors({getAccessToken:()=>store.accessToken,refreshSession:store.refreshSession,clearSession:store.clearSession});
+      installAuthInterceptors({getAccessToken:()=>store.accessToken,getSessionGeneration:()=>store.getSessionGeneration(),refreshSession:store.refreshSession,clearSession:store.clearSession});
       await assert.rejects(store.logoutAll(),error=>error.response?.status===401);
       assert.equal(store.status,'anonymous');assert.equal(store.accessToken,null);
-      assert.deepEqual(calls,['/auth/logout-all','/auth/refresh']);
+      assert.deepEqual(calls,['/auth/context']);
       console.log('Rejected global logout verified');
     `, { expired, csrf: actor.csrf, cookie: actor.cookie });
     expect(output).toContain('Rejected global logout verified');
@@ -625,9 +625,9 @@ isolated('MVC-6 integrated functional journeys', () => {
       api.interceptors.request.use(config=>{requests.push(config.url);config.headers.set('Cookie',[...jar].map(([k,v])=>k+'='+v).join('; '));return config});
       api.interceptors.response.use(response=>{for(const value of response.headers['set-cookie']??[]){const pair=value.split(';')[0],index=pair.indexOf('=');const key=pair.slice(0,index),v=pair.slice(index+1);if(v)jar.set(key,v);else jar.delete(key)}return response});
       setActivePinia(createPinia());const store=useAuthStore();store.accessToken=expired;store.csrfToken=csrf;store.status='authenticated';
-      installAuthInterceptors({getAccessToken:()=>store.accessToken,refreshSession:store.refreshSession,clearSession:store.clearSession});
+      installAuthInterceptors({getAccessToken:()=>store.accessToken,getSessionGeneration:()=>store.getSessionGeneration(),refreshSession:store.refreshSession,clearSession:store.clearSession});
       await store.logoutAll();
-      assert.deepEqual(requests,['/auth/logout-all','/auth/refresh','/auth/me','/auth/logout-all']);
+      assert.deepEqual(requests,['/auth/context','/auth/logout-all','/auth/context','/auth/refresh','/auth/me','/auth/context','/auth/logout-all']);
       assert.equal(jar.size,0);
       assert.equal(store.status,'anonymous');assert.equal(store.accessToken,null);
       console.log('Global logout renewal verified');

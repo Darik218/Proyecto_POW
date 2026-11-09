@@ -4,7 +4,7 @@ import { api, installAuthInterceptors } from '../src/services/api.ts'
 import { workoutSessionsService as service, createWorkoutSchema, setInputSchema, setStatusLabel, workoutSchema, workoutWriteRejected, localTrainingDate } from '../src/services/workout-sessions.service.ts'
 import { useWorkoutSession } from '../src/composables/useWorkoutSessions.ts'
 import { detail, exercise, id, exerciseId, operationId, intent, response } from './workout-sessions.fixtures.mjs'
-installAuthInterceptors({ getAccessToken:()=> 'memory-only-fixture',refreshSession:async()=>{throw new Error('Expired')},clearSession:()=>{} })
+installAuthInterceptors({ getSessionGeneration: () => 0, getAccessToken:()=> 'memory-only-fixture',refreshSession:async()=>{throw new Error('Expired')},clearSession:()=>{} })
 const targets={targetSets:3,targetRepsMin:8,targetRepsMax:8,targetLoad:'80',targetLoadUnit:'KG',targetRpe:8}
 const modern={...detail,version:2,performedOn:'2026-01-01T00:00:00.000Z',timeZone:'UTC',recordingMode:'RETROSPECTIVE',completedAt:null,planDay:null,sourceSnapshot:{kind:'FREE',plan:null,week:null,day:null,session:null},actualSetCount:0,completedSetCount:0,exercises:[{...exercise,original:{source:{kind:'FREE',id:null},exercise:exercise.exercise,targets,position:1,notes:null},targets,isOmitted:false,replacesWorkoutExerciseId:null,sets:[]}]}
 after(()=>{api.defaults.adapter=undefined})

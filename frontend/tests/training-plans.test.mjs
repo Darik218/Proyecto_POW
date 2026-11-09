@@ -6,7 +6,7 @@ import { trainingPlansService as service, createTrainingPlanSchema, updateTraini
 import { useTrainingPlan, useTrainingPlans } from '../src/composables/useTrainingPlans.ts'
 import { plan, detail, planning, day, dayId, dailyPrescription, week, prescription, planId, weekId, exerciseId, prescriptionId, response } from './training-plans.fixtures.mjs'
 
-installAuthInterceptors({ getAccessToken: () => 'memory-access', refreshSession: async () => { throw new Error('Session expired') }, clearSession: () => {} })
+installAuthInterceptors({ getSessionGeneration: () => 0, getAccessToken: () => 'memory-access', refreshSession: async () => { throw new Error('Session expired') }, clearSession: () => {} })
 const failure = (config, status, message = '') => new AxiosError('HTTP failure', AxiosError.ERR_BAD_RESPONSE, config, undefined, response(config, { message }, status))
 
 test('uses the authenticated direct array and nested detail contracts', async () => {

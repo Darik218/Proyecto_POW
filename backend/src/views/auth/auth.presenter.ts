@@ -1,5 +1,6 @@
 import type { AuthAccountAttributes } from '../../models/auth/auth-account.model';
 import type { IssuedSession } from '../../models/auth/auth-session.model';
+import type { BrowserSessionContext } from '../../models/auth/auth-session.model';
 
 export type AccountResponse = {
   id: string;
@@ -18,6 +19,9 @@ export type AuthResponse = {
 
 // Public JSON allowlists only. Token issuance and HTTP cookies stay outside the view.
 export class AuthPresenter {
+  browserContext(context: BrowserSessionContext): BrowserSessionContext {
+    return { contextId: context.contextId, csrfToken: context.csrfToken };
+  }
   account(account: AuthAccountAttributes): AccountResponse {
     return {
       id: account.id,

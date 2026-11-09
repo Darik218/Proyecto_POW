@@ -8,7 +8,7 @@ try {
   let raw = ''; for await (const chunk of process.stdin) raw += chunk
   const { baseURL, token, exerciseId, planId, weekId } = JSON.parse(raw)
   api.defaults.baseURL = baseURL
-  installAuthInterceptors({ getAccessToken: () => token, refreshSession: async () => { throw new Error('Fixture access expired') }, clearSession: () => {} })
+  installAuthInterceptors({ getSessionGeneration: () => 0, getAccessToken: () => token, refreshSession: async () => { throw new Error('Fixture access expired') }, clearSession: () => {} })
   const state = useTrainingPlan()
   stage = 'load'; await state.load(planId); assert.equal(state.error.value, '')
   stage = 'days'

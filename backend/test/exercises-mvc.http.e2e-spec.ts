@@ -418,7 +418,7 @@ describe('Exercises HTTP contract without PostgreSQL', () => {
       import {exercisesService} from './src/services/exercises.service.ts';
       let raw='';for await(const chunk of process.stdin)raw+=chunk;
       const input=JSON.parse(raw);api.defaults.baseURL=input.baseURL;
-      installAuthInterceptors({getAccessToken:()=> 'owner',refreshSession:async()=>{throw new Error('Unexpected refresh')},clearSession:()=>{}});
+      installAuthInterceptors({ getSessionGeneration: () => 0,getAccessToken:()=> 'owner',refreshSession:async()=>{throw new Error('Unexpected refresh')},clearSession:()=>{}});
       const page=await exercisesService.list({search:'bench press',limit:5,offset:0},'visible');assert.equal(page.items[0].id,input.id);assert.deepEqual(page.items[0].aliases,['Bench press']);assert.equal('ownerId' in page.items[0],false);
       assert.equal((await exercisesService.getById(input.personalId)).isOwner,true);
       assert.equal((await exercisesService.listMuscleGroups())[0].key,'pectorales');

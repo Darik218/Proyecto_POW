@@ -27,7 +27,7 @@ function response(config, data, status = 200) {
 }
 
 test('consulta y actualiza el perfil usando la respuesta directa del backend', async () => {
-  installAuthInterceptors({
+  installAuthInterceptors({ getSessionGeneration: () => 0,
     getAccessToken: () => 'athlete-test-access-token',
     refreshSession: async () => {},
     clearSession: () => {},
@@ -122,7 +122,7 @@ test('si el refresh falla ante un 401, limpia sesión y no reintenta en bucle', 
   let refreshCalls = 0
   let clearCalls = 0
   let requestCalls = 0
-  installAuthInterceptors({
+  installAuthInterceptors({ getSessionGeneration: () => 0,
     getAccessToken: () => 'expired-access-token',
     refreshSession: async () => {
       refreshCalls += 1

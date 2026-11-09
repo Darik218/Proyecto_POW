@@ -34,8 +34,16 @@ export type AuthResponse = {
 
 const authPath = '/auth'
 const csrfStorageKey = 'pow_csrf_token'
+const browserContextSchema = z.object({
+  contextId: z.string().regex(/^[a-f0-9]{64}$/),
+  csrfToken: z.string().min(1),
+}).strict()
 
 export const authService = {
+  async context() {
+    const { data } = await api.post(`${authPath}/context`, {})
+    return browserContextSchema.parse(data)
+  },
   async register(form: AuthForm): Promise<AuthResponse> {
     const { data } = await api.post<AuthResponse>(`${authPath}/register`, form)
     return data
@@ -90,25 +98,7 @@ export function readCsrfCookie(): string | null {
 }
 
 export function readCsrfToken(): string | null {
-  const cookieToken = readCsrfCookie()
-  if (cookieToken) return cookieToken
-  try {
-    return typeof sessionStorage === 'undefined'
-      ? null
-      : sessionStorage.getItem(csrfStorageKey)
-  } catch {
-    return null
-  }
-}
-
-export function rememberCsrfToken(token: string): void {
-  try {
-    if (typeof sessionStorage !== 'undefined') {
-      sessionStorage.setItem(csrfStorageKey, token)
-    }
-  } catch {
-    // In-memory CSRF remains available for this page when storage is disabled.
-  }
+  return readCsrfCookie()
 }
 
 export function forgetCsrfToken(): void {

@@ -572,10 +572,18 @@ model OneRmEstimate {
   sourceSetId      String?      @map("source_set_id") @db.Uuid
   inputLoad        Decimal      @map("input_load") @db.Decimal(8, 3)
   inputReps        Int          @map("input_reps")
-  estimatedOneRm   Decimal      @map("estimated_one_rm") @db.Decimal(8, 3)
+  estimatedOneRm   Decimal      @map("estimated_one_rm") @db.Decimal(24, 6)
   formula          OneRmFormula
   algorithmVersion String       @map("algorithm_version") @db.VarChar(40)
   calculatedAt     DateTime     @default(now()) @map("calculated_at") @db.Timestamptz(6)
+  inputLoadUnit    MeasurementUnit? @map("input_load_unit")
+  inputLoadKg      Decimal?     @map("input_load_kg") @db.Decimal(24, 6)
+  resultUnit       MeasurementUnit? @map("result_unit")
+  sourceSetVersion Int?         @map("source_set_version")
+  eligibilityVersion String?   @map("eligibility_version") @db.VarChar(40)
+  estimateKind     String?      @map("estimate_kind") @db.VarChar(24)
+  calculationKey   String?      @unique @map("calculation_key") @db.Char(64)
+  snapshot         Json?        @db.JsonB
   athlete          Athlete      @relation(fields: [athleteId], references: [id], onDelete: Restrict)
   exercise         Exercise     @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
   sourceSet        SetRecord?   @relation(fields: [sourceSetId], references: [id], onDelete: Restrict)

@@ -39,6 +39,12 @@ export class FakeAuthRepository implements AuthRepository {
   readonly consumedHashes = new Map<string, string>();
   private nextId = 1;
 
+  async findActiveSessionByRefreshHash(tokenHash: string, now: Date): Promise<{ id: string } | null> {
+    const session = [...this.sessions.values()].find(item => item.currentHash === tokenHash);
+    if (!session) return null;
+    return await this.findActiveSession(session.id, session.userId, now) ? { id: session.id } : null;
+  }
+
   async createAccount(input: NewAccount): Promise<StoredAccount> {
     if (this.accounts.has(input.email)) throw new DuplicateEmailError();
     const now = new Date();

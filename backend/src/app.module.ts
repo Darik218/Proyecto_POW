@@ -7,6 +7,7 @@ import { AthletesModule } from './athletes/athletes.module';
 import { ExercisesModule } from './exercises/exercises.module';
 import { TrainingPlansModule } from './training-plans/training-plans.module';
 import { WorkoutSessionsModule } from './workout-sessions/workout-sessions.module';
+import { ProgressionModule } from './progression/progression.module';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -17,6 +18,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     ExercisesModule,
     TrainingPlansModule,
     WorkoutSessionsModule,
+    ProgressionModule,
     // Distributed tracing, auto-correlated logs, request/job metrics, error
     // telemetry, alarms, and more — out of the box. Sign up at https://observe.nestjs.com
     ObserveModule.forRoot({

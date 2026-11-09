@@ -26,6 +26,7 @@ export type RotateSession = {
 export interface AuthRepository {
   createAccount(input: NewAccount): Promise<StoredAccount>;
   findAccountByEmail(email: string): Promise<StoredAccount | null>;
+  findActiveSessionByRefreshHash(tokenHash: string, now: Date): Promise<{ id: string } | null>;
   createSession(input: NewSession): Promise<{ id: string }>;
   rotateRefreshToken(input: RotateSession): Promise<RefreshOutcome>;
   findActiveSession(

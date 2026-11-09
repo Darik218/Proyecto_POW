@@ -415,7 +415,7 @@ describe('Athletes MVC HTTP contracts without PostgreSQL', () => {
       import {athletesService} from './src/services/athletes.service.ts';
       let raw='';for await(const chunk of process.stdin)raw+=chunk;
       const {baseURL,id}=JSON.parse(raw);api.defaults.baseURL=baseURL;
-      installAuthInterceptors({getAccessToken:()=> 'owner',refreshSession:async()=>{throw new Error('Unexpected refresh')},clearSession:()=>{}});
+      installAuthInterceptors({ getSessionGeneration: () => 0,getAccessToken:()=> 'owner',refreshSession:async()=>{throw new Error('Unexpected refresh')},clearSession:()=>{}});
       assert.equal((await athletesService.getProfile()).id,id);
       assert.equal((await athletesService.updateProfile({birthDate:'1995-06-15',preferredUnit:'LB'})).preferredUnit,'LB');
       assert.equal((await athletesService.getMeasurements())[0].bodyWeight,72.125);

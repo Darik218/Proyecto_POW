@@ -5,7 +5,7 @@ import { api, installAuthInterceptors } from '../src/services/api.ts'
 import { trainingPlansService as service, createPlanDaySchema, updatePlanDaySchema, createDailyPrescriptionSchema, updateDailyPrescriptionSchema, planningSchema, repsLabel, weekdayLabel } from '../src/services/training-plans.service.ts'
 import { useTrainingPlan } from '../src/composables/useTrainingPlans.ts'
 import { planning, day, dayId, dailyPrescription, prescriptionId, planId, weekId, exerciseId, response } from './training-plans.fixtures.mjs'
-installAuthInterceptors({ getAccessToken: () => 'in-memory-fixture', refreshSession: async () => { throw new Error('Expired') }, clearSession: () => {} })
+installAuthInterceptors({ getSessionGeneration: () => 0, getAccessToken: () => 'in-memory-fixture', refreshSession: async () => { throw new Error('Expired') }, clearSession: () => {} })
 after(() => { api.defaults.adapter = undefined })
 
 test('reads the daily hierarchy with separate pending prescriptions and stable range labels', async () => {

@@ -6,7 +6,7 @@ import { workoutSessionsService as service, createWorkoutSchema, addWorkoutExerc
 import { useWorkoutSession, useWorkoutSessions } from '../src/composables/useWorkoutSessions.ts'
 import { id, intent, exerciseId, operationId, summary, detail, exercise, response } from './workout-sessions.fixtures.mjs'
 
-installAuthInterceptors({ getAccessToken: () => 'memory-workout-access', refreshSession: async () => { throw new Error('Expired') }, clearSession: () => {} })
+installAuthInterceptors({ getSessionGeneration: () => 0, getAccessToken: () => 'memory-workout-access', refreshSession: async () => { throw new Error('Expired') }, clearSession: () => {} })
 const fail = (config, status) => new AxiosError('HTTP', AxiosError.ERR_BAD_RESPONSE, config, undefined, response(config, {}, status))
 test('uses authenticated paginated reads and explicit lifecycle endpoints', async () => {
   const calls = []

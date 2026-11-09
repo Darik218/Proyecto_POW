@@ -11,7 +11,7 @@ try {
   for await (const chunk of process.stdin) input += chunk
   const { baseURL, token, name, exerciseId, exerciseName } = JSON.parse(input)
   api.defaults.baseURL = baseURL
-  installAuthInterceptors({ getAccessToken: () => token, refreshSession: async () => { throw new Error('Fixture session unexpectedly expired.') }, clearSession: () => {} })
+  installAuthInterceptors({ getSessionGeneration: () => 0, getAccessToken: () => token, refreshSession: async () => { throw new Error('Fixture session unexpectedly expired.') }, clearSession: () => {} })
   const list = useTrainingPlans()
   stage = 'list'
   await list.load()

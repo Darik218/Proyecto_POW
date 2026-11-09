@@ -152,6 +152,33 @@ isolated('MVC-5 auth characterization with isolated PostgreSQL', () => {
     await app?.close();
   });
 
+  it('bootstraps current CSRF and stable non-credential context without rotating or writing a session', async () => {
+    const first = await register();
+    const read = (cookies: string, origin = ORIGIN) => http()
+      .post('/api/v1/auth/context').set('Origin', origin).set('Cookie', cookies);
+    const before = await session(first);
+    const result = await read(csrf(first)).expect(200);
+    expect(Object.keys(result.body).sort()).toEqual(['contextId', 'csrfToken']);
+    expect(result.body.csrfToken).toBe(first.body.csrfToken);
+    expect(result.body.contextId).toMatch(/^[a-f0-9]{64}$/);
+    expect(result.body.contextId).not.toBe(sid(first));
+    expect(result.headers['cache-control']).toContain('no-store');
+    expect(result.headers['set-cookie']).toBeUndefined();
+    expect(await session(first)).toEqual(before);
+    await read(csrf(first), 'https://foreign.test').expect(403);
+    await http().post('/api/v1/auth/context').set('Cookie', csrf(first)).expect(403);
+    await read('pow_csrf=only-csrf').expect(401);
+    await read(first.cookie).expect(401);
+    const rotated = from(await refresh(first).expect(200), first.email);
+    expect((await read(csrf(rotated)).expect(200)).body.contextId).toBe(result.body.contextId);
+    await read(csrf(first)).expect(401);
+    expect((await session(first)).revokedAt).toBeNull();
+    const replacement = await login(first);
+    expect((await read(csrf(replacement)).expect(200)).body.contextId).not.toBe(result.body.contextId);
+    await logout(rotated).expect(204);
+    await read(csrf(rotated)).expect(401);
+  });
+
   it('registers the account and athlete atomically; preserves the exact JSON contract and 15-minute signed claims', async () => {
     const requestStartedAt = Date.now();
     const auth = await register();
@@ -565,7 +592,7 @@ isolated('MVC-5 auth characterization with isolated PostgreSQL', () => {
       // JavaScript sees only the CSRF cookie; refresh remains unavailable to the store.
       globalThis.document={get cookie(){return jar.has('pow_csrf')?'pow_csrf='+jar.get('pow_csrf'):''}};
       setActivePinia(createPinia());let store=useAuthStore();
-      installAuthInterceptors({getAccessToken:()=>store.accessToken,refreshSession:()=>store.refreshSession(),clearSession:()=>store.clearSession()});
+      installAuthInterceptors({getAccessToken:()=>store.accessToken,getSessionGeneration:()=>store.getSessionGeneration(),refreshSession:()=>store.refreshSession(),clearSession:()=>store.clearSession()});
       const form=registerSchema.parse({email:'mvc5-vue-'+randomUUID()+'@example.test',password:'mvc5-only-password-123'});
       stage='register';await store.register(form);assert.equal(store.status,'authenticated');
       assert.deepEqual(Object.keys(store.user).sort(),['createdAt','email','id','status','updatedAt']);

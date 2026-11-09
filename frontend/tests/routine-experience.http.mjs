@@ -9,7 +9,7 @@ try {
   for await (const chunk of process.stdin) raw += chunk
   const { baseURL, token, exerciseId } = JSON.parse(raw)
   api.defaults.baseURL = baseURL
-  installAuthInterceptors({
+  installAuthInterceptors({ getSessionGeneration: () => 0,
     getAccessToken: () => token,
     refreshSession: async () => {
       throw new Error('Fixture session expired')
