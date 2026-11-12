@@ -29,9 +29,9 @@ async function submit() {
 </script>
 
 <template>
-  <form class="plan-form" novalidate :aria-busy="pending" @submit.prevent="submit">
+  <form class="plan-form training-editor" novalidate :aria-busy="pending" @submit.prevent="submit">
     <h2>{{ initial ? 'Editar prescripción' : 'Añadir ejercicio' }}</h2>
-    <fieldset :disabled="pending || busy">
+    <fieldset :disabled="pending || busy"><legend class="training-section-legend">Ejercicio y objetivos</legend>
       <p v-if="initial"><strong>{{ initial.exercise.name }}</strong></p>
       <ExercisePicker v-else v-model="exerciseId" :disabled="pending || busy" />
       <div class="plan-form-grid">

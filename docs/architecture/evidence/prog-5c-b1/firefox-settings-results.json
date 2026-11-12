@@ -1,0 +1,82 @@
+[
+  {
+    "name": "S01 protected settings URL requires authentication",
+    "status": "PASS"
+  },
+  {
+    "name": "S02 actual login and navigation preserve single layout",
+    "status": "PASS"
+  },
+  {
+    "name": "S03 explicit context has no invented setting",
+    "status": "PASS"
+  },
+  {
+    "name": "S04 missing configuration links from real progression context without automatic calculation",
+    "status": "PASS"
+  },
+  {
+    "name": "S05 explicit complete general creation persists exact decimals",
+    "status": "PASS"
+  },
+  {
+    "name": "S06 return restores destination/dates and requires explicit fresh context",
+    "status": "PASS"
+  },
+  {
+    "name": "S07 effective general exposes whole-row provenance and separate policy requirements",
+    "status": "PASS"
+  },
+  {
+    "name": "S08 exercise setting overrides general without merging null maxLoad",
+    "status": "PASS"
+  },
+  {
+    "name": "S09 exercise-plan setting has highest precedence and explicit target",
+    "status": "PASS"
+  },
+  {
+    "name": "S10 replacing full row requires impact and initially unchecked confirmation",
+    "status": "PASS"
+  },
+  {
+    "name": "S11 stale revision conflicts and cannot overwrite current row",
+    "status": "PASS"
+  },
+  {
+    "name": "S12 duplicate scope and exact precision validation reject without extra rows",
+    "status": "PASS"
+  },
+  {
+    "name": "S13 actual unit mismatch and incomplete parameters remain rejected without inference",
+    "status": "PASS"
+  },
+  {
+    "name": "S14 post-COMMIT lost PUT retains only bounded identifiers",
+    "status": "PASS"
+  },
+  {
+    "name": "S15 reload recovers receipt/current state without resending private operation",
+    "status": "PASS"
+  },
+  {
+    "name": "S16 mobile layout, keyboard focus and form labels remain usable",
+    "status": "PASS"
+  },
+  {
+    "name": "S17 account change clears cached context and prevents foreign row/receipt reads",
+    "status": "PASS"
+  },
+  {
+    "name": "S20 lost CREATE after commit recovers by intention after reload without duplication",
+    "status": "PASS"
+  },
+  {
+    "name": "S18 revoked persistent session cannot write configuration",
+    "status": "PASS"
+  },
+  {
+    "name": "S19 all historical training/planning/consent evidence unchanged and no automation",
+    "status": "PASS"
+  }
+]

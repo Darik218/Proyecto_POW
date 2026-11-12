@@ -36,7 +36,12 @@ export type PlanningCommand =
       prescriptionId: string;
       input: DailyPrescriptionDto;
     }
-  | { action: 'removeExercise'; dayId: string; prescriptionId: string; input?:PlanningRevisionDto }
+  | {
+      action: 'removeExercise';
+      dayId: string;
+      prescriptionId: string;
+      input?: PlanningRevisionDto;
+    }
   | { action: 'reorderExercises'; dayId: string; input: ReorderPlanningDto }
   | {
       action: 'distribute';
@@ -60,10 +65,10 @@ const prescriptionInclude = {
 type Row = Prisma.PlanExerciseGetPayload<{
   include: typeof prescriptionInclude;
 }>;
-function hasHistory(row: Row) {
+function hasHistory(row: Pick<Row, '_count'>) {
   return row._count.workoutExercises > 0 || row._count.recommendations > 0;
 }
-function protect(rows: Row[]) {
+export function protect(rows: readonly Pick<Row, '_count'>[]) {
   if (rows.some(hasHistory))
     throw new PlanningError(
       'conflict',
@@ -150,7 +155,7 @@ export class PrismaDailyPlanningRepository {
                 position: true,
                 weekday: true,
                 retiredAt: true,
-                retiredFromOn:true,
+                retiredFromOn: true,
                 isEditableOverride: true,
                 _count: { select: { workoutSessions: true } },
               },
@@ -242,7 +247,7 @@ export class PrismaDailyPlanningRepository {
             trainingPlan: { athleteId },
           },
           include: {
-            trainingPlan: { select: { status: true,version:true } },
+            trainingPlan: { select: { status: true, version: true } },
             days: {
               include: { _count: { select: { workoutSessions: true } } },
             },
@@ -250,8 +255,15 @@ export class PrismaDailyPlanningRepository {
           },
         });
         if (!week) throw new PlanningError('missing', 'Plan week not found.');
-        if (command.input?.expectedVersion!==undefined&&command.input.expectedVersion!==week.trainingPlan.version)throw new PlanningError('conflict','The plan changed. Reload before editing.');
-        if (!['DRAFT','ACTIVE'].includes(week.trainingPlan.status))
+        if (
+          command.input?.expectedVersion !== undefined &&
+          command.input.expectedVersion !== week.trainingPlan.version
+        )
+          throw new PlanningError(
+            'conflict',
+            'The plan changed. Reload before editing.',
+          );
+        if (!['DRAFT', 'ACTIVE'].includes(week.trainingPlan.status))
           throw new PlanningError(
             'conflict',
             'Only draft training plans can be modified.',
@@ -270,12 +282,31 @@ export class PrismaDailyPlanningRepository {
             'missing',
             'Plan day not found in this week.',
           );
-        if (day?.retiredAt) throw new PlanningError('conflict','This programming has been withdrawn. Use the current day.');
-        if (week.trainingPlan.status === 'ACTIVE' && (!day?.isEditableOverride || day._count.workoutSessions > 0 || !['updateDay','createExercise','updateExercise','removeExercise','reorderExercises'].includes(command.action))) throw new PlanningError('conflict','Create an editable future copy before changing active programming.');
+        if (day?.retiredAt)
+          throw new PlanningError(
+            'conflict',
+            'This programming has been withdrawn. Use the current day.',
+          );
+        if (
+          week.trainingPlan.status === 'ACTIVE' &&
+          (!day?.isEditableOverride ||
+            day._count.workoutSessions > 0 ||
+            ![
+              'updateDay',
+              'createExercise',
+              'updateExercise',
+              'removeExercise',
+              'reorderExercises',
+            ].includes(command.action))
+        )
+          throw new PlanningError(
+            'conflict',
+            'Create an editable future copy before changing active programming.',
+          );
         const dayRows = week.planExercises.filter(
           (row) => row.planDayId === dayId,
         );
-        if(week.trainingPlan.status==='ACTIVE')protect(dayRows);
+        if (week.trainingPlan.status === 'ACTIVE') protect(dayRows);
         switch (command.action) {
           case 'createDay':
             await tx.planDay.create({
@@ -303,7 +334,7 @@ export class PrismaDailyPlanningRepository {
             });
             break;
           case 'reorderDays': {
-            week.days = week.days.filter(day => !day.retiredAt);
+            week.days = week.days.filter((day) => !day.retiredAt);
             assertPermutation(command.input.ids, week.days);
             const changed = week.days.filter(
               (item) =>
@@ -367,7 +398,7 @@ export class PrismaDailyPlanningRepository {
               },
             });
             const days = new Map<string, string>();
-            for (const source of week.days.filter(day=>!day.retiredAt)) {
+            for (const source of week.days.filter((day) => !day.retiredAt)) {
               const copy = await tx.planDay.create({
                 data: {
                   planWeekId: created.id,
@@ -378,9 +409,11 @@ export class PrismaDailyPlanningRepository {
               });
               days.set(source.id, copy.id);
             }
-            for (const row of week.planExercises.filter(row=>row.planDayId===null||days.has(row.planDayId)).sort((a, b) =>
-              a.exerciseId.localeCompare(b.exerciseId),
-            )) {
+            for (const row of week.planExercises
+              .filter(
+                (row) => row.planDayId === null || days.has(row.planDayId),
+              )
+              .sort((a, b) => a.exerciseId.localeCompare(b.exerciseId))) {
               await this.catalog(tx, athleteId, row.exerciseId);
               await tx.planExercise.create({
                 data: {
@@ -496,7 +529,10 @@ export class PrismaDailyPlanningRepository {
             break;
           }
         }
-        await tx.trainingPlan.update({where:{id:planId},data:{version:{increment:1}}});
+        await tx.trainingPlan.update({
+          where: { id: planId },
+          data: { version: { increment: 1 } },
+        });
         return this.read(tx, athleteId, planId);
       },
       { timeout: 15000 },

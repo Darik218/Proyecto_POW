@@ -1,4 +1,9 @@
 import {
+  WorkoutInsightsQueryDto,
+  WorkoutExerciseReferenceQueryDto,
+} from '../../workout-sessions/dto/workout-insights.dto';
+import { WorkoutInsightsPresenter } from '../../views/workout-sessions/workout-insights.presenter';
+import {
   UpdateWorkoutDto,
   UpdateWorkoutExerciseDto,
   ReorderWorkoutDto,
@@ -12,6 +17,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  Header,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -41,6 +47,7 @@ export class WorkoutSessionsController {
   constructor(
     private readonly sessions: WorkoutSessionsService,
     private readonly presenter: WorkoutSessionsPresenter,
+    private readonly insightPresenter: WorkoutInsightsPresenter,
   ) {}
   @Get()
   async list(
@@ -73,6 +80,27 @@ export class WorkoutSessionsController {
   ) {
     return this.presenter.detail(
       await this.sessions.associate(identity, id, body),
+    );
+  }
+  @Get('exercise-reference')
+  @Header('Cache-Control', 'no-store')
+  async exerciseReference(
+    @CurrentAuth() identity: AuthenticatedIdentity,
+    @Query() query: WorkoutExerciseReferenceQueryDto,
+  ) {
+    return this.insightPresenter.exerciseReference(
+      await this.sessions.exerciseReference(identity, query),
+    );
+  }
+  @Get(':sessionId/insights')
+  @Header('Cache-Control', 'no-store')
+  async insights(
+    @CurrentAuth() identity: AuthenticatedIdentity,
+    @Param('sessionId', uuid) id: string,
+    @Query() query: WorkoutInsightsQueryDto,
+  ) {
+    return this.insightPresenter.insights(
+      await this.sessions.insights(identity, id, query),
     );
   }
   @Get(':sessionId')

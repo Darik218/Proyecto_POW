@@ -532,4 +532,144 @@ isolated('Flexible routine with isolated PostgreSQL', () => {
       await prisma.workoutSession.count({ where: { trainingPlanId: plan.id } }),
     ).toBe(0);
   });
+  it('builds two PPL weeks in one idempotent write with independent exact prescriptions and explicit rest', async () => {
+    const group = await prisma.muscleGroup.create({
+      data: { key: randomUUID(), name: 'Builder group' },
+    });
+    const exercise = await prisma.exercise.create({
+      data: {
+        name: 'Builder press',
+        equipment: 'barbell',
+        primaryMuscleGroupId: group.id,
+      },
+    });
+    const input = generate({
+      durationWeeks: 2,
+      frequency: 6,
+      startsOn: '2027-01-04',
+      restWeekdays: [7],
+      days: [1, 2, 3, 4, 5, 6].map((weekday) => ({
+        name: ['Push', 'Pull', 'Legs'][(weekday - 1) % 3],
+        weekday,
+        exercises: [
+          {
+            exerciseId: exercise.id,
+            position: 1,
+            targetSets: 3,
+            targetRepsMin: 8,
+            targetRepsMax: 10,
+            targetLoad: '60.125',
+            targetLoadUnit: 'LB',
+          },
+        ],
+      })),
+    });
+    await Promise.all([
+      post('/routine/plans', input).expect(201),
+      post('/routine/plans', input).expect(201),
+    ]);
+    const plan = (await get(`/training-plans/${input.id}/planning`).expect(200))
+      .body;
+    expect(plan.weeks).toHaveLength(2);
+    const prescriptions = await prisma.planExercise.findMany({
+      where: { planWeek: { trainingPlanId: input.id } },
+    });
+    expect(prescriptions).toHaveLength(12);
+    expect(new Set(prescriptions.map((row) => row.id)).size).toBe(12);
+    expect(
+      prescriptions.every(
+        (row) =>
+          row.targetLoad?.toString() === '60.125' &&
+          row.targetLoadUnit === 'LB',
+      ),
+    ).toBe(true);
+    expect(
+      await prisma.scheduledActivity.count({
+        where: { week: { trainingPlanId: input.id }, status: 'REST' },
+      }),
+    ).toBe(2);
+    await post('/routine/plans', { ...input, name: 'Reused intent' }).expect(
+      409,
+    );
+    expect(
+      await prisma.workoutSession.count({
+        where: { trainingPlanId: input.id },
+      }),
+    ).toBe(0);
+    const first = prescriptions[0];
+    await prisma.planExercise.update({
+      where: { id: first.id },
+      data: { targetSets: 4 },
+    });
+    expect(
+      await prisma.planExercise.count({
+        where: { planWeek: { trainingPlanId: input.id }, targetSets: 3 },
+      }),
+    ).toBe(11);
+  });
+  it('rolls back a builder with an unavailable exercise or conflicting exact units', async () => {
+    const input = generate({
+      durationWeeks: 1,
+      frequency: 1,
+      days: [
+        {
+          name: 'Push',
+          weekday: 1,
+          exercises: [
+            {
+              exerciseId: randomUUID(),
+              position: 1,
+              targetSets: 3,
+              targetRepsMin: 8,
+              targetRepsMax: 10,
+              targetLoad: '60',
+              targetLoadUnit: 'KG',
+            },
+          ],
+        },
+      ],
+    });
+    await post('/routine/plans', input).expect(404);
+    expect(await prisma.trainingPlan.count({ where: { id: input.id } })).toBe(
+      0,
+    );
+    await post('/routine/plans', {
+      ...input,
+      days: [
+        {
+          name: 'Push',
+          weekday: 1,
+          exercises: [
+            {
+              exerciseId: randomUUID(),
+              position: 1,
+              targetSets: 3,
+              targetRepsMin: 8,
+              targetRepsMax: 10,
+              targetLoad: '60',
+              targetLoadUnit: null,
+            },
+          ],
+        },
+      ],
+    }).expect(400);
+    expect(await prisma.trainingPlan.count({ where: { id: input.id } })).toBe(
+      0,
+    );
+  });
+  it('preserves legacy undated generation with null rest, and rejects undated requested rest', async () => {
+    await post(
+      '/routine/plans',
+      generate({ durationWeeks: 1, frequency: 1, restWeekdays: null }),
+    ).expect(201);
+    const invalid = generate({
+      durationWeeks: 1,
+      frequency: 1,
+      restWeekdays: [7],
+    });
+    await post('/routine/plans', invalid).expect(400);
+    expect(await prisma.trainingPlan.count({ where: { id: invalid.id } })).toBe(
+      0,
+    );
+  });
 });

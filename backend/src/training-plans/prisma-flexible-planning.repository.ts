@@ -1,14 +1,17 @@
+import type { IndependentPrescription } from '../models/training-plans/training-plan.model';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { ScheduledActivity } from '../models/training-plans/scheduled-activity.model';
 import { PlanningError } from './daily-planning.policy';
+import { validateRoutineTemplates } from './routine-template.policy';
 import {
   creationHash,
   localDate,
 } from '../workout-sessions/workout-calendar.policy';
 import type {
   GenerateRoutineDto,
+  DuplicateRoutineDto,
   PlanningVersionDto,
   NewRoutineDayDto,
   CopyRoutineDto,
@@ -127,7 +130,7 @@ export class PrismaFlexiblePlanningRepository {
   }
   async generate(athleteId: string, input: GenerateRoutineDto) {
     localDate(input.timeZone);
-    const templates =
+    const templates: import('./dto/flexible-planning.dto').RoutineDayTemplateDto[] =
       input.days ??
       Array.from({ length: input.frequency }, (_, index) => ({
         name: `Día ${index + 1}`,
@@ -137,6 +140,12 @@ export class PrismaFlexiblePlanningRepository {
       throw new PlanningError(
         'invalid',
         'The day templates must match the initial frequency.',
+      );
+    validateRoutineTemplates(templates, input.restWeekdays ?? []);
+    if (input.restWeekdays?.length && !input.startsOn)
+      throw new PlanningError(
+        'invalid',
+        'Scheduled rest requires an explicit start date.',
       );
     return this.prisma.$transaction(
       async (tx) => {
@@ -155,6 +164,33 @@ export class PrismaFlexiblePlanningRepository {
               'Creation identifier already in use.',
             );
           return { id: previous.id };
+        }
+        // Same exercise share lock used by daily planning; validate all sources before writing.
+        const exerciseIds = [
+          ...new Set(
+            templates.flatMap(
+              (day) => day.exercises?.map((row) => row.exerciseId) ?? [],
+            ),
+          ),
+        ].sort();
+        for (const exerciseId of exerciseIds) {
+          await tx.$queryRaw`SELECT id FROM exercises WHERE id=${exerciseId}::uuid FOR SHARE`;
+          const exercise = await tx.exercise.findFirst({
+            where: {
+              id: exerciseId,
+              isActive: true,
+              OR: [
+                { origin: 'GLOBAL' },
+                { origin: 'PERSONAL', owner: { athlete: { id: athleteId } } },
+              ],
+            },
+            select: { id: true },
+          });
+          if (!exercise)
+            throw new PlanningError(
+              'missing',
+              'Active catalog exercise not found.',
+            );
         }
         await tx.trainingPlan.create({
           data: {
@@ -186,6 +222,28 @@ export class PrismaFlexiblePlanningRepository {
                 weekday: template.weekday ?? null,
               },
             });
+            for (const prescription of template.exercises ?? []) {
+              await tx.planExercise.create({
+                data: {
+                  planWeekId: week.id,
+                  planDayId: day.id,
+                  exerciseId: prescription.exerciseId,
+                  position: prescription.position,
+                  targetSets: prescription.targetSets,
+                  targetReps:
+                    prescription.targetRepsMin === prescription.targetRepsMax
+                      ? prescription.targetRepsMin
+                      : null,
+                  targetRepsMin: prescription.targetRepsMin,
+                  targetRepsMax: prescription.targetRepsMax,
+                  targetLoad:
+                    prescription.targetLoad == null
+                      ? null
+                      : new Prisma.Decimal(prescription.targetLoad),
+                  targetLoadUnit: prescription.targetLoadUnit ?? null,
+                },
+              });
+            }
             if (start && template.weekday) {
               const date = plus(
                 iso(start),
@@ -205,11 +263,176 @@ export class PrismaFlexiblePlanningRepository {
               });
             }
           }
+          if (start)
+            for (const weekday of input.restWeekdays ?? []) {
+              const date = plus(
+                iso(start),
+                (weekday - (start.getUTCDay() || 7) + 7) % 7,
+              );
+              await tx.scheduledActivity.create({
+                data: {
+                  athleteId,
+                  planWeekId: week.id,
+                  originalOn: date,
+                  scheduledOn: date,
+                  timeZone: input.timeZone,
+                  title: 'Descanso',
+                  status: 'REST',
+                },
+              });
+            }
         }
         return { id: input.id };
       },
       { timeout: 30000 },
     );
+  }
+  async duplicate(
+    athleteId: string,
+    planId: string,
+    input: DuplicateRoutineDto,
+  ) {
+    return this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM athletes WHERE id=${athleteId}::uuid FOR UPDATE`;
+        const source = await this.lock(tx, athleteId, planId);
+        // Source version is semantic intent here, unlike retries of a mutation on
+        // the source itself. Keep it in the fingerprint and check retries first.
+        const fingerprint = creationHash(
+          canonical({
+            action: 'duplicatePlan',
+            sourcePlanId: planId,
+            sourceVersion: input.expectedVersion,
+            name: input.name.trim(),
+          }) as object,
+        );
+        const previous = await tx.trainingPlan.findUnique({
+          where: { id: input.id },
+        });
+        if (previous) {
+          if (
+            previous.athleteId !== athleteId ||
+            previous.creationRequestHash !== fingerprint
+          )
+            throw new PlanningError(
+              'conflict',
+              'Creation identifier already in use.',
+            );
+          return { id: previous.id };
+        }
+        if (source.version !== input.expectedVersion)
+          throw new PlanningError(
+            'conflict',
+            'The source plan changed. Reload before duplicating.',
+          );
+        const weeks = await tx.planWeek.findMany({
+          where: { trainingPlanId: planId },
+          orderBy: [{ weekNumber: 'asc' }, { id: 'asc' }],
+          include: {
+            days: {
+              where: { retiredAt: null },
+              orderBy: [{ position: 'asc' }, { id: 'asc' }],
+              include: {
+                exercises: { orderBy: [{ position: 'asc' }, { id: 'asc' }] },
+              },
+            },
+            planExercises: {
+              where: { planDayId: null },
+              orderBy: [{ position: 'asc' }, { id: 'asc' }],
+            },
+          },
+        });
+        const exerciseIds = [
+          ...new Set(
+            weeks.flatMap((week) => [
+              ...week.planExercises.map((row) => row.exerciseId),
+              ...week.days.flatMap((day) =>
+                day.exercises.map((row) => row.exerciseId),
+              ),
+            ]),
+          ),
+        ].sort();
+        for (const exerciseId of exerciseIds) {
+          await tx.$queryRaw`SELECT id FROM exercises WHERE id=${exerciseId}::uuid FOR SHARE`;
+          const exercise = await tx.exercise.findFirst({
+            where: {
+              id: exerciseId,
+              isActive: true,
+              OR: [
+                { origin: 'GLOBAL' },
+                { origin: 'PERSONAL', owner: { athlete: { id: athleteId } } },
+              ],
+            },
+            select: { id: true },
+          });
+          if (!exercise)
+            throw new PlanningError(
+              'conflict',
+              'A source exercise is inactive or unavailable.',
+            );
+        }
+        await tx.trainingPlan.create({
+          data: {
+            id: input.id,
+            athleteId,
+            name: input.name.trim(),
+            status: 'DRAFT',
+            creationRequestHash: fingerprint,
+          },
+        });
+        for (const week of weeks) {
+          const targetWeek = await tx.planWeek.create({
+            data: {
+              trainingPlanId: input.id,
+              weekNumber: week.weekNumber,
+              objective: week.objective,
+            },
+          });
+          for (const row of week.planExercises)
+            await tx.planExercise.create({
+              data: {
+                planWeekId: targetWeek.id,
+                planDayId: null,
+                ...this.independentPrescription(row),
+              },
+            });
+          for (const day of week.days) {
+            const targetDay = await tx.planDay.create({
+              data: {
+                planWeekId: targetWeek.id,
+                name: day.name,
+                position: day.position,
+                weekday: day.weekday,
+              },
+            });
+            for (const row of day.exercises)
+              await tx.planExercise.create({
+                data: {
+                  planWeekId: targetWeek.id,
+                  planDayId: targetDay.id,
+                  ...this.independentPrescription(row),
+                },
+              });
+          }
+        }
+        return { id: input.id };
+      },
+      { timeout: 30000 },
+    );
+  }
+  private independentPrescription(row: IndependentPrescription) {
+    return {
+      exerciseId: row.exerciseId,
+      position: row.position,
+      targetSets: row.targetSets,
+      targetReps: row.targetReps,
+      targetRepsMin: row.targetRepsMin,
+      targetRepsMax: row.targetRepsMax,
+      targetLoad: row.targetLoad,
+      targetLoadUnit: row.targetLoadUnit,
+      targetRpe: row.targetRpe,
+      notes: row.notes,
+    };
   }
   private async scheduleNewDay(
     tx: Prisma.TransactionClient,
@@ -362,16 +585,8 @@ export class PrismaFlexiblePlanningRepository {
         data: {
           planWeekId: target.planWeekId,
           planDayId: target.id,
-          exerciseId: row.exerciseId,
+          ...this.independentPrescription(row),
           position: offset + index + 1,
-          targetSets: row.targetSets,
-          targetReps: row.targetReps,
-          targetRepsMin: row.targetRepsMin,
-          targetRepsMax: row.targetRepsMax,
-          targetLoad: row.targetLoad,
-          targetLoadUnit: row.targetLoadUnit,
-          targetRpe: row.targetRpe,
-          notes: row.notes,
         },
       });
   }
@@ -595,140 +810,150 @@ export class PrismaFlexiblePlanningRepository {
   }
   async createActivity(athleteId: string, input: CreateScheduledActivityDto) {
     localDate(input.timeZone);
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM athletes WHERE id=${athleteId}::uuid FOR UPDATE`;
-      const fingerprint = hash('activity', input);
-      const existing = await tx.scheduledActivity.findUnique({
-        where: { id: input.id },
-      });
-      if (existing) {
+    return this.prisma
+      .$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM athletes WHERE id=${athleteId}::uuid FOR UPDATE`;
+        const fingerprint = hash('activity', input);
+        const existing = await tx.scheduledActivity.findUnique({
+          where: { id: input.id },
+        });
+        if (existing) {
+          if (
+            existing.athleteId !== athleteId ||
+            existing.creationRequestHash !== fingerprint
+          )
+            throw new PlanningError(
+              'conflict',
+              'Creation identifier already in use.',
+            );
+          return tx.scheduledActivity.findUniqueOrThrow({
+            where: { id: input.id },
+            select: activitySelect,
+          });
+        }
+        if (input.planWeekId) {
+          const week = await tx.planWeek.findFirst({
+            where: { id: input.planWeekId, trainingPlan: { athleteId } },
+            select: { trainingPlanId: true },
+          });
+          if (!week) throw new PlanningError('missing', 'Plan week not found.');
+          const plan = await this.lock(tx, athleteId, week.trainingPlanId);
+          if (!['DRAFT', 'ACTIVE'].includes(plan.status))
+            throw new PlanningError('conflict', 'This plan is read-only.');
+        }
         if (
-          existing.athleteId !== athleteId ||
-          existing.creationRequestHash !== fingerprint
+          (input.status === 'REST' && input.planDayId) ||
+          (input.status !== 'REST' && !input.planDayId)
         )
           throw new PlanningError(
-            'conflict',
-            'Creation identifier already in use.',
+            'invalid',
+            'Rest and planned activities have different day associations.',
           );
-        return tx.scheduledActivity.findUniqueOrThrow({
-          where: { id: input.id },
+        if (input.planDayId && !input.planWeekId)
+          throw new PlanningError(
+            'invalid',
+            'Choose the week for the selected day.',
+          );
+        if (
+          input.planDayId &&
+          !(await tx.planDay.findFirst({
+            where: {
+              id: input.planDayId,
+              planWeekId: input.planWeekId,
+              retiredAt: null,
+              planWeek: {
+                trainingPlan: {
+                  athleteId,
+                  status: { in: ['DRAFT', 'ACTIVE'] },
+                },
+              },
+            },
+          }))
+        )
+          throw new PlanningError('missing', 'Plan day not found.');
+        return tx.scheduledActivity.create({
+          data: {
+            id: input.id,
+            athleteId,
+            planWeekId: input.planWeekId,
+            planDayId: input.planDayId,
+            originalPlanDayId: input.planDayId,
+            originalOn: new Date(input.scheduledOn),
+            scheduledOn: new Date(input.scheduledOn),
+            title: input.title.trim(),
+            timeZone: input.timeZone,
+            status: input.status,
+            creationRequestHash: fingerprint,
+          },
           select: activitySelect,
         });
-      }
-      if (input.planWeekId) {
-        const week = await tx.planWeek.findFirst({
-          where: { id: input.planWeekId, trainingPlan: { athleteId } },
-          select: { trainingPlanId: true },
-        });
-        if (!week) throw new PlanningError('missing', 'Plan week not found.');
-        const plan = await this.lock(tx, athleteId, week.trainingPlanId);
-        if (!['DRAFT', 'ACTIVE'].includes(plan.status))
-          throw new PlanningError('conflict', 'This plan is read-only.');
-      }
-      if (
-        (input.status === 'REST' && input.planDayId) ||
-        (input.status !== 'REST' && !input.planDayId)
-      )
-        throw new PlanningError(
-          'invalid',
-          'Rest and planned activities have different day associations.',
-        );
-      if (input.planDayId && !input.planWeekId)
-        throw new PlanningError(
-          'invalid',
-          'Choose the week for the selected day.',
-        );
-      if (
-        input.planDayId &&
-        !(await tx.planDay.findFirst({
-          where: {
-            id: input.planDayId,
-            planWeekId: input.planWeekId,
-            retiredAt: null,
-            planWeek: {
-              trainingPlan: { athleteId, status: { in: ['DRAFT', 'ACTIVE'] } },
-            },
-          },
-        }))
-      )
-        throw new PlanningError('missing', 'Plan day not found.');
-      return tx.scheduledActivity.create({
-        data: {
-          id: input.id,
-          athleteId,
-          planWeekId: input.planWeekId,
-          planDayId: input.planDayId,
-          originalPlanDayId: input.planDayId,
-          originalOn: new Date(input.scheduledOn),
-          scheduledOn: new Date(input.scheduledOn),
-          title: input.title.trim(),
-          timeZone: input.timeZone,
-          status: input.status,
-          creationRequestHash: fingerprint,
-        },
-        select: activitySelect,
-      });
-    }).then((activity) => new ScheduledActivity(activity));
+      })
+      .then((activity) => new ScheduledActivity(activity));
   }
   async updateActivity(
     athleteId: string,
     id: string,
     input: UpdateScheduledActivityDto,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM scheduled_activities WHERE id=${id}::uuid AND athlete_id=${athleteId}::uuid FOR UPDATE`;
-      const row = await tx.scheduledActivity.findFirst({
-        where: { id, athleteId },
-        include: {
-          workouts: true,
-          day: { select: { retiredAt: true, retiredFromOn: true } },
-        },
-      });
-      if (!row)
-        throw new PlanningError('missing', 'Scheduled activity not found.');
-      if (row.version !== input.expectedVersion)
-        throw new PlanningError(
-          'conflict',
-          'The activity changed. Reload before editing.',
-        );
-      if (
-        row.workouts.some((workout) =>
-          ['IN_PROGRESS', 'COMPLETED'].includes(workout.status),
+    return this.prisma
+      .$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM scheduled_activities WHERE id=${id}::uuid AND athlete_id=${athleteId}::uuid FOR UPDATE`;
+        const row = await tx.scheduledActivity.findFirst({
+          where: { id, athleteId },
+          include: {
+            workouts: true,
+            day: { select: { retiredAt: true, retiredFromOn: true } },
+          },
+        });
+        if (!row)
+          throw new PlanningError('missing', 'Scheduled activity not found.');
+        if (row.version !== input.expectedVersion)
+          throw new PlanningError(
+            'conflict',
+            'The activity changed. Reload before editing.',
+          );
+        if (
+          row.workouts.some((workout) =>
+            ['IN_PROGRESS', 'COMPLETED'].includes(workout.status),
+          )
         )
-      )
-        throw new PlanningError(
-          'conflict',
-          'This activity has execution history and cannot be rewritten.',
-        );
-      if (
-        row.day?.retiredAt &&
-        (!row.day.retiredFromOn ||
-          new Date(input.scheduledOn ?? iso(row.scheduledOn)) >=
-            row.day.retiredFromOn) &&
-        (input.scheduledOn || input.status === 'PLANNED')
-      )
-        throw new PlanningError(
-          'conflict',
-          'This day is withdrawn on that date. Schedule its current copy.',
-        );
-      if (row.status === 'REST' && input.status)
-        throw new PlanningError('invalid', 'A rest record is not a workout.');
-      if (input.scheduledOn === undefined && input.status === undefined)
-        throw new PlanningError('invalid', 'At least one change is required.');
-      return tx.scheduledActivity.update({
-        where: { id },
-        data: {
-          ...(input.scheduledOn
-            ? {
-                scheduledOn: new Date(input.scheduledOn),
-                status: row.status === 'REST' ? 'REST' : 'RESCHEDULED',
-              }
-            : {}),
-          ...(input.status ? { status: input.status } : {}),
-          version: { increment: 1 },
-        },
-        select: activitySelect,
-      });
-    }).then((activity) => new ScheduledActivity(activity));
+          throw new PlanningError(
+            'conflict',
+            'This activity has execution history and cannot be rewritten.',
+          );
+        if (
+          row.day?.retiredAt &&
+          (!row.day.retiredFromOn ||
+            new Date(input.scheduledOn ?? iso(row.scheduledOn)) >=
+              row.day.retiredFromOn) &&
+          (input.scheduledOn || input.status === 'PLANNED')
+        )
+          throw new PlanningError(
+            'conflict',
+            'This day is withdrawn on that date. Schedule its current copy.',
+          );
+        if (row.status === 'REST' && input.status)
+          throw new PlanningError('invalid', 'A rest record is not a workout.');
+        if (input.scheduledOn === undefined && input.status === undefined)
+          throw new PlanningError(
+            'invalid',
+            'At least one change is required.',
+          );
+        return tx.scheduledActivity.update({
+          where: { id },
+          data: {
+            ...(input.scheduledOn
+              ? {
+                  scheduledOn: new Date(input.scheduledOn),
+                  status: row.status === 'REST' ? 'REST' : 'RESCHEDULED',
+                }
+              : {}),
+            ...(input.status ? { status: input.status } : {}),
+            version: { increment: 1 },
+          },
+          select: activitySelect,
+        });
+      })
+      .then((activity) => new ScheduledActivity(activity));
   }
 }

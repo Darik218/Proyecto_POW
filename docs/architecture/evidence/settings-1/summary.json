@@ -1,0 +1,24 @@
+{
+  "task": "SETTINGS-1",
+  "branch": "feature",
+  "head": "cbd5d3bea27fd38052b37e4adcf0d6d95e5aff98",
+  "automated": {
+    "backend": 674,
+    "postgresqlProgression": 430,
+    "postgresqlSessions": 27,
+    "postgresqlPlanning": 26,
+    "frontend": 189
+  },
+  "automatedDistinctTotal": 1346,
+  "firefoxDistinctTotal": 64,
+  "migrationsTested": 18,
+  "developmentMigrationsApplied": false,
+  "executionAuthorized": false,
+  "commitsOrPush": false,
+  "review": "Independent scoped static review completed, no new verified findings; not a production certification",
+  "compactCssViewport": {
+    "width": 500,
+    "height": 758,
+    "devicePixelRatio": 1
+  }
+}

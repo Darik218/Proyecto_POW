@@ -15,7 +15,7 @@ Backend NestJS con TypeScript estricto y Prisma ORM 7. El esquema de PostgreSQL 
 2. Copia `.env.example` como `.env` y define `DATABASE_URL` con una base local de desarrollo que hayas creado e identificado. El formato es `postgresql://usuario:contraseña@localhost:5432/proyecto_pow_dev?schema=public`. Codifica los caracteres especiales de la contraseña como URL. Nunca guardes `.env` en Git.
 3. Comprueba que el servicio PostgreSQL esté activo y que el usuario pueda conectarse a esa base. No apuntes a bases de datos desconocidas.
 
-En este entorno no se encontró PostgreSQL, `psql` ni Docker/Compose. Para preparar PostgreSQL local instala PostgreSQL desde el instalador oficial de tu plataforma, crea manualmente una base vacía dedicada (por ejemplo `proyecto_pow_dev`) y un usuario local con permisos sobre ella, y coloca esos datos solo en `.env`. No se incluyeron credenciales ni se iniciaron servicios automáticamente.
+Usa una instancia PostgreSQL compatible y credenciales propias. Para una base existente, consulta su historial de migraciones antes de planear cambios; no se debe asumir que hay migraciones pendientes. Las pruebas usan clústeres temporales y nunca autorizan migrar o escribir datos de prueba sobre desarrollo.
 
 ## Prisma
 

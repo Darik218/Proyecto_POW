@@ -20,9 +20,9 @@ async function submit() {
 }
 </script>
 <template>
-  <form class="plan-form" novalidate :aria-busy="pending" @submit.prevent="submit">
+  <form class="plan-form training-editor" novalidate :aria-busy="pending" @submit.prevent="submit">
     <h3>{{ initial ? 'Editar día' : 'Crear día o bloque' }}</h3>
-    <fieldset :disabled="busy || pending">
+    <fieldset :disabled="busy || pending"><legend class="training-section-legend">Bloque de entrenamiento</legend>
       <label class="field-label" :for="id + '-name'">Nombre del entrenamiento</label><input :id="id + '-name'" v-model="form.name" class="form-control" maxlength="160" required placeholder="Ej. Tren superior A">
       <div class="plan-form-grid">
         <div v-if="!initial"><label class="field-label" :for="id + '-position'">Posición en la semana</label><input :id="id + '-position'" v-model="form.position" class="form-control" type="number" min="1" max="1000" step="1" required></div>

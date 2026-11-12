@@ -1,19 +1,204 @@
-.workout-filter { max-width: 320px; margin-bottom: 20px; }
-.workout-summary, .workout-exercises { margin: 24px 0; padding: 24px; background: white; border: 1px solid var(--line); border-radius: 14px; }
-.workout-summary p { color: #526157; line-height: 1.6; }
-.workout-exercises li:first-child { border-top: 0; }
-.workout-preview { padding: 16px; margin-top: 18px; border-radius: 10px; background: #f1f6ec; }
-.workout-preview h3 { margin-top: 0; }
-.workouts .plan-actions { align-items: center; }
-@media (max-width: 640px) { .workout-summary, .workout-exercises { padding: 18px; } .workouts h1 { font-size: 32px; } }
-
-.workout-ongoing { margin-block: 1.5rem 2rem; }
-.workout-exercise-card { padding: clamp(1rem, 3vw, 1.75rem); margin-block: 1.25rem; background: white; border: 1px solid #dce4dc; border-radius: 14px; min-width: 0; }
-.workout-exercise-card--omitted { border-style: dashed; }
-.workout-exercise-card details { margin-block: 1rem; padding: .75rem; background: #f3f6ef; border-radius: 8px; }
-.workout-exercise-card summary { cursor: pointer; font-weight: 600; }
-.workout-set-list { list-style: none; padding: 0; }
-.workout-set-list > li { padding: 1rem 0; border-top: 1px solid #dce4dc; }
-.workout-set-list h5 { margin: 0; font-size: 1rem; }
-.workouts .plan-actions { flex-wrap: wrap; gap: .75rem; }
-@media(max-width: 600px) { .workout-exercise-card .plan-section-heading { flex-direction: column; align-items: flex-start; } .workouts .plan-actions > button { min-height: 44px; } }
+.workout-filter {
+  max-width: 320px;
+  margin-bottom: 1.5rem;
+}
+.workout-summary,
+.workout-exercises {
+  margin: 1.5rem 0;
+  padding: clamp(1.1rem, 3vw, 1.75rem);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+}
+.workout-summary {
+  border-top: 2px solid var(--color-primary);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1.75rem;
+}
+.workout-summary > .plan-status {
+  justify-self: start;
+  grid-column: 1/-1;
+}
+.workout-summary p {
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  margin: 0.25rem 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.workout-summary p strong {
+  display: block;
+  color: var(--color-text-primary);
+  font-size: 0.8rem;
+  margin-bottom: 0.25rem;
+}
+.workout-summary > .field-hint,
+.workout-summary > .plan-copy {
+  grid-column: 1/-1;
+}
+.workout-exercises li:first-child {
+  border-top: 0;
+}
+.workout-preview {
+  padding: 1.25rem;
+  margin-top: 1.25rem;
+  border-radius: 0.75rem;
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+}
+.workout-preview h3 {
+  margin-top: 0;
+}
+.workouts .plan-actions {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.workout-ongoing {
+  margin-block: 1.5rem 2rem;
+  padding: 1.25rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+}
+.workout-ongoing > h2 {
+  margin-top: 0;
+  font-size: 1.2rem;
+}
+.workout-ongoing .plan-summary-card {
+  background: var(--color-surface-elevated);
+}
+.workout-exercise-card {
+  padding: clamp(1rem, 3vw, 1.75rem);
+  margin-block: 1.5rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  min-width: 0;
+}
+.workout-exercise-card > header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+.workout-exercise-card--omitted {
+  border-style: dashed;
+}
+.workout-exercise-card details {
+  margin-block: 1.25rem;
+  padding: 1rem 1.25rem;
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+}
+.workout-exercise-card summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  min-height: 32px;
+}
+.workout-original p {
+  color: var(--color-text-secondary);
+  line-height: 1.7;
+  font-size: 0.875rem;
+}
+.workout-target-heading {
+  font-size: 0.9rem;
+  margin: 1.25rem 0 0.75rem;
+  color: var(--color-primary);
+}
+.workout-adjusted {
+  padding: 1rem 0;
+  border-block: 1px solid var(--color-border);
+}
+.workout-adjusted > div {
+  border-left-color: var(--color-primary);
+}
+.workout-results-heading {
+  padding-top: 1rem;
+}
+.workout-series-progress {
+  width: 100%;
+  height: 0.4rem;
+  appearance: none;
+  border: 0;
+  border-radius: 1rem;
+  overflow: hidden;
+  background: var(--color-surface-elevated);
+  accent-color: var(--color-primary);
+}
+.workout-series-progress::-webkit-progress-bar {
+  background: var(--color-surface-elevated);
+}
+.workout-series-progress::-webkit-progress-value {
+  background: var(--color-primary);
+  border-radius: 1rem;
+}
+.workout-series-progress::-moz-progress-bar {
+  background: var(--color-primary);
+}
+.workout-set-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0;
+  font-variant-numeric: tabular-nums;
+}
+.workout-set-list > li {
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-background);
+}
+.workout-set-list > li:first-child {
+  border-radius: 0.75rem 0.75rem 0 0;
+}
+.workout-set-list > li:last-child {
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0 0 0.75rem 0.75rem;
+}
+.workout-set-list h5 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.workout-set-list > li > p {
+  line-height: 1.6;
+}
+.workout-history-filters {
+  padding: 1.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  margin-block: 1rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.workout-history-filters > div {
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .workout-history-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .workout-summary {
+    grid-template-columns: 1fr;
+  }
+  .workout-exercise-card .plan-section-heading {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .workout-history-filters {
+    grid-template-columns: 1fr;
+  }
+  .workouts .plan-actions > button {
+    min-height: 44px;
+  }
+}
+.workout-original-values dd {
+  font-size: 0.9rem;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+.workout-summary > .ui-badge {
+  justify-self: start;
+  grid-column: 1/-1;
+}

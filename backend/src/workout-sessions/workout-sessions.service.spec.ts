@@ -62,6 +62,8 @@ const repository = {
   saveDay: jest.fn<WorkoutSessionsRepository['saveDay']>(),
   recordSet: jest.fn<WorkoutSessionsRepository['recordSet']>(),
   cancel: jest.fn<WorkoutSessionsRepository['cancel']>(),
+  lastExerciseReference:
+    jest.fn<WorkoutSessionsRepository['lastExerciseReference']>(),
   list: jest.fn<WorkoutSessionsRepository['list']>(),
   get: jest.fn<WorkoutSessionsRepository['get']>(),
   create: jest.fn<WorkoutSessionsRepository['create']>(),
@@ -71,13 +73,15 @@ const repository = {
 };
 const findProfile = jest
   .fn<AthletesRepository['findProfileByUserId']>()
-  .mockResolvedValue(new Athlete({
-    id: athleteId,
-    birthDate: null,
-    preferredUnit: 'KG',
-    createdAt: now,
-    updatedAt: now,
-  }));
+  .mockResolvedValue(
+    new Athlete({
+      id: athleteId,
+      birthDate: null,
+      preferredUnit: 'KG',
+      createdAt: now,
+      updatedAt: now,
+    }),
+  );
 const athletesRepository: AthletesRepository = {
   findProfileByUserId: findProfile,
   updateProfile: jest.fn<AthletesRepository['updateProfile']>(),
@@ -173,7 +177,12 @@ describe('Workout session service and lifecycle', () => {
     'rejects completion from %s',
     (status) => {
       expect(() =>
-        sessionTransition({ ...workout.attributes, status }, 'complete', 1, now),
+        sessionTransition(
+          { ...workout.attributes, status },
+          'complete',
+          1,
+          now,
+        ),
       ).toThrow(WorkoutRepositoryError);
     },
   );
@@ -191,14 +200,24 @@ describe('Workout session service and lifecycle', () => {
     },
   );
   it('rejects empty sessions and inconsistent timestamps', () => {
-    expect(() => sessionTransition(workout.attributes, 'complete', 0, now)).toThrow(
-      WorkoutRepositoryError,
-    );
     expect(() =>
-      sessionTransition({ ...workout.attributes, startedAt: null }, 'complete', 1, now),
+      sessionTransition(workout.attributes, 'complete', 0, now),
     ).toThrow(WorkoutRepositoryError);
     expect(() =>
-      sessionTransition({ ...workout.attributes, finishedAt: now }, 'complete', 1, now),
+      sessionTransition(
+        { ...workout.attributes, startedAt: null },
+        'complete',
+        1,
+        now,
+      ),
+    ).toThrow(WorkoutRepositoryError);
+    expect(() =>
+      sessionTransition(
+        { ...workout.attributes, finishedAt: now },
+        'complete',
+        1,
+        now,
+      ),
     ).toThrow(WorkoutRepositoryError);
   });
 });
@@ -270,5 +289,70 @@ describe('Workout DTO validation', () => {
       BadRequestException,
     );
     expect(() => empty.transform([])).toThrow(BadRequestException);
+  });
+});
+
+describe('Workout insight ownership and lifecycle', () => {
+  beforeEach(() => jest.clearAllMocks());
+  it('hides foreign or missing sessions before reading any history', async () => {
+    repository.get.mockResolvedValue(null);
+    await expect(service.insights(identity, id, {})).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(repository.lastExerciseReference).not.toHaveBeenCalled();
+    expect(repository.get).toHaveBeenCalledWith(athleteId, id);
+  });
+  it('rejects planned, active and cancelled sessions', async () => {
+    for (const status of ['PLANNED', 'IN_PROGRESS', 'CANCELLED'] as const) {
+      repository.get.mockResolvedValue(
+        new WorkoutSession({ ...workout.attributes, status }),
+      );
+      await expect(service.insights(identity, id, {})).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+    }
+    expect(repository.lastExerciseReference).not.toHaveBeenCalled();
+  });
+  it('returns an empty completed summary without creating estimates or modifying history', async () => {
+    repository.get.mockResolvedValue(
+      new WorkoutSession({ ...workout.attributes, status: 'COMPLETED' }),
+    );
+    await expect(service.insights(identity, id, {})).resolves.toEqual({
+      sessionId: id,
+      status: 'COMPLETED',
+      exercises: [],
+    });
+    expect(repository.complete).not.toHaveBeenCalled();
+    expect(repository.recordSet).not.toHaveBeenCalled();
+  });
+  it('rejects a declaration for an exercise outside the session', async () => {
+    repository.get.mockResolvedValue(
+      new WorkoutSession({ ...workout.attributes, status: 'COMPLETED' }),
+    );
+    await expect(
+      service.insights(identity, id, { externalTotalExerciseId: id }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+  it('resolves references using the authenticated athlete and keeps no-history explicit', async () => {
+    repository.lastExerciseReference.mockResolvedValue(null);
+    await expect(
+      service.exerciseReference(identity, {
+        exerciseId: id,
+        before: '2026-11-12',
+      }),
+    ).resolves.toEqual({ exerciseId: id, reference: null });
+    expect(repository.lastExerciseReference).toHaveBeenCalledWith(
+      athleteId,
+      id,
+      '2026-11-12',
+    );
+  });
+  it('translates unavailable personal exercise references into 404', async () => {
+    repository.lastExerciseReference.mockRejectedValue(
+      new WorkoutRepositoryError('missing', 'Unavailable'),
+    );
+    await expect(
+      service.exerciseReference(identity, { exerciseId: id }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

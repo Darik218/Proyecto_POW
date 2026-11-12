@@ -1,0 +1,18 @@
+{
+  "task": "PROG-5C-B1",
+  "automatedDistinct": {
+    "backend": 726,
+    "postgresqlProgression": 430,
+    "postgresqlSessions": 27,
+    "postgresqlPlanning": 26,
+    "frontend": 189
+  },
+  "automatedDistinctTotal": 1398,
+  "newB1Tests": 52,
+  "firefoxDistinct": 64,
+  "previousFilesPreserved": 543,
+  "newMigration": false,
+  "newProductionQueries": false,
+  "executionAuthorized": false,
+  "productionCertification": false
+}

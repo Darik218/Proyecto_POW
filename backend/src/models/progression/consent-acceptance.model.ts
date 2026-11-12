@@ -1,0 +1,51 @@
+import type { ConsentSnapshot } from './automation-consent.model';
+export type ConsentAcknowledgments = Readonly<{
+  policy: true;
+  limits: true;
+  destinations: true;
+  validity: true;
+  revocation: true;
+}>;
+export type AcceptConsentCommand = Readonly<{
+  consentId: string;
+  intentId: string;
+  challengeId: string;
+  expectedVersion: number;
+  expectedState: 'PENDING_CONFIRMATION';
+  contractKey: string;
+  conditionsKey: string;
+  contextKey: string;
+  termsVersion: string;
+  presentationVersion: 'recurring-consent-presentation-v1';
+  conditionsPresented: true;
+  acknowledgments: ConsentAcknowledgments;
+}>;
+export type ConsentAcceptanceEvidence = Readonly<{
+  schemaVersion: 'recurring-consent-acceptance-v1';
+  challengeId: string;
+  actorSessionId: string;
+  acceptedVersion: number;
+  contractKey: string;
+  conditionsKey: string;
+  contextKey: string;
+  termsVersion: string;
+  presentationVersion: 'recurring-consent-presentation-v1';
+  conditionsPresented: true;
+  acknowledgments: ConsentAcknowledgments;
+  provenance: 'AUTHENTICATED_CONSENT_CONFIRMATION';
+  acceptanceKey: string;
+}>;
+export type ConsentAcceptanceChallenge = Readonly<{
+  id: string;
+  consentId: string;
+  version: number;
+  state: 'PENDING_CONFIRMATION';
+  contractKey: string;
+  conditionsKey: string;
+  contextKey: string;
+  termsVersion: string;
+  presentationVersion: 'recurring-consent-presentation-v1';
+  snapshot: ConsentSnapshot;
+  issuedAt: Date;
+  expiresAt: Date;
+}>;

@@ -1,45 +1,398 @@
-.plan-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-.training-plans h1, .training-plans h2, .training-plans h3 { overflow-wrap: anywhere; }
-.plan-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; list-style: none; margin: 24px 0 0; padding: 0; }
-.plan-summary-card, .plan-week-card, .plan-form { display: block; padding: 24px; margin: 20px 0; border: 1px solid var(--line); border-radius: 14px; background: white; }
-.plan-summary-card { height: 100%; margin: 0; text-decoration: none; }
-.plan-summary-card:hover { border-color: #84b946; }
-.plan-summary-card h2, .plan-week-card h2, .plan-form h2 { margin: 0; font-size: 20px; }
-.plan-summary-card p, .plan-policy { color: #526157; line-height: 1.6; }
-.plan-status { flex-shrink: 0; padding: 6px 12px; border-radius: 20px; background: #edf5e3; color: #294c36; font-size: 13px; font-weight: 700; }
-.plan-link { color: var(--green); font-size: 14px; font-weight: 700; }
-.plan-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
-.plan-form .form-error { margin-top: 16px; }
-.plan-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.plan-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 18px 0; }
-.plan-actions .primary-button { margin: 0; }
-.plan-form :disabled { cursor: not-allowed; }
-.plan-form textarea { font: inherit; }
-.plan-copy { white-space: pre-line; overflow-wrap: anywhere; color: #526157; line-height: 1.6; }
-.prescription-list { list-style: none; padding: 0; }
-.prescription-list > li { border-top: 1px solid var(--line); padding: 20px 0; }
-.prescription-list h3 { margin: 0; font-size: 17px; }
-.prescription-values { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.prescription-values dt { color: #65736a; font-size: 12px; }
-.prescription-values dd { margin: 6px 0 0; font-size: 15px; }
-.plan-form fieldset.exercise-picker { margin-top: 18px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; }
-.exercise-picker legend { font-weight: 600; }
-.picker-results { max-height: 300px; overflow-y: auto; list-style: none; padding: 0; }
-.picker-results label { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
-.picker-results span { display: grid; gap: 5px; }
-.picker-results small { color: #526157; }
-.weeks-heading { margin-top: 32px; font-size: 23px; }
-@media (max-width: 640px) {
-  .plan-list, .plan-form-grid { grid-template-columns: 1fr; }
-  .plan-section-heading { align-items: flex-start; flex-wrap: wrap; }
-  .plan-summary-card, .plan-week-card, .plan-form { padding: 18px; }
-  .prescription-values { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* Planning workspaces share the application semantic palette. */
+.training-plans,
+.routine-view {
+  min-width: 0;
 }
-
-.plan-day-card { background: #fff; border: 1px solid var(--border-color, #dce4dc); border-radius: 12px; padding: clamp(1rem, 3vw, 1.5rem); margin-block: .75rem 1.25rem; }
-.plan-day-card h3, .plan-day-card h4 { margin-block: 0 .5rem; }
-.pending-prescriptions { margin-top: 1.5rem; padding: 1rem; border: 1px dashed #6e806e; border-radius: 10px; background: #f3f6ef; }
-.copy-week-number { max-width: 6rem; }
-.plan-actions { flex-wrap: wrap; }
-.plan-day-card .plan-actions, .pending-prescriptions .plan-actions { gap: .75rem; }
-@media (max-width: 600px) { .plan-day-card .plan-section-heading { align-items: flex-start; flex-direction: column; } .pending-prescriptions .form-control { width: 100%; } }
+.training-plans :is(h1, h2, h3),
+.routine-view :is(h1, h2, h3) {
+  overflow-wrap: anywhere;
+}
+.plan-section-heading,
+.plan-panel-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+.plan-panel-heading {
+  margin-block: 1.5rem 1rem;
+}
+.plan-panel-heading :is(h2, h3, h4) {
+  margin: 0;
+}
+.plan-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  list-style: none;
+  padding: 0;
+  margin: 1.5rem 0;
+}
+.plan-list > li {
+  min-width: 0;
+}
+.plan-summary-card,
+.plan-form {
+  display: block;
+  padding: clamp(1.1rem, 3vw, 1.75rem);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+.plan-summary-card {
+  height: 100%;
+  text-decoration: none;
+  position: relative;
+  border-top: 2px solid var(--color-primary);
+}
+.plan-summary-card:hover {
+  border-color: var(--color-primary);
+  background: var(--color-surface-elevated);
+}
+.plan-summary-card :is(h2, h3),
+.plan-form h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  line-height: 1.4;
+}
+.plan-summary-card p,
+.plan-policy,
+.plan-copy {
+  color: var(--color-text-secondary);
+  line-height: 1.65;
+}
+.plan-status {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-elevated);
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.plan-link {
+  display: inline-block;
+  margin-top: 0.5rem;
+  color: var(--color-primary);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+.plan-form {
+  margin-block: 1.25rem;
+}
+.plan-form > h2,
+.routine-form > h2 {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.plan-form fieldset {
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.training-editor > fieldset > legend {
+  font-weight: 700;
+  margin-block: 0.5rem 1rem;
+}
+.training-editor .field-label {
+  margin-top: 1rem;
+}
+.plan-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem 1.25rem;
+}
+.plan-form-grid > div {
+  min-width: 0;
+}
+.plan-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+}
+.plan-actions .primary-button {
+  margin: 0;
+}
+.plan-actions :is(button, a) {
+  min-height: 44px;
+}
+.plan-form :disabled {
+  cursor: not-allowed;
+}
+.plan-form textarea {
+  font: inherit;
+  min-height: 100px;
+  resize: vertical;
+}
+.plan-copy {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.plan-policy {
+  padding: 0.85rem 1rem;
+  border-left: 1px solid var(--color-primary);
+  background: var(--color-surface);
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+.prescription-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0;
+}
+.prescription-list > li {
+  border-top: 1px solid var(--color-border);
+  padding: 1.25rem 0;
+}
+.prescription-list h3 {
+  margin: 0;
+  font-size: 1.0625rem;
+}
+.prescription-values {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin-block: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+.prescription-values > div {
+  min-width: 0;
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--color-border);
+}
+.prescription-values dt {
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+.prescription-values dd {
+  margin: 0.35rem 0 0;
+  font-size: 1rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.plan-form fieldset.exercise-picker,
+.exercise-picker {
+  min-width: 0;
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-background);
+}
+.exercise-picker legend {
+  font-weight: 700;
+  padding-inline: 0.5rem;
+}
+.picker-results {
+  max-height: 340px;
+  overflow-y: auto;
+  list-style: none;
+  padding: 0;
+  scrollbar-width: thin;
+}
+.picker-results label {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-height: 64px;
+  padding: 0.8rem;
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+  border-radius: 0.5rem;
+}
+.picker-results label:has(input:checked) {
+  background: var(--color-surface-elevated);
+  outline: 1px solid var(--color-primary);
+  outline-offset: -1px;
+}
+.picker-results label:hover {
+  background: var(--color-surface);
+}
+.picker-results span {
+  display: grid;
+  gap: 0.3rem;
+}
+.picker-results small {
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+.weeks-heading {
+  margin-top: 2rem;
+  font-size: 1.4rem;
+}
+.plan-week-card {
+  margin-block: 1.5rem;
+  min-width: 0;
+}
+.plan-week-card > .plan-section-heading {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.plan-week-card > .plan-section-heading h2 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+.plan-week-timeline {
+  display: flex;
+  gap: 0.65rem;
+  overflow-x: auto;
+  padding-block: 1rem;
+  margin-block: 0.5rem;
+}
+.plan-week-timeline button {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 88px;
+  padding: 0.7rem 1rem;
+  text-align: left;
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+}
+.plan-week-timeline button strong {
+  font-size: 1.4rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary);
+}
+.plan-week-timeline button span {
+  font-size: 0.75rem;
+}
+.plan-week-timeline button[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-surface-elevated);
+  color: var(--color-primary);
+}
+.plan-day-group {
+  position: relative;
+  padding-left: 1.25rem;
+  border-left: 1px solid var(--color-border);
+}
+.plan-day-group::before {
+  content: "";
+  position: absolute;
+  top: 1.5rem;
+  left: -5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+.plan-day-card {
+  min-width: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: clamp(1rem, 3vw, 1.5rem);
+  margin-block: 1rem 1.5rem;
+}
+.plan-day-card :is(h3, h4) {
+  margin-block: 0 0.5rem;
+}
+.pending-prescriptions {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  border: 1px dashed var(--color-warning);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+.copy-week-number {
+  max-width: 6rem;
+}
+.training-editor > .plan-actions:last-child {
+  border-top: 1px solid var(--color-border);
+  padding-top: 1.25rem;
+  margin-bottom: 0;
+}
+@media (max-width: 760px) {
+  .plan-list {
+    grid-template-columns: 1fr;
+  }
+  .prescription-values {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .plan-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .plan-section-heading,
+  .plan-panel-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .plan-day-group {
+    padding-left: 0.75rem;
+  }
+  .plan-day-card .plan-section-heading {
+    flex-direction: column;
+  }
+  .pending-prescriptions .form-control {
+    width: 100%;
+  }
+}
+.training-editor .training-section-legend {
+  width: 100%;
+  padding: 0 0 0.75rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.training-section-divider {
+  margin-top: 1.75rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--color-border);
+}
+.training-section-divider h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+.training-editor > :is(h3, h4) {
+  margin: 0 0 1.25rem;
+  font-size: 1.15rem;
+}
+.training-editor label:has(> input[type="checkbox"]) {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem;
+  min-height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background: var(--color-background);
+  line-height: 1.6;
+}
+.training-editor label > input[type="checkbox"] {
+  flex-shrink: 0;
+  margin-top: 0.3rem;
+}
+.personal-training-exercise {
+  margin-block: 1.25rem;
+  padding: 1.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+.personal-training-exercise > fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.personal-training-exercise details {
+  padding: 1rem;
+  margin-block: 1rem;
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+}

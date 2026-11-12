@@ -1,3 +1,4 @@
+import { WorkoutInsightsPresenter } from '../views/workout-sessions/workout-insights.presenter';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { AthletesModule } from '../athletes/athletes.module';
@@ -9,7 +10,16 @@ import { WORKOUT_SESSIONS_REPOSITORY } from './workout-sessions.repository';
 import { PrismaWorkoutSessionsRepository } from './prisma-workout-sessions.repository';
 
 @Module({
-  imports: [AuthModule, AthletesModule, PrismaModule], controllers: [WorkoutSessionsController],
-  providers: [WorkoutSessionsService, WorkoutSessionsPresenter, { provide: WORKOUT_SESSIONS_REPOSITORY, useClass: PrismaWorkoutSessionsRepository }],
+  imports: [AuthModule, AthletesModule, PrismaModule],
+  controllers: [WorkoutSessionsController],
+  providers: [
+    WorkoutSessionsService,
+    WorkoutSessionsPresenter,
+    WorkoutInsightsPresenter,
+    {
+      provide: WORKOUT_SESSIONS_REPOSITORY,
+      useClass: PrismaWorkoutSessionsRepository,
+    },
+  ],
 })
 export class WorkoutSessionsModule {}

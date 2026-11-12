@@ -18,15 +18,40 @@ import {
   ValidateNested,
   IsDateString,
 } from 'class-validator';
+export class RoutineExerciseTemplateDto {
+  @IsUUID('4') exerciseId!: string;
+  @IsInt() @Min(1) @Max(1000) position!: number;
+  @IsInt() @Min(1) @Max(1000) targetSets!: number;
+  @IsInt() @Min(1) @Max(10000) targetRepsMin!: number;
+  @IsInt() @Min(1) @Max(10000) targetRepsMax!: number;
+  @IsOptional() @IsInt() @Min(1) @Max(10000) targetReps?: number | null;
+  @IsOptional() @IsString() @Matches(/^\d{1,5}(\.\d{1,3})?$/) targetLoad?:
+    string | null;
+  @IsOptional() @IsIn(['KG', 'LB']) targetLoadUnit?: 'KG' | 'LB' | null;
+}
 export class RoutineDayTemplateDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @MinLength(1)
   @MaxLength(160)
   name!: string;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => RoutineExerciseTemplateDto)
+  exercises?: RoutineExerciseTemplateDto[];
   @IsOptional() @IsInt() @Min(1) @Max(7) weekday?: number | null;
 }
 export class GenerateRoutineDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(7)
+  @ArrayUnique()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(7, { each: true })
+  restWeekdays?: number[];
   @IsUUID('4') id!: string;
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
@@ -51,6 +76,13 @@ export class GenerateRoutineDto {
 export class PlanningVersionDto {
   @IsUUID('4') id!: string;
   @IsInt() @Min(0) expectedVersion!: number;
+}
+export class DuplicateRoutineDto extends PlanningVersionDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MinLength(1)
+  @MaxLength(160)
+  name!: string;
 }
 export class NewRoutineDayDto extends PlanningVersionDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(100) timeZone?: string;

@@ -173,5 +173,6 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     accessToken, csrfToken, user, status, isAuthenticated,
     initialize, login, register, refreshSession, logout, logoutAll, clearSession, getSessionGeneration,
+    getSessionContextId: () => cookieContext,
   }
 })

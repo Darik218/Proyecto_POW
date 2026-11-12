@@ -81,6 +81,9 @@ export type PerformanceTask = Readonly<{
   exerciseId: string;
   sessionId: string;
   sessionVersion: number;
+  originalExerciseId?: string | null;
+  planExerciseId?: string | null;
+  replacesWorkoutExerciseId?: string | null;
   sessionStatus: WorkoutStatus;
   orderInSession: number;
   isOmitted: boolean;

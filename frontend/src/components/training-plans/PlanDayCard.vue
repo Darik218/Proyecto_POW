@@ -36,7 +36,7 @@ function save(input: CreateDailyPrescription | UpdateDailyPrescription, id?: str
     <p v-if="day.hasHistory" class="field-hint">Con historial: conserva su programación. Duplica el día para realizar cambios.</p>
     <PlanDayForm v-if="editing && editable" :initial="day" :busy="busy" :save="input => actions.updateDay(weekId, day.id, input)" @saved="editing = false" @cancel="editing = false" />
     <p v-if="!day.exercises.length" class="state-message">Este día todavía no tiene ejercicios prescritos.</p>
-    <ol v-else class="prescription-list">
+    <div v-else class="plan-day-prescriptions"><div class="plan-panel-heading"><h4>Objetivos del día</h4><span class="plan-status">{{ day.exercises.length }} ejercicios</span></div><ol class="prescription-list">
       <li v-for="(item, index) in day.exercises" :key="item.id">
         <h4>{{ item.position }}. {{ item.exercise.name }}</h4><p class="field-hint">{{ item.exercise.muscleGroup }} · {{ item.exercise.equipment }}</p>
         <dl class="prescription-values"><div><dt>Series</dt><dd>{{ item.targetSets }}</dd></div><div><dt>Repeticiones</dt><dd>{{ repsLabel(item) }}</dd></div><div><dt>Carga objetivo</dt><dd>{{ item.targetLoad === null ? 'Sin especificar' : item.targetLoad + ' ' + (item.targetLoadUnit ?? '(unidad desconocida)') }}</dd></div><div><dt>RPE objetivo</dt><dd>{{ item.targetRpe ?? 'Sin especificar' }}</dd></div></dl>
@@ -45,7 +45,7 @@ function save(input: CreateDailyPrescription | UpdateDailyPrescription, id?: str
         <div v-if="removing === item.id" class="plan-actions"><p>¿Quitar esta prescripción de la planificación?</p><button class="secondary-button" type="button" :disabled="busy" @click="run(() => actions.removePrescription(weekId, day.id, item.id))">Confirmar</button><button class="text-button" type="button" @click="removing = ''">Cancelar</button></div>
         <PrescriptionForm v-if="editable && editingPrescription === item.id" daily :initial="item" :busy="busy" :save="input => save(input, item.id)" @saved="editingPrescription = ''" @cancel="editingPrescription = ''" />
       </li>
-    </ol>
+    </ol></div>
     <button v-if="editable && !adding" class="secondary-button" type="button" :disabled="busy" @click="adding = true">Añadir ejercicio a este día</button>
     <PrescriptionForm v-if="editable && adding" daily :busy="busy" :next-position="Math.max(0, ...day.exercises.map(item => item.position)) + 1" :save="input => save(input)" @saved="adding = false" @cancel="adding = false" />
     <p v-if="error" class="form-error" role="alert">{{ error }}</p>

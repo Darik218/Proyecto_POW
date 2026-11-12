@@ -12,8 +12,15 @@ import { WorkoutRepositoryError } from '../workout-sessions/workout-sessions.rep
 import { PlanningError } from './daily-planning.policy';
 import { PrismaFlexiblePlanningRepository } from './prisma-flexible-planning.repository';
 import type {
-  GenerateRoutineDto, PlanningVersionDto, NewRoutineDayDto, CopyRoutineDto,
-  FutureRoutineDto, CreateScheduledActivityDto, UpdateScheduledActivityDto, ActivityQueryDto,
+  GenerateRoutineDto,
+  DuplicateRoutineDto,
+  PlanningVersionDto,
+  NewRoutineDayDto,
+  CopyRoutineDto,
+  FutureRoutineDto,
+  CreateScheduledActivityDto,
+  UpdateScheduledActivityDto,
+  ActivityQueryDto,
 } from './dto/flexible-planning.dto';
 @Injectable()
 export class FlexiblePlanningService {
@@ -23,34 +30,92 @@ export class FlexiblePlanningService {
     private readonly repository: PrismaFlexiblePlanningRepository,
   ) {}
   generate(identity: AuthenticatedIdentity, input: GenerateRoutineDto) {
-    return this.execute(identity, athleteId => this.repository.generate(athleteId, input));
+    return this.execute(identity, (athleteId) =>
+      this.repository.generate(athleteId, input),
+    );
   }
-  newDay(identity: AuthenticatedIdentity, planId: string, input: NewRoutineDayDto) {
-    return this.execute(identity, athleteId => this.repository.newDay(athleteId, planId, input));
+  duplicate(
+    identity: AuthenticatedIdentity,
+    planId: string,
+    input: DuplicateRoutineDto,
+  ) {
+    return this.execute(identity, (athleteId) =>
+      this.repository.duplicate(athleteId, planId, input),
+    );
+  }
+  newDay(
+    identity: AuthenticatedIdentity,
+    planId: string,
+    input: NewRoutineDayDto,
+  ) {
+    return this.execute(identity, (athleteId) =>
+      this.repository.newDay(athleteId, planId, input),
+    );
   }
   copy(identity: AuthenticatedIdentity, planId: string, input: CopyRoutineDto) {
-    return this.execute(identity, athleteId => this.repository.copy(athleteId, planId, input));
+    return this.execute(identity, (athleteId) =>
+      this.repository.copy(athleteId, planId, input),
+    );
   }
-  activate(identity: AuthenticatedIdentity, planId: string, input: PlanningVersionDto) {
-    return this.execute(identity, athleteId => this.repository.transition(athleteId, planId, input, 'ACTIVE'));
+  activate(
+    identity: AuthenticatedIdentity,
+    planId: string,
+    input: PlanningVersionDto,
+  ) {
+    return this.execute(identity, (athleteId) =>
+      this.repository.transition(athleteId, planId, input, 'ACTIVE'),
+    );
   }
-  archive(identity: AuthenticatedIdentity, planId: string, input: PlanningVersionDto) {
-    return this.execute(identity, athleteId => this.repository.transition(athleteId, planId, input, 'ARCHIVED'));
+  archive(
+    identity: AuthenticatedIdentity,
+    planId: string,
+    input: PlanningVersionDto,
+  ) {
+    return this.execute(identity, (athleteId) =>
+      this.repository.transition(athleteId, planId, input, 'ARCHIVED'),
+    );
   }
-  future(identity: AuthenticatedIdentity, planId: string, dayId: string, input: FutureRoutineDto) {
-    return this.execute(identity, athleteId => this.repository.future(athleteId, planId, dayId, input));
+  future(
+    identity: AuthenticatedIdentity,
+    planId: string,
+    dayId: string,
+    input: FutureRoutineDto,
+  ) {
+    return this.execute(identity, (athleteId) =>
+      this.repository.future(athleteId, planId, dayId, input),
+    );
   }
-  withdraw(identity: AuthenticatedIdentity, planId: string, dayId: string, input: FutureRoutineDto) {
-    return this.execute(identity, athleteId => this.repository.future(athleteId, planId, dayId, input, true));
+  withdraw(
+    identity: AuthenticatedIdentity,
+    planId: string,
+    dayId: string,
+    input: FutureRoutineDto,
+  ) {
+    return this.execute(identity, (athleteId) =>
+      this.repository.future(athleteId, planId, dayId, input, true),
+    );
   }
   activities(identity: AuthenticatedIdentity, input: ActivityQueryDto) {
-    return this.execute(identity, athleteId => this.repository.activities(athleteId, input));
+    return this.execute(identity, (athleteId) =>
+      this.repository.activities(athleteId, input),
+    );
   }
-  createActivity(identity: AuthenticatedIdentity, input: CreateScheduledActivityDto) {
-    return this.execute(identity, athleteId => this.repository.createActivity(athleteId, input));
+  createActivity(
+    identity: AuthenticatedIdentity,
+    input: CreateScheduledActivityDto,
+  ) {
+    return this.execute(identity, (athleteId) =>
+      this.repository.createActivity(athleteId, input),
+    );
   }
-  updateActivity(identity: AuthenticatedIdentity, id: string, input: UpdateScheduledActivityDto) {
-    return this.execute(identity, athleteId => this.repository.updateActivity(athleteId, id, input));
+  updateActivity(
+    identity: AuthenticatedIdentity,
+    id: string,
+    input: UpdateScheduledActivityDto,
+  ) {
+    return this.execute(identity, (athleteId) =>
+      this.repository.updateActivity(athleteId, id, input),
+    );
   }
   private async execute<T>(
     identity: AuthenticatedIdentity,

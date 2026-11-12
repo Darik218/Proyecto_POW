@@ -26,6 +26,6 @@ import { AuthService } from './services/auth.service';
     CsrfGuard,
     { provide: AUTH_REPOSITORY, useClass: PrismaAuthRepository },
   ],
-  exports: [AuthService, AccessTokenGuard],
+  exports: [AuthService, AccessTokenGuard, AuthOriginGuard, AuthConfig],
 })
 export class AuthModule {}

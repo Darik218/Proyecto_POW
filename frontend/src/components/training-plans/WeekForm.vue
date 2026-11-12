@@ -23,9 +23,9 @@ async function submit() {
 </script>
 
 <template>
-  <form class="plan-form" novalidate :aria-busy="pending" @submit.prevent="submit">
+  <form class="plan-form training-editor" novalidate :aria-busy="pending" @submit.prevent="submit">
     <h2>{{ initial ? 'Editar semana' : 'Nueva semana' }}</h2>
-    <fieldset :disabled="pending || busy">
+    <fieldset :disabled="pending || busy"><legend class="training-section-legend">Semana y objetivo</legend>
       <label class="field-label" :for="id + '-number'">Número de semana</label><input :id="id + '-number'" v-model="number" class="form-control" type="number" min="1" max="520" step="1" required>
       <label class="field-label" :for="id + '-starts'">Inicio de la semana en el calendario (opcional)</label><input :id="id + '-starts'" v-model="startsOn" class="form-control" type="date"><p class="field-hint">Define un intervalo de siete días para sugerir entrenamientos por fecha. El número de semana no asigna fechas.</p>
       <label class="field-label" :for="id + '-objective'">Objetivo (opcional)</label><textarea :id="id + '-objective'" v-model="objective" class="form-control form-control--textarea" maxlength="4000" />

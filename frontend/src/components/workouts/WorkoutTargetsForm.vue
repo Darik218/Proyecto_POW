@@ -20,7 +20,7 @@ async function submit() {
 }
 </script>
 <template>
-  <form class="plan-form" novalidate :aria-busy="pending" @submit.prevent="submit"><h4>Objetivos de esta sesión</h4><p>No modifican el plan ni representan series realizadas.</p><fieldset :disabled="pending || busy"><div class="plan-form-grid">
+  <form class="plan-form training-editor" novalidate :aria-busy="pending" @submit.prevent="submit"><h4>Objetivos de esta sesión</h4><p>No modifican el plan ni representan series realizadas.</p><fieldset :disabled="pending || busy"><legend class="training-section-legend">Objetivos ajustados</legend><div class="plan-form-grid">
     <div><label class="field-label" :for="id+'-sets'">Series objetivo</label><input :id="id+'-sets'" v-model="fields.targetSets" class="form-control" type="number" min="1" max="1000" step="1"></div>
     <div><label class="field-label" :for="id+'-min'">Repeticiones mínimas</label><input :id="id+'-min'" v-model="fields.targetRepsMin" class="form-control" type="number" min="1" max="10000" step="1"></div>
     <div><label class="field-label" :for="id+'-max'">Repeticiones máximas</label><input :id="id+'-max'" v-model="fields.targetRepsMax" class="form-control" type="number" min="1" max="10000" step="1"><p class="field-hint">Para repeticiones exactas utiliza el mismo valor.</p></div>

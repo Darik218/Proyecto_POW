@@ -4,7 +4,13 @@ import type {
   UpdateWorkoutSetDto,
   SaveWorkoutDayDto,
 } from './dto/workout-preparation.dto';
-import type { WorkoutSession, WorkoutDetailAttributes, WorkoutSummaryAttributes, WorkoutSuggestions, SavedWorkoutDay } from '../models/workout-sessions/workout-session.model';
+import type {
+  WorkoutSession,
+  WorkoutDetailAttributes,
+  WorkoutSummaryAttributes,
+  WorkoutSuggestions,
+  SavedWorkoutDay,
+} from '../models/workout-sessions/workout-session.model';
 import type {
   CreateWorkoutSessionDto,
   AddWorkoutExerciseDto,
@@ -35,6 +41,11 @@ export class WorkoutRepositoryError extends Error {
 export interface WorkoutSessionsRepository {
   list(athleteId: string, query: ListWorkoutSessionsDto): Promise<WorkoutPage>;
   get(athleteId: string, id: string): Promise<WorkoutDetail | null>;
+  lastExerciseReference(
+    athleteId: string,
+    exerciseId: string,
+    before?: string,
+  ): Promise<WorkoutDetail | null>;
   create(
     athleteId: string,
     input: CreateWorkoutSessionDto,

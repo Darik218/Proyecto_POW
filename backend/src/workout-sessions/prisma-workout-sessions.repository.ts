@@ -38,7 +38,11 @@ import type {
 } from './dto/workout-session.dto';
 import { requireInProgress, sessionTransition } from './workout-session.policy';
 import { WorkoutSession } from '../models/workout-sessions/workout-session.model';
-import type { WorkoutSummaryAttributes, WorkoutSource, WorkoutSuggestions } from '../models/workout-sessions/workout-session.model';
+import type {
+  WorkoutSummaryAttributes,
+  WorkoutSource,
+  WorkoutSuggestions,
+} from '../models/workout-sessions/workout-session.model';
 
 export type PreparationCommand =
   | { action: 'update'; input: UpdateWorkoutDto }
@@ -108,6 +112,7 @@ const detailSelect = {
           equipment: true,
           primaryMuscleGroup: { select: { name: true } },
           origin: true,
+          oneRmSuitability: true,
           owner: { select: { athlete: { select: { id: true } } } },
         },
       },
@@ -135,7 +140,11 @@ type DetailRow = Prisma.WorkoutSessionGetPayload<{
 }>;
 function summary(row: SummaryRow): WorkoutSummaryAttributes {
   const { _count, sourceSnapshot, ...fields } = row;
-  return { ...fields, sourceSnapshot: sourceSnapshot as WorkoutSource | null, exerciseCount: _count.exercises };
+  return {
+    ...fields,
+    sourceSnapshot: sourceSnapshot as WorkoutSource | null,
+    exerciseCount: _count.exercises,
+  };
 }
 function rowTargets(row: {
   targetSets: number | null;
@@ -160,7 +169,13 @@ function detail(row: DetailRow, athleteId: string): WorkoutDetail {
     ...WorkoutSession.resultCounts(row.exercises),
     exercises: row.exercises.map(
       ({ exercise, planExercise, originalSnapshot, ...fields }) => {
-        const { primaryMuscleGroup, origin, owner, ...catalog } = exercise;
+        const {
+          primaryMuscleGroup,
+          origin,
+          owner,
+          oneRmSuitability,
+          ...catalog
+        } = exercise;
         if (origin === 'PERSONAL' && owner?.athlete?.id !== athleteId)
           throw new WorkoutRepositoryError(
             'missing',
@@ -169,6 +184,7 @@ function detail(row: DetailRow, athleteId: string): WorkoutDetail {
         const original = originalSnapshot as unknown as ExerciseSnapshot | null;
         return {
           id: fields.id,
+          oneRmSuitability,
           orderInSession: fields.orderInSession,
           notes: fields.notes,
           isOmitted: fields.isOmitted,
@@ -188,10 +204,7 @@ function detail(row: DetailRow, athleteId: string): WorkoutDetail {
             muscleGroup: primaryMuscleGroup.name,
           },
           // Legacy reference is not presented as a verified original snapshot.
-          prescription:
-            !original && planExercise
-              ? planExercise
-              : null,
+          prescription: !original && planExercise ? planExercise : null,
         };
       },
     ),
@@ -207,10 +220,19 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
       async (tx) => {
         const where: Prisma.WorkoutSessionWhereInput = {
           athleteId,
-          ...(query.planWeekId ? {planWeekId:query.planWeekId} : {}),
-          ...(query.planDayId ? {planDayId:query.planDayId} : {}),
-          ...(query.scheduledActivityId ? {scheduledActivityId:query.scheduledActivityId} : {}),
-          ...((query.from||query.to)?{performedOn:{...(query.from?{gte:new Date(query.from)}:{}),...(query.to?{lte:new Date(query.to)}:{})}}:{}),
+          ...(query.planWeekId ? { planWeekId: query.planWeekId } : {}),
+          ...(query.planDayId ? { planDayId: query.planDayId } : {}),
+          ...(query.scheduledActivityId
+            ? { scheduledActivityId: query.scheduledActivityId }
+            : {}),
+          ...(query.from || query.to
+            ? {
+                performedOn: {
+                  ...(query.from ? { gte: new Date(query.from) } : {}),
+                  ...(query.to ? { lte: new Date(query.to) } : {}),
+                },
+              }
+            : {}),
           ...(query.status ? { status: query.status } : {}),
           ...(query.trainingPlanId
             ? { trainingPlanId: query.trainingPlanId }
@@ -289,6 +311,58 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
   }
+  async lastExerciseReference(
+    athleteId: string,
+    exerciseId: string,
+    before?: string,
+  ): Promise<WorkoutDetail | null> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        // Historical reads permit inactive owned exercises, but never foreign personal resources.
+        const exercise = await tx.exercise.findFirst({
+          where: {
+            id: exerciseId,
+            OR: [
+              { origin: 'GLOBAL' },
+              { origin: 'PERSONAL', owner: { athlete: { id: athleteId } } },
+            ],
+          },
+          select: { id: true },
+        });
+        if (!exercise)
+          throw new WorkoutRepositoryError('missing', 'Exercise not found.');
+        const row = await tx.workoutSession.findFirst({
+          where: {
+            athleteId,
+            status: 'COMPLETED',
+            ...(before ? { performedOn: { lt: new Date(before) } } : {}),
+            exercises: {
+              some: {
+                exerciseId,
+                isOmitted: false,
+                sets: {
+                  some: {
+                    OR: [
+                      { status: { in: ['COMPLETED', 'INCOMPLETE', 'FAILED'] } },
+                      { status: null },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+          orderBy: [
+            { performedOn: { sort: 'desc', nulls: 'last' } },
+            { finishedAt: { sort: 'desc', nulls: 'last' } },
+            { id: 'desc' },
+          ],
+          select: detailSelect,
+        });
+        return row ? detail(row, athleteId) : null;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
   private async read(
     tx: Prisma.TransactionClient,
     athleteId: string,
@@ -342,7 +416,7 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
     planId: string,
     weekId: string,
     dayId: string,
-    performedOn?:Date|null,
+    performedOn?: Date | null,
   ) {
     const day = await tx.planDay.findFirst({
       where: {
@@ -360,7 +434,14 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
         'missing',
         'Training plan, week or day not found.',
       );
-    if(day.retiredAt&&(!performedOn||!day.retiredFromOn||performedOn>=day.retiredFromOn))throw new WorkoutRepositoryError('conflict','This day was withdrawn from the selected date. Use its future copy.');
+    if (
+      day.retiredAt &&
+      (!performedOn || !day.retiredFromOn || performedOn >= day.retiredFromOn)
+    )
+      throw new WorkoutRepositoryError(
+        'conflict',
+        'This day was withdrawn from the selected date. Use its future copy.',
+      );
     if (!['DRAFT', 'ACTIVE'].includes(day.planWeek.trainingPlan.status))
       throw new WorkoutRepositoryError(
         'conflict',
@@ -388,7 +469,7 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
       await tx.workoutSession.update({
         where: { id },
         data: {
-          scheduledActivityId:null,
+          scheduledActivityId: null,
           trainingPlanId: input.trainingPlanId,
           planWeekId: input.planWeekId,
           planDayId: input.planDayId,
@@ -398,24 +479,45 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
       return this.read(tx, athleteId, id);
     });
   }
-  async suggestions(athleteId: string, input: WorkoutSuggestionsDto): Promise<WorkoutSuggestions> {
+  async suggestions(
+    athleteId: string,
+    input: WorkoutSuggestionsDto,
+  ): Promise<WorkoutSuggestions> {
     localDate(input.timeZone);
     const on = new Date(input.performedOn);
     const weekday = on.getUTCDay() || 7;
     const from = new Date(on);
     from.setUTCDate(from.getUTCDate() - 6);
-    const activities=await this.prisma.scheduledActivity.findMany({where:{athleteId,scheduledOn:on,timeZone:input.timeZone,status:{in:['PLANNED','RESCHEDULED']},workouts:{none:{status:{in:['PLANNED','IN_PROGRESS','COMPLETED']}}},day:{planWeek:{trainingPlan:{status:{in:['DRAFT','ACTIVE']}}}}},include:{day:{include:{planWeek:{include:{trainingPlan:true}}}}},orderBy:{id:'asc'},take:1000});
+    const activities = await this.prisma.scheduledActivity.findMany({
+      where: {
+        athleteId,
+        scheduledOn: on,
+        timeZone: input.timeZone,
+        status: { in: ['PLANNED', 'RESCHEDULED'] },
+        workouts: {
+          none: { status: { in: ['PLANNED', 'IN_PROGRESS', 'COMPLETED'] } },
+        },
+        day: {
+          planWeek: { trainingPlan: { status: { in: ['DRAFT', 'ACTIVE'] } } },
+        },
+      },
+      include: {
+        day: { include: { planWeek: { include: { trainingPlan: true } } } },
+      },
+      orderBy: { id: 'asc' },
+      take: 1000,
+    });
     const days = await this.prisma.planDay.findMany({
       where: {
         weekday,
-        retiredAt:null,
-        activities:{none:{timeZone:input.timeZone}},
+        retiredAt: null,
+        activities: { none: { timeZone: input.timeZone } },
         planWeek: {
           startsOn: { gte: from, lte: on },
           trainingPlan: {
             athleteId,
             status: { in: ['DRAFT', 'ACTIVE'] },
-            AND:[{OR:[{startsOn:null},{startsOn:{lte:on}}]}],
+            AND: [{ OR: [{ startsOn: null }, { startsOn: { lte: on } }] }],
             OR: [{ endsOn: null }, { endsOn: { gte: on } }],
           },
         },
@@ -433,11 +535,40 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
       },
       orderBy: [{ planWeekId: 'asc' }, { position: 'asc' }, { id: 'asc' }],
     });
-    const candidates=[...activities.flatMap(activity=>activity.day?[{scheduledActivityId:activity.id,planDayId:activity.day.id,name:activity.day.name,planWeekId:activity.day.planWeek.id,weekNumber:activity.day.planWeek.weekNumber,trainingPlanId:activity.day.planWeek.trainingPlan.id,planName:activity.day.planWeek.trainingPlan.name}]:[]),...days.map(day=>({planDayId:day.id,name:day.name,planWeekId:day.planWeek.id,weekNumber:day.planWeek.weekNumber,trainingPlanId:day.planWeek.trainingPlan.id,planName:day.planWeek.trainingPlan.name}))];
+    const candidates = [
+      ...activities.flatMap((activity) =>
+        activity.day
+          ? [
+              {
+                scheduledActivityId: activity.id,
+                planDayId: activity.day.id,
+                name: activity.day.name,
+                planWeekId: activity.day.planWeek.id,
+                weekNumber: activity.day.planWeek.weekNumber,
+                trainingPlanId: activity.day.planWeek.trainingPlan.id,
+                planName: activity.day.planWeek.trainingPlan.name,
+              },
+            ]
+          : [],
+      ),
+      ...days.map((day) => ({
+        planDayId: day.id,
+        name: day.name,
+        planWeekId: day.planWeek.id,
+        weekNumber: day.planWeek.weekNumber,
+        trainingPlanId: day.planWeek.trainingPlan.id,
+        planName: day.planWeek.trainingPlan.name,
+      })),
+    ];
     return {
       performedOn: input.performedOn,
       timeZone: input.timeZone,
-      resolution:candidates.length===1?'SINGLE':candidates.length?'MULTIPLE':'NONE',
+      resolution:
+        candidates.length === 1
+          ? 'SINGLE'
+          : candidates.length
+            ? 'MULTIPLE'
+            : 'NONE',
       candidates,
     };
   }
@@ -520,7 +651,9 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
           weekId: input.planWeekId ?? null,
           dayId: input.planDayId ?? null,
           repeatFromId: input.repeatFromId ?? null,
-          ...(input.scheduledActivityId?{scheduledActivityId:input.scheduledActivityId}:{}),
+          ...(input.scheduledActivityId
+            ? { scheduledActivityId: input.scheduledActivityId }
+            : {}),
         });
         const existing = await tx.workoutSession.findUnique({
           where: { id: input.id },
@@ -572,7 +705,8 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
           };
         } else if (input.repeatFromId) {
           await this.lockSession(tx, athleteId, input.repeatFromId);
-          const prior = (await this.read(tx, athleteId, input.repeatFromId)).attributes;
+          const prior = (await this.read(tx, athleteId, input.repeatFromId))
+            .attributes;
           source = {
             kind: 'SESSION',
             session: { id: prior.id, name: prior.name ?? null },
@@ -588,7 +722,9 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
                 'conflict',
                 'A source exercise is inactive or unavailable.',
               );
-            const values = item.targets ? rowTargets(item.targets) : emptyTargets;
+            const values = item.targets
+              ? rowTargets(item.targets)
+              : emptyTargets;
             const original: ExerciseSnapshot = {
               source: { kind: 'SESSION', id: item.id },
               exercise: item.exercise,
@@ -606,11 +742,34 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
             });
           }
         }
-        if(input.scheduledActivityId){
+        if (input.scheduledActivityId) {
           await tx.$queryRaw`SELECT id FROM scheduled_activities WHERE id=${input.scheduledActivityId}::uuid AND athlete_id=${athleteId}::uuid FOR UPDATE`;
-          const activity=await tx.scheduledActivity.findFirst({where:{id:input.scheduledActivityId,athleteId,planDayId:input.planDayId??null,planWeekId:input.planWeekId??null,status:{in:['PLANNED','RESCHEDULED']}}});
-          if(!activity||!input.planDayId||activity.timeZone!==input.timeZone)throw new WorkoutRepositoryError('missing','Scheduled training activity not found for the selected day and time zone.');
-          source={...source,schedule:{id:activity.id,scheduledOn:activity.scheduledOn.toISOString().slice(0,10),timeZone:activity.timeZone}};
+          const activity = await tx.scheduledActivity.findFirst({
+            where: {
+              id: input.scheduledActivityId,
+              athleteId,
+              planDayId: input.planDayId ?? null,
+              planWeekId: input.planWeekId ?? null,
+              status: { in: ['PLANNED', 'RESCHEDULED'] },
+            },
+          });
+          if (
+            !activity ||
+            !input.planDayId ||
+            activity.timeZone !== input.timeZone
+          )
+            throw new WorkoutRepositoryError(
+              'missing',
+              'Scheduled training activity not found for the selected day and time zone.',
+            );
+          source = {
+            ...source,
+            schedule: {
+              id: activity.id,
+              scheduledOn: activity.scheduledOn.toISOString().slice(0, 10),
+              timeZone: activity.timeZone,
+            },
+          };
         }
         exercises = exercises
           .sort((a, b) => a.orderInSession - b.orderInSession)
@@ -624,7 +783,7 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
           data: {
             id: input.id,
             athleteId,
-            scheduledActivityId:input.scheduledActivityId??null,
+            scheduledActivityId: input.scheduledActivityId ?? null,
             trainingPlanId: input.trainingPlanId ?? null,
             planWeekId: input.planWeekId ?? null,
             planDayId: input.planDayId ?? null,

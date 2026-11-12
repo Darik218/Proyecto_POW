@@ -21,9 +21,9 @@ async function submit() {
 </script>
 
 <template>
-  <form class="plan-form" novalidate :aria-busy="pending" @submit.prevent="submit">
+  <form class="plan-form training-editor" novalidate :aria-busy="pending" @submit.prevent="submit">
     <h2>{{ initial ? 'Editar plan' : 'Nuevo plan' }}</h2>
-    <fieldset :disabled="pending || busy">
+    <fieldset :disabled="pending || busy"><legend class="training-section-legend">Identidad y calendario</legend>
       <label class="field-label" :for="id + '-name'">Nombre</label>
       <input :id="id + '-name'" v-model="form.name" class="form-control" required maxlength="160" autocomplete="off">
       <div class="plan-form-grid">

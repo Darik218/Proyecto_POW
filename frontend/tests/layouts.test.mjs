@@ -70,3 +70,15 @@ test('el router conserva las URLs y guards privados y públicos al incorporar la
   await router.push('/register')
   assert.equal(router.currentRoute.value.name, 'home')
 })
+
+
+test('la navegación activa identifica Progresión y sus detalles sin marcar Mi rutina',async()=>{
+ const {router}=await server.ssrLoadModule('/src/router/index.ts'),{pinia}=await server.ssrLoadModule('/src/stores/pinia.ts'),{useAuthStore}=await server.ssrLoadModule('/src/stores/auth.store.ts'),{default:Layout}=await server.ssrLoadModule('/src/components/AuthenticatedLayout.vue');
+ const auth=useAuthStore(pinia);auth.status='authenticated';auth.accessToken='memory-only-test';auth.user={id:'fixture',email:'navigation@example.test'};
+ for(const path of ['/app/progression','/app/progression/new','/app/progression/recommendations/10000000-0000-4000-8000-000000000001']){
+  await router.push(path);const app=createSSRApp(Layout);app.use(pinia);app.use(router);const html=await renderToString(app);
+  const links=[...html.matchAll(/<a[^>]*href="([^"]+)"[^>]*class="([^"]*)"[^>]*>/g)];
+  assert.ok(links.find(v=>v[1]==='/app/progression'&&v[2].includes('app-nav__link--active')));
+  assert.ok(links.find(v=>v[1]==='/app'&&!v[2].includes('app-nav__link--active')));
+ }
+});

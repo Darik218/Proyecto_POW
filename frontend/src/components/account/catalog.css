@@ -1,0 +1,301 @@
+.exercises-heading h1,
+.exercise-detail-card h1 {
+  font-size: clamp(32px, 4vw, 44px);
+  line-height: 1.15;
+  letter-spacing: -1.5px;
+  margin: 0 0 16px;
+}
+.exercises-heading .intro {
+  color: var(--color-text-secondary);
+  max-width: 660px;
+  line-height: 1.7;
+}
+.exercise-scope-tabs {
+  gap: 20px;
+}
+.scope-tab {
+  min-height: 48px;
+  border-radius: 0;
+  font-size: 14px;
+}
+.exercise-filters {
+  padding: 24px;
+  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.exercise-search {
+  grid-column: span 2;
+}
+.exercise-filters input,
+.exercise-filters select,
+.exercise-form input,
+.exercise-form select,
+.exercise-form textarea {
+  background: var(--color-background);
+  min-height: 48px;
+  border-radius: 10px;
+}
+.exercise-grid {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+.exercise-grid > li {
+  min-width: 0;
+}
+.exercise-card {
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+  overflow: hidden;
+  padding: 0;
+  box-sizing: border-box;
+}
+.exercise-card:hover {
+  border-color: var(--color-primary);
+}
+.exercise-card__visual {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
+  background: var(--color-surface-elevated);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-primary);
+}
+.exercise-card__visual > span {
+  font-size: 13px;
+  line-height: 1.5;
+  flex: 1;
+}
+.exercise-card__heading {
+  padding: 24px 24px 12px;
+}
+.exercise-card__heading h2 {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.4;
+  letter-spacing: -0.4px;
+  overflow-wrap: anywhere;
+  color: var(--color-text-primary);
+}
+.exercise-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 24px;
+}
+.exercise-tags span {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  padding: 4px 8px;
+  border-radius: 5px;
+}
+.exercise-card__description {
+  padding: 0 24px;
+  margin: 16px 0 0;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.exercise-card__meta {
+  padding: 0 24px;
+  margin: 20px 0;
+}
+.exercise-card__meta > div {
+  padding: 8px 0;
+  display: block;
+  border: 0;
+}
+.exercise-card__meta dt {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  margin-bottom: 5px;
+}
+.exercise-card__meta dd {
+  font-size: 14px;
+  margin: 0;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+.exercise-card__actions {
+  padding: 12px 24px 20px;
+  gap: 12px;
+  border-top: 1px solid var(--color-border);
+}
+.exercise-card__action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 14px;
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 700;
+}
+.text-button {
+  min-height: 44px;
+}
+.exercise-result-count {
+  font-variant-numeric: tabular-nums;
+}
+.catalog-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 28px;
+}
+.catalog-pagination span {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+.exercise-detail-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 32px;
+  margin-top: 24px;
+}
+.exercise-detail-topline {
+  margin-bottom: 20px;
+}
+.exercise-detail-card__description {
+  max-width: 760px;
+  color: var(--color-text-secondary);
+  font-size: 16px;
+  line-height: 1.7;
+}
+.muscle-focus {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  background: var(--color-surface-elevated);
+  padding: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  margin: 28px 0;
+}
+.muscle-focus span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.muscle-focus h2 {
+  font-size: 22px;
+  margin: 8px 0;
+  color: var(--color-primary);
+}
+.muscle-focus p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+.exercise-detail-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 32px;
+}
+.exercise-detail-list > div {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.exercise-detail-list dt {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.exercise-detail-list dd {
+  margin: 0;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.exercise-instructions {
+  padding: 24px;
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+.exercise-form-card {
+  padding: 28px;
+}
+.section-title-row {
+  flex-wrap: wrap;
+}
+.back-link {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+@media (max-width: 1150px) {
+  .exercise-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .exercise-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 750px) {
+  .exercise-grid {
+    grid-template-columns: 1fr;
+  }
+  .exercise-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 20px;
+  }
+  .exercise-detail-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .exercise-detail-card {
+    padding: 24px;
+  }
+  .muscle-focus {
+    padding: 20px;
+    gap: 16px;
+  }
+}
+@media (max-width: 480px) {
+  .exercise-filters,
+  .exercise-detail-list {
+    grid-template-columns: 1fr;
+  }
+  .exercise-search {
+    grid-column: 1;
+  }
+  .exercise-detail-card {
+    padding: 20px;
+  }
+  .catalog-pagination {
+    flex-wrap: wrap;
+  }
+  .catalog-pagination span {
+    order: 3;
+    width: 100%;
+    text-align: center;
+  }
+  .exercise-scope-tabs {
+    gap: 0;
+  }
+  .scope-tab {
+    padding: 12px;
+  }
+  .muscle-focus {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+.exercise-card {
+  box-shadow: none;
+}
+.exercise-card:hover {
+  transform: none;
+  box-shadow: none;
+}
+.exercise-card__action {
+  padding-top: 0;
+}
+.exercise-form-card {
+  border-radius: 16px;
+}

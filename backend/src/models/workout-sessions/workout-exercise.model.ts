@@ -1,5 +1,8 @@
 import type { Decimal } from '@prisma/client/runtime/client';
-import type { MeasurementUnit } from '../../generated/prisma/client';
+import type {
+  MeasurementUnit,
+  OneRmSuitability,
+} from '../../generated/prisma/client';
 import type { SetRecordAttributes } from './set-record.model';
 
 export type WorkoutTargets = {
@@ -50,6 +53,7 @@ export type WorkoutPrescription = {
 };
 export type WorkoutExerciseAttributes = {
   id: string;
+  oneRmSuitability?: OneRmSuitability;
   orderInSession: number;
   notes: string | null;
   exercise: ExerciseIdentity;

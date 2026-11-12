@@ -217,6 +217,12 @@ enum OneRmSuitability {
 }
 
 model User {
+  operationalGrants ProgressionOperationalGrant[]
+  operationalEvents ProgressionOperationalEvent[]
+  automaticBatches ProgressionAutomaticBatch[]
+  settingMutations ProgressionSettingMutation[]
+  automationConsentEvents ProgressionAutomationConsentEvent[]
+  automationConsents ProgressionAutomationConsent[]
   id               String        @id @default(uuid()) @db.Uuid
   email            String        @unique @db.VarChar(320)
   passwordHash     String        @map("password_hash") @db.VarChar(255)
@@ -227,11 +233,20 @@ model User {
   athlete          Athlete?
   sessions         AuthSession[]
   createdExercises Exercise[]
+  recommendationReviews RecommendationReview[]
+  progressionApplications ProgressionApplication[]
 
   @@map("users")
 }
 
 model Athlete {
+  operationalGrants ProgressionOperationalGrant[]
+  operationalEvents ProgressionOperationalEvent[]
+  automaticRuns ProgressionAutomaticRun[]
+  automaticBatches ProgressionAutomaticBatch[]
+  settingMutations ProgressionSettingMutation[]
+  automationConsentEvents ProgressionAutomationConsentEvent[]
+  automationConsents ProgressionAutomationConsent[]
   id                  String                      @id @default(uuid()) @db.Uuid
   userId              String                      @unique @map("user_id") @db.Uuid
   birthDate           DateTime?                   @map("birth_date") @db.Date
@@ -245,6 +260,8 @@ model Athlete {
   estimates           OneRmEstimate[]
   progressionSettings ProgressionSetting[]
   recommendations     ProgressionRecommendation[]
+  recommendationReviews RecommendationReview[]
+  progressionApplications ProgressionApplication[]
   activities ScheduledActivity[]
   planningOperations PlanningOperation[]
 
@@ -252,6 +269,11 @@ model Athlete {
 }
 
 model AuthSession {
+  operationalGrants ProgressionOperationalGrant[]
+  operationalEvents ProgressionOperationalEvent[]
+  automaticBatches ProgressionAutomaticBatch[]
+  settingMutations ProgressionSettingMutation[]
+  consentAcceptanceChallenges ProgressionConsentAcceptanceChallenge[]
   id                String             @id @default(uuid()) @db.Uuid
   userId            String             @map("user_id") @db.Uuid
   tokenFamilyId     String             @map("token_family_id") @db.Uuid
@@ -309,6 +331,7 @@ model MuscleGroup {
 }
 
 model Exercise {
+  automationConsents ProgressionAutomationConsent[]
   searchName String @default("") @map("search_name") @db.Text
   searchDescription String @default("") @map("search_description") @db.Text
   featuredRank Int? @map("featured_rank")
@@ -373,6 +396,7 @@ model ExerciseSecondaryMuscleGroup {
 }
 
 model TrainingPlan {
+  automationConsents ProgressionAutomationConsent[]
   id                  String               @id @default(uuid()) @db.Uuid
   athleteId           String               @map("athlete_id") @db.Uuid
   name                String               @db.VarChar(160)
@@ -439,6 +463,7 @@ model PlanDay {
 }
 
 model PlanExercise {
+  progressionApplications ProgressionApplication[]
   id               String                      @id @default(uuid()) @db.Uuid
   planWeekId       String                      @map("plan_week_id") @db.Uuid
   exerciseId       String                      @map("exercise_id") @db.Uuid
@@ -607,6 +632,7 @@ model SessionFeedback {
 }
 
 model ProgressionSetting {
+  mutations ProgressionSettingMutation[]
   id                    String        @id @default(uuid()) @db.Uuid
   athleteId             String        @map("athlete_id") @db.Uuid
   exerciseId            String?       @map("exercise_id") @db.Uuid
@@ -630,13 +656,15 @@ model ProgressionSetting {
 }
 
 model ProgressionRecommendation {
+  automaticRuns ProgressionAutomaticRun[]
+  revalidationRequest ProgressionRevalidationRequest?
   id                String                   @id @default(uuid()) @db.Uuid
   athleteId         String                   @map("athlete_id") @db.Uuid
   exerciseId        String                   @map("exercise_id") @db.Uuid
   planWeekId        String?                  @map("plan_week_id") @db.Uuid
   planExerciseId    String?                  @map("plan_exercise_id") @db.Uuid
-  previousLoad      Decimal?                 @map("previous_load") @db.Decimal(8, 3)
-  recommendedLoad   Decimal                  @map("recommended_load") @db.Decimal(8, 3)
+  previousLoad      Decimal?                 @map("previous_load") @db.Decimal(24, 6)
+  recommendedLoad   Decimal                  @map("recommended_load") @db.Decimal(24, 6)
   justification     String                   @db.Text
   status            RecommendationStatus     @default(PENDING)
   algorithmVersion  String                   @map("algorithm_version") @db.VarChar(40)
@@ -644,6 +672,18 @@ model ProgressionRecommendation {
   createdAt         DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   expiresAt         DateTime?                @map("expires_at") @db.Timestamptz(6)
   reviewedAt        DateTime?                @map("reviewed_at") @db.Timestamptz(6)
+  loadUnit          MeasurementUnit?         @map("load_unit")
+  previousLoadKg    Decimal?                 @map("previous_load_kg") @db.Decimal(24, 6)
+  recommendedLoadKg Decimal?                 @map("recommended_load_kg") @db.Decimal(24, 6)
+  semanticKey       String?                  @unique @map("semantic_key") @db.Char(64)
+  cycleKey          String?                  @map("cycle_key") @db.Char(64)
+  cycleSlot         String?                  @unique @map("cycle_slot") @db.Char(64)
+  requestKey        String?                  @map("request_key") @db.Char(64)
+  snapshot          Json?                    @db.JsonB
+  dependencyKeys    Json?                    @map("dependency_keys") @db.JsonB
+  proposalKind      String?                  @map("proposal_kind") @db.VarChar(24)
+  reviewVersion     Int?                     @map("review_version")
+  reviews           RecommendationReview[]
   athlete           Athlete                  @relation(fields: [athleteId], references: [id], onDelete: Restrict)
   exercise          Exercise                 @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
   planWeek          PlanWeek?                @relation(fields: [planWeekId], references: [id], onDelete: Restrict)
@@ -654,6 +694,7 @@ model ProgressionRecommendation {
   @@index([athleteId, status, createdAt])
   @@index([exerciseId, createdAt])
   @@index([planWeekId])
+  @@index([athleteId, cycleKey])
   @@map("progression_recommendations")
 }
 
@@ -672,6 +713,28 @@ model RecommendationEvidence {
 }
 
 model ProgressionApplication {
+  operationalGrantId String? @map("operational_grant_id") @db.Uuid
+  grantVersion Int? @map("grant_version")
+  executorId String? @map("executor_id") @db.VarChar(64)
+  operationalGrant ProgressionOperationalGrant? @relation(fields:[operationalGrantId],references:[id],onDelete:Restrict)
+  automaticRun ProgressionAutomaticRun?
+  athleteId String? @map("athlete_id") @db.Uuid
+  actorUserId String? @map("actor_user_id") @db.Uuid
+  reviewId String? @unique @map("review_id") @db.Uuid
+  planExerciseId String? @map("plan_exercise_id") @db.Uuid
+  scheduledActivityId String? @map("scheduled_activity_id") @db.Uuid
+  previousLoad Decimal? @map("previous_load") @db.Decimal(8,3)
+  loadUnit MeasurementUnit? @map("load_unit")
+  intentId String? @map("intent_id") @db.Uuid
+  requestKey String? @map("request_key") @db.Char(64)
+  cycleKey String? @unique @map("cycle_key") @db.Char(64)
+  audit Json? @db.JsonB
+  athlete Athlete? @relation(fields:[athleteId],references:[id],onDelete:Restrict)
+  actor User? @relation(fields:[actorUserId],references:[id],onDelete:Restrict)
+  review RecommendationReview? @relation(fields:[reviewId],references:[id],onDelete:Restrict)
+  prescription PlanExercise? @relation(fields:[planExerciseId],references:[id],onDelete:Restrict)
+  activity ScheduledActivity? @relation(fields:[scheduledActivityId],references:[id],onDelete:Restrict)
+  @@unique([athleteId,intentId])
   id               String                    @id @default(uuid()) @db.Uuid
   recommendationId String                    @unique @map("recommendation_id") @db.Uuid
   appliedLoad      Decimal                   @map("applied_load") @db.Decimal(8, 3)
@@ -691,6 +754,7 @@ enum ScheduledActivityStatus {
   REST
 }
 model ScheduledActivity {
+  progressionApplications ProgressionApplication[]
   id String @id @default(uuid()) @db.Uuid
   athleteId String @map("athlete_id") @db.Uuid
   planWeekId String? @map("plan_week_id") @db.Uuid
@@ -735,4 +799,240 @@ model ExerciseAlias {
   @@unique([exerciseId,normalizedName])
   @@index([normalizedName(ops:raw("gin_trgm_ops"))],type:Gin,map:"exercise_aliases_normalized_name_gin")
   @@map("exercise_aliases")
+}
+
+
+model RecommendationReview {
+  application ProgressionApplication?
+  id String @id @default(uuid()) @db.Uuid
+  recommendationId String @map("recommendation_id") @db.Uuid
+  athleteId String @map("athlete_id") @db.Uuid
+  actorUserId String @map("actor_user_id") @db.Uuid
+  intentId String @map("intent_id") @db.Uuid
+  payloadKey String @map("payload_key") @db.Char(64)
+  schemaVersion String @map("schema_version") @db.VarChar(40)
+  action String @db.VarChar(8)
+  fromStatus RecommendationStatus @map("from_status")
+  toStatus RecommendationStatus @map("to_status")
+  fromVersion Int? @map("from_version")
+  version Int
+  semanticKey String? @map("semantic_key") @db.Char(64)
+  cycleKey String? @map("cycle_key") @db.Char(64)
+  dependencyKeys Json? @map("dependency_keys") @db.JsonB
+  acceptance Json? @db.JsonB
+  justification String? @db.VarChar(2000)
+  decidedAt DateTime @default(now()) @map("decided_at") @db.Timestamptz(6)
+  recommendation ProgressionRecommendation @relation(fields:[recommendationId],references:[id],onDelete:Restrict)
+  athlete Athlete @relation(fields:[athleteId],references:[id],onDelete:Restrict)
+  actor User @relation(fields:[actorUserId],references:[id],onDelete:Restrict)
+  @@unique([athleteId,intentId])
+  @@unique([recommendationId,version])
+  @@index([recommendationId,decidedAt])
+  @@map("recommendation_reviews")
+}
+
+
+model ProgressionAutomationConsent {
+  operationalGrant ProgressionOperationalGrant?
+  operationalEvents ProgressionOperationalEvent[]
+  automaticBatches ProgressionAutomaticBatch[]
+  id String @id @default(uuid()) @db.Uuid
+  athleteId String @map("athlete_id") @db.Uuid
+  actorUserId String @map("actor_user_id") @db.Uuid
+  exerciseId String @map("exercise_id") @db.Uuid
+  trainingPlanId String? @map("training_plan_id") @db.Uuid
+  state String @db.VarChar(24)
+  version Int
+  contractKey String @map("contract_key") @db.Char(64)
+  snapshot Json @db.JsonB
+  validFrom DateTime @map("valid_from") @db.Timestamptz(6)
+  validUntil DateTime @map("valid_until") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+  athlete Athlete @relation(fields:[athleteId],references:[id],onDelete:Restrict)
+  actor User @relation(fields:[actorUserId],references:[id],onDelete:Restrict)
+  exercise Exercise @relation(fields:[exerciseId],references:[id],onDelete:Restrict)
+  plan TrainingPlan? @relation(fields:[trainingPlanId,athleteId],references:[id,athleteId],onDelete:Restrict,map:"automation_consent_plan_owner_fkey")
+  events ProgressionAutomationConsentEvent[]
+  acceptanceChallenges ProgressionConsentAcceptanceChallenge[]
+  @@unique([id,athleteId])
+  @@index([athleteId,exerciseId,state,validFrom,validUntil],map:"automation_consents_scope_validity_idx")
+  @@map("progression_automation_consents")
+}
+model ProgressionAutomationConsentEvent {
+  operationalGrant ProgressionOperationalGrant?
+  acceptanceChallengeId String? @unique(map:"consent_acceptance_event_challenge_key") @map("acceptance_challenge_id") @db.Uuid
+  acceptanceEvidence Json? @map("acceptance_evidence") @db.JsonB
+  acceptanceChallenge ProgressionConsentAcceptanceChallenge? @relation(fields:[acceptanceChallengeId],references:[id],onDelete:Restrict,map:"consent_acceptance_event_challenge_fkey")
+  id String @id @default(uuid()) @db.Uuid
+  consentId String @map("consent_id") @db.Uuid
+  athleteId String @map("athlete_id") @db.Uuid
+  actorUserId String @map("actor_user_id") @db.Uuid
+  action String @db.VarChar(12)
+  intentId String @map("intent_id") @db.Uuid
+  requestKey String @map("request_key") @db.Char(64)
+  fromVersion Int? @map("from_version")
+  version Int
+  fromState String? @map("from_state") @db.VarChar(24)
+  state String @db.VarChar(24)
+  contractKey String @map("contract_key") @db.Char(64)
+  snapshot Json @db.JsonB
+  recordedAt DateTime @map("recorded_at") @db.Timestamptz(6)
+  reason String? @db.VarChar(40)
+  consent ProgressionAutomationConsent @relation(fields:[consentId,athleteId],references:[id,athleteId],onDelete:Restrict,map:"automation_consent_event_owner_fkey")
+  athlete Athlete @relation(fields:[athleteId],references:[id],onDelete:Restrict)
+  actor User @relation(fields:[actorUserId],references:[id],onDelete:Restrict)
+  @@unique([athleteId,intentId])
+  @@unique([consentId,version])
+  @@map("progression_automation_consent_events")
+}
+
+
+model ProgressionRevalidationRequest {
+ recommendationId String @id @map("recommendation_id") @db.Uuid
+ requestKey String @map("request_key") @db.Char(64)
+ commandKey String @map("command_key") @db.Char(64)
+ schemaVersion String @map("schema_version") @db.VarChar(40)
+ command Json @db.JsonB
+ provenance String @db.VarChar(40)
+ recordedAt DateTime @map("recorded_at") @db.Timestamptz(6)
+ recommendation ProgressionRecommendation @relation(fields:[recommendationId],references:[id],onDelete:Restrict)
+ @@map("progression_revalidation_requests")
+}
+
+model ProgressionConsentAcceptanceChallenge {
+ id String @id @default(uuid()) @db.Uuid
+ consentId String @map("consent_id") @db.Uuid
+ athleteId String @map("athlete_id") @db.Uuid
+ actorUserId String @map("actor_user_id") @db.Uuid
+ actorSessionId String @map("actor_session_id") @db.Uuid
+ version Int
+ contractKey String @map("contract_key") @db.Char(64)
+ conditionsKey String @map("conditions_key") @db.Char(64)
+ contextKey String @map("context_key") @db.Char(64)
+ termsVersion String @map("terms_version") @db.VarChar(160)
+ presentationVersion String @map("presentation_version") @db.VarChar(48)
+ dependencies Json @db.JsonB
+ issuedAt DateTime @map("issued_at") @db.Timestamptz(6)
+ expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+ consent ProgressionAutomationConsent @relation(fields:[consentId,athleteId],references:[id,athleteId],onDelete:Restrict,map:"consent_acceptance_challenge_owner_fkey")
+ session AuthSession @relation(fields:[actorSessionId],references:[id],onDelete:Restrict)
+ event ProgressionAutomationConsentEvent?
+ @@index([consentId,actorSessionId,issuedAt],map:"consent_acceptance_challenge_context_idx")
+ @@map("progression_consent_acceptance_challenges")
+}
+
+model ProgressionSettingMutation {
+ id String @id @default(uuid()) @db.Uuid
+ athleteId String @map("athlete_id") @db.Uuid
+ actorUserId String @map("actor_user_id") @db.Uuid
+ actorSessionId String @map("actor_session_id") @db.Uuid
+ settingId String @map("setting_id") @db.Uuid
+ intentId String @map("intent_id") @db.Uuid
+ action String @db.VarChar(12)
+ requestKey String @map("request_key") @db.Char(64)
+ beforeRevision String? @map("before_revision") @db.Char(64)
+ revision String @db.Char(64)
+ snapshot Json @db.JsonB
+ recordedAt DateTime @map("recorded_at") @db.Timestamptz(6)
+ athlete Athlete @relation(fields:[athleteId],references:[id],onDelete:Restrict)
+ actor User @relation(fields:[actorUserId],references:[id],onDelete:Restrict)
+ session AuthSession @relation(fields:[actorSessionId],references:[id],onDelete:Restrict)
+ setting ProgressionSetting @relation(fields:[settingId],references:[id],onDelete:Restrict)
+ @@unique([athleteId,intentId],map:"progression_setting_mutation_intent_key")
+ @@map("progression_setting_mutations")
+}
+
+model ProgressionOperationalGrant {
+ id String @id @default(uuid()) @db.Uuid
+ athleteId String @map("athlete_id") @db.Uuid
+ consentId String @unique @map("consent_id") @db.Uuid
+ acceptanceEventId String @unique @map("acceptance_event_id") @db.Uuid
+ consentVersion Int @map("consent_version")
+ acceptedVersion Int @map("accepted_version")
+ contractKey String @map("contract_key") @db.Char(64)
+ principalId String @map("principal_id") @db.VarChar(64)
+ state String @db.VarChar(16)
+ version Int
+ actorUserId String @map("actor_user_id") @db.Uuid
+ actorSessionId String @map("actor_session_id") @db.Uuid
+ snapshot Json @db.JsonB
+ activatedAt DateTime @map("activated_at") @db.Timestamptz(6)
+ revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+ athlete Athlete @relation(fields:[athleteId],references:[id],onDelete:Restrict)
+ consent ProgressionAutomationConsent @relation(fields:[consentId],references:[id],onDelete:Restrict)
+ acceptance ProgressionAutomationConsentEvent @relation(fields:[acceptanceEventId],references:[id],onDelete:Restrict)
+ actor User @relation(fields:[actorUserId],references:[id],onDelete:Restrict)
+ session AuthSession @relation(fields:[actorSessionId],references:[id],onDelete:Restrict)
+ events ProgressionOperationalEvent[]
+ runs ProgressionAutomaticRun[]
+ applications ProgressionApplication[]
+ batches ProgressionAutomaticBatch[]
+ @@index([state,activatedAt])
+ @@map("progression_operational_grants")
+}
+model ProgressionOperationalEvent {
+ id String @id @default(uuid()) @db.Uuid
+ grantId String @map("grant_id") @db.Uuid
+ athleteId String @map("athlete_id") @db.Uuid
+ consentId String @map("consent_id") @db.Uuid
+ actorUserId String @map("actor_user_id") @db.Uuid
+ actorSessionId String @map("actor_session_id") @db.Uuid
+ intentId String @map("intent_id") @db.Uuid
+ action String @db.VarChar(12)
+ version Int
+ requestKey String @map("request_key") @db.Char(64)
+ snapshot Json @db.JsonB
+ recordedAt DateTime @map("recorded_at") @db.Timestamptz(6)
+ grant ProgressionOperationalGrant @relation(fields:[grantId],references:[id],onDelete:Restrict)
+ athlete Athlete @relation(fields:[athleteId],references:[id],onDelete:Restrict)
+ consent ProgressionAutomationConsent @relation(fields:[consentId],references:[id],onDelete:Restrict)
+ actor User @relation(fields:[actorUserId],references:[id],onDelete:Restrict)
+ session AuthSession @relation(fields:[actorSessionId],references:[id],onDelete:Restrict)
+ @@unique([athleteId,intentId])
+ @@index([grantId,recordedAt])
+ @@map("progression_operational_events")
+}
+model ProgressionAutomaticRun {
+ id String @id @default(uuid()) @db.Uuid
+ grantId String @map("grant_id") @db.Uuid
+ athleteId String @map("athlete_id") @db.Uuid
+ recommendationId String @map("recommendation_id") @db.Uuid
+ operationKey String @unique @map("operation_key") @db.Char(64)
+ result String @db.VarChar(12)
+ reasons Json @db.JsonB
+ applicationId String? @unique @map("application_id") @db.Uuid
+ previousLoad Decimal? @map("previous_load") @db.Decimal(24,6)
+ appliedLoad Decimal? @map("applied_load") @db.Decimal(24,6)
+ unit MeasurementUnit?
+ cycleKey String? @map("cycle_key") @db.Char(64)
+ audit Json @db.JsonB
+ recordedAt DateTime @map("recorded_at") @db.Timestamptz(6)
+ grant ProgressionOperationalGrant @relation(fields:[grantId],references:[id],onDelete:Restrict)
+ athlete Athlete @relation(fields:[athleteId],references:[id],onDelete:Restrict)
+ recommendation ProgressionRecommendation @relation(fields:[recommendationId],references:[id],onDelete:Restrict)
+ application ProgressionApplication? @relation(fields:[applicationId],references:[id],onDelete:Restrict)
+ @@index([grantId,recordedAt])
+ @@map("progression_automatic_runs")
+}
+model ProgressionAutomaticBatch {
+ id String @id @default(uuid()) @db.Uuid
+ athleteId String @map("athlete_id") @db.Uuid
+ consentId String @map("consent_id") @db.Uuid
+ grantId String @map("grant_id") @db.Uuid
+ grantVersion Int @map("grant_version")
+ actorUserId String @map("actor_user_id") @db.Uuid
+ actorSessionId String @map("actor_session_id") @db.Uuid
+ intentId String @map("intent_id") @db.Uuid
+ candidateIds Json @map("candidate_ids") @db.JsonB
+ completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+ createdAt DateTime @map("created_at") @db.Timestamptz(6)
+ athlete Athlete @relation(fields:[athleteId],references:[id],onDelete:Restrict)
+ consent ProgressionAutomationConsent @relation(fields:[consentId],references:[id],onDelete:Restrict)
+ grant ProgressionOperationalGrant @relation(fields:[grantId],references:[id],onDelete:Restrict)
+ actor User @relation(fields:[actorUserId],references:[id],onDelete:Restrict)
+ session AuthSession @relation(fields:[actorSessionId],references:[id],onDelete:Restrict)
+ @@unique([athleteId,intentId])
+ @@map("progression_automatic_batches")
 }

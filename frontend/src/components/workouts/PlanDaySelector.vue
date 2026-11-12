@@ -34,7 +34,7 @@ onMounted(loadPlans)
 onUnmounted(() => { version++; controller?.abort(); listController.abort() })
 </script>
 <template>
-  <div class="workout-day-selector">
+  <div class="workout-day-selector"><div class="training-section-divider"><h3>Elige el bloque de tu plan</h3></div>
     <label class="field-label" :for="id + '-plan'">Plan</label><select :id="id + '-plan'" :value="modelValue.trainingPlanId" class="form-control" :disabled="disabled" @change="choosePlan(($event.target as HTMLSelectElement).value)"><option value="">Selecciona un plan</option><option v-for="plan in plans.filter(item => (draftOnly ? item.status === 'DRAFT' : ['DRAFT', 'ACTIVE'].includes(item.status)))" :key="plan.id" :value="plan.id">{{ plan.name }}</option></select>
     <p v-if="loading" role="status">Cargando planificación…</p>
     <label class="field-label" :for="id + '-week'">Semana</label><select :id="id + '-week'" :value="modelValue.planWeekId" class="form-control" :disabled="disabled || loading || !detail" @change="chooseWeek(($event.target as HTMLSelectElement).value)"><option value="">Selecciona una semana</option><option v-for="item in detail?.weeks ?? []" :key="item.id" :value="item.id">Semana {{ item.weekNumber }}{{ item.objective ? ' · ' + item.objective : '' }}</option></select>

@@ -40,11 +40,13 @@ describe('Workout MVC dependency boundaries', () => {
       'workout-session.model',
       'workout-exercise.model',
       'set-record.model',
+      'workout-insights.model',
     ])
       expect(imports(file(`models/workout-sessions/${name}.ts`))).toEqual([]);
-    expect(
-      imports(file('views/workout-sessions/workout-sessions.presenter.ts')),
-    ).toEqual([]);
+    for (const presenter of ['workout-sessions', 'workout-insights'])
+      expect(
+        imports(file(`views/workout-sessions/${presenter}.presenter.ts`)),
+      ).toEqual([]);
   });
   it('keeps controller delegation separate from persistence and services separate from JSON views', () => {
     const controller = imports(

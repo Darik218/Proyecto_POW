@@ -53,3 +53,11 @@ export class TrainingPlan<T extends PlanAttributes = PlanAttributes> {
     return this.attributes.status === 'DRAFT';
   }
 }
+
+// Values copied into independent prescriptions; persistence and historical links are excluded.
+export type IndependentPrescription = Omit<
+  PlanPrescription,
+  'id' | 'exercise'
+> & {
+  exerciseId: string;
+};

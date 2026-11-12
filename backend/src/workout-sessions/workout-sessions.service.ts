@@ -1,4 +1,12 @@
 import {
+  workoutInsights,
+  workoutReference,
+} from '../domain/workout-sessions/workout-insights.policy';
+import type {
+  WorkoutInsightsQueryDto,
+  WorkoutExerciseReferenceQueryDto,
+} from './dto/workout-insights.dto';
+import {
   BadRequestException,
   ConflictException,
   Inject,
@@ -18,7 +26,10 @@ import {
   WORKOUT_SESSIONS_REPOSITORY,
   WorkoutRepositoryError,
 } from './workout-sessions.repository';
-import type { WorkoutSessionsRepository } from './workout-sessions.repository';
+import type {
+  WorkoutDetail,
+  WorkoutSessionsRepository,
+} from './workout-sessions.repository';
 import type {
   AddWorkoutExerciseDto,
   CreateWorkoutSessionDto,
@@ -63,7 +74,10 @@ export class WorkoutSessionsService {
     }
   }
   list(identity: AuthenticatedIdentity, query: ListWorkoutSessionsDto) {
-    if(query.from&&query.to&&query.from>query.to)throw new BadRequestException('The end date must be on or after the start date.');
+    if (query.from && query.to && query.from > query.to)
+      throw new BadRequestException(
+        'The end date must be on or after the start date.',
+      );
     return this.run(identity, (athleteId) =>
       this.repository.list(athleteId, query),
     );
@@ -74,6 +88,68 @@ export class WorkoutSessionsService {
     );
     if (!result) throw new NotFoundException('Workout session not found.');
     return result;
+  }
+  insights(
+    identity: AuthenticatedIdentity,
+    id: string,
+    query: WorkoutInsightsQueryDto,
+  ) {
+    return this.run(identity, async (athleteId) => {
+      const session = await this.repository.get(athleteId, id);
+      if (!session) throw new NotFoundException('Workout session not found.');
+      if (session.attributes.status !== 'COMPLETED')
+        throw new ConflictException(
+          'Complete the session before reviewing its results.',
+        );
+      if (
+        query.externalTotalExerciseId &&
+        !session.attributes.exercises.some(
+          (item) =>
+            item.id === query.externalTotalExerciseId && !item.isOmitted,
+        )
+      )
+        throw new BadRequestException(
+          'Declare load meaning for an included exercise in this session.',
+        );
+      const references = new Map<string, WorkoutDetail>();
+      // Only a strictly earlier known training date is a previous session. Same-day
+      // and undated history cannot establish that order reliably.
+      const before = session.attributes.performedOn?.toISOString().slice(0, 10);
+      if (before)
+        for (const exerciseId of new Set(
+          session.attributes.exercises
+            .filter((item) => !item.isOmitted)
+            .map((item) => item.exercise.id),
+        )) {
+          const reference = await this.repository.lastExerciseReference(
+            athleteId,
+            exerciseId,
+            before,
+          );
+          if (reference) references.set(exerciseId, reference);
+        }
+      return workoutInsights(
+        session,
+        references,
+        query.externalTotalExerciseId,
+      );
+    });
+  }
+  exerciseReference(
+    identity: AuthenticatedIdentity,
+    query: WorkoutExerciseReferenceQueryDto,
+  ) {
+    return this.run(identity, async (athleteId) => ({
+      exerciseId: query.exerciseId,
+      reference: workoutReference(
+        await this.repository.lastExerciseReference(
+          athleteId,
+          query.exerciseId,
+          query.before,
+        ),
+        query.exerciseId,
+      ),
+    }));
   }
   create(identity: AuthenticatedIdentity, input: CreateWorkoutSessionDto) {
     if (
