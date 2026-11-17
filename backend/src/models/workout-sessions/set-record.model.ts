@@ -13,6 +13,7 @@ export type SetRecordAttributes = {
   loadKg: Decimal | null;
   repetitions: number | null;
   rpe: Decimal | null;
+  rir?: string | null;
   kind: WorkoutSetKind | null;
   status: WorkoutSetStatus | null;
   isCompleted: boolean;

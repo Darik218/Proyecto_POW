@@ -201,6 +201,11 @@ test("hub displays a single selected week and keeps execution and advanced opera
     routes: [
       { path: "/app", name: "home", component: Component },
       {
+        path: "/app/exercises",
+        name: "exercise-catalog",
+        component: { render: () => null },
+      },
+      {
         path: "/app/workouts",
         name: "workout-sessions",
         component: { render: () => null },
@@ -217,7 +222,7 @@ test("hub displays a single selected week and keeps execution and advanced opera
   app.use(createPinia());
   app.use(memory);
   const html = await renderToString(app);
-  assert.match(html, /Mi rutina/);
+  assert.match(html, /Mi plan/);
   assert.match(html, /Entrenar sin plan/);
   assert.match(html, /Cargando tu rutina/);
   assert.doesNotMatch(html, /Progreso|Estadísticas/);
@@ -310,6 +315,9 @@ test("day starts only its own prescriptions, retains an uncertain intent and pre
     client.defaults.adapter = undefined;
   });
   const state = mount(Component, {}, t, router);
+  state.auth.user = { id, email: "athlete@example.test" };
+  state.auth.accessToken = "in-memory-test";
+  state.auth.status = "authenticated";
   await tick();
   await nextTick();
   await state.begin();

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, useId, watch } from 'vue'
-import { RouterLink } from 'vue-router'
-import { useExercisesCatalog } from '../../composables/useExercisesCatalog'
+import { onMounted, onUnmounted, ref, useId, watch } from "vue";
+import { RouterLink } from "vue-router";
+import { useExercisesCatalog } from "../../composables/useExercisesCatalog";
 import {
   exercisesService,
   exerciseEnums,
@@ -11,20 +11,28 @@ import {
   type ExerciseScope,
   type ListExercisesQuery,
   type MuscleGroup,
-} from '../../services/exercises.service'
-import PersonalExerciseForm from './PersonalExerciseForm.vue'
-defineProps<{ modelValue: string; disabled?: boolean }>()
-const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+} from "../../services/exercises.service";
+import PersonalExerciseForm from "./PersonalExerciseForm.vue";
+import { useAuthStore } from "../../stores/auth.store";
+const auth = useAuthStore();
+const props = defineProps<{
+  modelValue: string;
+  disabled?: boolean;
+  initialSelection?: "FEATURED" | "RECENT";
+}>();
+const emit = defineEmits<{ "update:modelValue": [value: string] }>();
 const id = useId(),
-  search = ref(''),
-  selectedScope = ref<ExerciseScope>('visible'),
-  selectedName = ref(''),
-  selection = ref<'ALL' | 'FEATURED' | 'RECENT'>('FEATURED'),
-  group = ref(''),
-  equipment = ref<ListExercisesQuery['equipmentType']>(),
+  search = ref(""),
+  selectedScope = ref<ExerciseScope>("visible"),
+  selectedName = ref(""),
+  selection = ref<"ALL" | "FEATURED" | "RECENT" | "FREQUENT">(
+    props.initialSelection ?? "FEATURED",
+  ),
+  group = ref(""),
+  equipment = ref<ListExercisesQuery["equipmentType"]>(),
   groups = ref<MuscleGroup[]>([]),
-  groupsError = ref(''),
-  creating = ref(false)
+  groupsError = ref(""),
+  creating = ref(false);
 const {
   exercises,
   loading,
@@ -38,60 +46,98 @@ const {
   previousPage,
   invalidate,
   dispose,
-} = useExercisesCatalog()
-const tabs=[{key:'FEATURED',label:'Destacados'},{key:'RECENT',label:'Usados recientemente'},{key:'ALL',label:'Todos'}] as const
-function select(exercise:Exercise){emit('update:modelValue',exercise.id);selectedName.value=exercise.name}
-let timer: ReturnType<typeof setTimeout> | undefined
+} = useExercisesCatalog();
+const tabs = [
+  { key: "RECENT", label: "Recientes" },
+  { key: "FREQUENT", label: "Habituales" },
+  { key: "FEATURED", label: "Destacados" },
+  { key: "ALL", label: "Todos" },
+] as const;
+function select(exercise: Exercise) {
+  emit("update:modelValue", exercise.id);
+  selectedName.value = exercise.name;
+}
+let timer: ReturnType<typeof setTimeout> | undefined;
 function request() {
-  const recent = !search.value.trim() && selection.value === 'RECENT'
+  const recent =
+    !search.value.trim() && ["RECENT", "FREQUENT"].includes(selection.value);
   return load(
     {
-      ...(recent && selectedScope.value !== 'visible'
-        ? { origin: selectedScope.value === 'global' ? ('GLOBAL' as const) : ('PERSONAL' as const) }
+      ...(recent && selectedScope.value !== "visible"
+        ? {
+            origin:
+              selectedScope.value === "global"
+                ? ("GLOBAL" as const)
+                : ("PERSONAL" as const),
+          }
         : {}),
-      ...(search.value.trim() ? { search: search.value.trim() } : { selection: selection.value }),
+      ...(search.value.trim()
+        ? { search: search.value.trim() }
+        : { selection: selection.value }),
       ...(group.value ? { primaryMuscleGroupKey: group.value } : {}),
       ...(equipment.value ? { equipmentType: equipment.value } : {}),
     },
-    recent ? 'visible' : selectedScope.value,
+    recent ? "visible" : selectedScope.value,
     0,
-  )
+  );
 }
 watch([search, selectedScope, selection, group, equipment], () => {
-  invalidate()
-  loading.value=true
-  clearTimeout(timer)
-  timer = setTimeout(() => void request(), search.value ? 250 : 0)
-})
+  invalidate();
+  loading.value = true;
+  clearTimeout(timer);
+  timer = setTimeout(() => void request(), search.value ? 250 : 0);
+});
 async function loadGroups() {
   try {
-    groups.value = await exercisesService.listMuscleGroups()
-    groupsError.value = ''
+    groups.value = await exercisesService.listMuscleGroups();
+    groupsError.value = "";
   } catch (cause) {
-    groupsError.value = exerciseErrorMessage(cause, 'No se pudieron cargar los filtros.')
+    groupsError.value = exerciseErrorMessage(
+      cause,
+      "No se pudieron cargar los filtros.",
+    );
   }
 }
 function created(exercise: Exercise) {
-  creating.value = false
-  selectedScope.value = 'mine'
-  selection.value = 'ALL'
-  search.value = exercise.name
-  emit('update:modelValue', exercise.id)
-  selectedName.value = exercise.name
+  creating.value = false;
+  selectedScope.value = "mine";
+  selection.value = "ALL";
+  search.value = exercise.name;
+  emit("update:modelValue", exercise.id);
+  selectedName.value = exercise.name;
 }
+watch(
+  () =>
+    [auth.user?.id, auth.isAuthenticated, auth.getSessionGeneration()].join(
+      ":",
+    ),
+  () => {
+    clearTimeout(timer);
+    invalidate();
+    exercises.value = [];
+    total.value = 0;
+    offset.value = 0;
+    selectedName.value = "";
+    creating.value = false;
+    emit("update:modelValue", "");
+    if (auth.isAuthenticated) void request();
+  },
+  { flush: "sync" },
+);
 onMounted(() => {
-  void request()
-  void loadGroups()
-})
+  void request();
+  void loadGroups();
+});
 onUnmounted(() => {
-  clearTimeout(timer)
-  dispose()
-})
+  clearTimeout(timer);
+  dispose();
+});
 </script>
 <template>
   <fieldset class="exercise-picker" :disabled="disabled">
     <legend>Añadir ejercicio</legend>
-    <label class="field-label" :for="id + '-search'">Busca por nombre, alias o abreviatura</label
+    <label class="field-label" :for="id + '-search'"
+      >Busca por nombre, alias o abreviatura</label
     ><input
       :id="id + '-search'"
       v-model="search"
@@ -118,6 +164,10 @@ onUnmounted(() => {
     <p v-if="!search && selection === 'RECENT'" class="field-hint">
       Ejercicios con series realmente registradas en tus entrenamientos.
     </p>
+    <p v-if="!search.trim() && selection === 'FREQUENT'" class="field-hint">
+      Ordenados por tus entrenamientos con resultados registrados, no por el
+      número de series.
+    </p>
     <details>
       <summary>Filtrar ejercicios</summary>
       <label :for="id + 'scope'">Origen</label
@@ -134,24 +184,54 @@ onUnmounted(() => {
       ><label :for="id + 'equipment'">Equipamiento</label
       ><select :id="id + 'equipment'" v-model="equipment" class="form-control">
         <option :value="undefined">Todos</option>
-        <option v-for="value in exerciseEnums.equipmentType" :key="value" :value="value">
+        <option
+          v-for="value in exerciseEnums.equipmentType"
+          :key="value"
+          :value="value"
+        >
           {{ exerciseEnumLabel(value) }}
         </option>
       </select>
       <p v-if="groupsError" role="alert">
         {{ groupsError }}
-        <button class="text-button" type="button" @click="loadGroups">Reintentar</button>
+        <button class="text-button" type="button" @click="loadGroups">
+          Reintentar
+        </button>
       </p>
     </details>
     <p v-if="selectedName" role="status">Seleccionado: {{ selectedName }}</p>
-    <p v-if="loading" class="state-message" role="status">Cargando ejercicios…</p>
-    <div v-else-if="errorMessage" class="state-card state-card--error" role="alert">
-      <p>{{ errorMessage }}</p>
-      <button type="button" class="secondary-button" @click="retry">Reintentar</button>
-    </div>
-    <p v-else-if="!exercises.length" class="state-message">
-      No hay ejercicios con estos criterios. Prueba «Todos» o crea uno propio.
+    <p v-if="loading" class="state-message" role="status">
+      Cargando ejercicios…
     </p>
+    <div
+      v-else-if="errorMessage"
+      class="state-card state-card--error"
+      role="alert"
+    >
+      <p>{{ errorMessage }}</p>
+      <button type="button" class="secondary-button" @click="retry">
+        Reintentar
+      </button>
+    </div>
+    <div v-else-if="!exercises.length" class="state-message">
+      <p>
+        {{
+          !search.trim() && ["RECENT", "FREQUENT"].includes(selection)
+            ? "Todavía no tienes ejercicios registrados con estos filtros."
+            : "No hay ejercicios con estos criterios."
+        }}
+      </p>
+      <button
+        class="secondary-button"
+        type="button"
+        @click="
+          search = '';
+          selection = 'ALL';
+        "
+      >
+        Buscar en todos los ejercicios
+      </button>
+    </div>
     <template v-else
       ><ul class="picker-results">
         <li v-for="exercise in exercises" :key="exercise.id">
@@ -165,8 +245,9 @@ onUnmounted(() => {
             /><span
               ><strong>{{ exercise.name }}</strong
               ><small
-                >{{ exercise.primaryMuscleGroup.name }} · {{ exercise.equipment }} ·
-                {{ exercise.origin === 'GLOBAL' ? 'PULSO' : 'Propio' }}</small
+                >{{ exercise.primaryMuscleGroup.name }} ·
+                {{ exercise.equipment }} ·
+                {{ exercise.origin === "GLOBAL" ? "PULSO" : "Propio" }}</small
               ></span
             ></label
           >
@@ -185,7 +266,8 @@ onUnmounted(() => {
         >
           Anterior</button
         ><span
-          >{{ offset + 1 }}–{{ Math.min(offset + exercises.length, total) }} de {{ total }}</span
+          >{{ offset + 1 }}–{{ Math.min(offset + exercises.length, total) }} de
+          {{ total }}</span
         ><button
           class="secondary-button"
           type="button"
@@ -199,8 +281,14 @@ onUnmounted(() => {
     <div class="plan-actions">
       <button class="text-button" type="button" @click="creating = !creating">
         Crear ejercicio privado</button
-      ><RouterLink :to="{ name: 'exercise-catalog' }">Explorar catálogo completo</RouterLink>
+      ><RouterLink :to="{ name: 'exercise-catalog' }"
+        >Explorar catálogo completo</RouterLink
+      >
     </div>
-    <PersonalExerciseForm v-if="creating" @created="created" @cancel="creating = false" />
+    <PersonalExerciseForm
+      v-if="creating"
+      @created="created"
+      @cancel="creating = false"
+    />
   </fieldset>
 </template>

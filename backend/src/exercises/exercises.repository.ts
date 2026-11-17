@@ -19,7 +19,7 @@ export const EXERCISES_REPOSITORY = Symbol('EXERCISES_REPOSITORY');
 
 export type ExerciseFilters = {
   origin?: ExerciseOrigin;
-  selection?: 'ALL' | 'FEATURED' | 'RECENT';
+  selection?: 'ALL' | 'FEATURED' | 'RECENT' | 'FREQUENT';
   search?: string;
   primaryMuscleGroupKey?: string;
   secondaryMuscleGroupKey?: string;

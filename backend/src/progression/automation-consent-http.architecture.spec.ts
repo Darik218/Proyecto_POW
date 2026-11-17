@@ -6,7 +6,7 @@ describe('PROG-6B pending consent HTTP separation', () => {
     const module = source('progression/progression.module.ts');
     expect(
       module.match(
-        /controllers:\s*\[\s*AutomaticProgressionController,\s*ProgressionController,\s*AutomationConsentController,\s*ProgressionSettingsController,?\s*\]/g,
+        /controllers:\s*\[\s*WorkoutGuideController,\s*AutomaticProgressionController,\s*ProgressionController,\s*AutomationConsentController,\s*ProgressionSettingsController,?\s*\]/g,
       ),
     ).toHaveLength(1);
     const c = source(

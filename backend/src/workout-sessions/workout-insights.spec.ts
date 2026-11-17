@@ -25,10 +25,12 @@ describe('Immediate workout insights', () => {
   });
   it('reuses literal Decimal Epley and Brzycki only after an explicit exercise declaration', () => {
     const session = insightFixture();
+    session.attributes.exercises[0].sets![0].rir = '4_PLUS';
     const view = presenter.insights(
       workoutInsights(session, new Map(), session.attributes.exercises[0].id),
     );
     const item = view.exercises[0];
+    expect(item.actualSets[0]).toMatchObject({ rir: '4_PLUS', rpe: 8 });
     expect(item.loadMeaningSource).toBe('REQUEST_DECLARATION');
     expect(item.oneRm[0].calculation).toMatchObject({
       estimates: [
@@ -38,8 +40,9 @@ describe('Immediate workout insights', () => {
       warnings: ['EFFORT_UNVERIFIED'],
     });
     expect(JSON.stringify(view)).not.toMatch(
-      /fatigue|rir|increment|athleteId|ownerId/i,
+      /fatigue|increment|athleteId|ownerId/i,
     );
+    expect(JSON.stringify(view.exercises[0].oneRm)).not.toMatch(/rir/i);
   });
   it('preserves unknown units and declines estimates even when meaning is declared', () => {
     const session = insightFixture();
@@ -84,5 +87,75 @@ describe('Immediate workout insights', () => {
       sets: [{ load: '132.277', loadUnit: 'LB' }],
     });
     expect(view.exercises[0].reference).not.toHaveProperty('oneRm');
+  });
+});
+
+describe('Plain recorded-performance comparison', () => {
+  function result(
+    change?: (source: ReturnType<typeof insightFixture>) => void,
+  ) {
+    const previous = insightFixture(),
+      current = insightFixture();
+    change?.(current);
+    return new WorkoutInsightsPresenter().insights(
+      workoutInsights(
+        current,
+        new Map([[current.attributes.exercises[0].exercise.id, previous]]),
+      ),
+    ).exercises[0];
+  }
+  it('reports the observed repetition difference at the same original load without a strength claim', () => {
+    const view = result((current) => {
+      current.attributes.exercises[0].sets![0].repetitions = 10;
+      current.attributes.exercises[0].sets![0].rpe = null;
+    });
+    expect(view.observedComparison).toMatchObject({
+      state: 'SAME_LOAD',
+      repetitionsDelta: 2,
+    });
+    expect(view.observedComparison.message).toContain('2 repeticiones más');
+    expect(view.observedComparison.message).toContain('no demuestra');
+  });
+  it('keeps identical results and fewer repetitions descriptive', () => {
+    expect(result().observedComparison.repetitionsDelta).toBe(0);
+    expect(
+      result((current) => {
+        current.attributes.exercises[0].sets![0].repetitions = 7;
+      }).observedComparison.repetitionsDelta,
+    ).toBe(-1);
+  });
+  it('does not compare different or unknown units or incomplete sets', () => {
+    for (const change of [
+      (s: ReturnType<typeof insightFixture>) => {
+        s.attributes.exercises[0].sets![0].loadUnit = 'LB';
+      },
+      (s: ReturnType<typeof insightFixture>) => {
+        s.attributes.exercises[0].sets![0].loadUnit = null;
+      },
+      (s: ReturnType<typeof insightFixture>) => {
+        s.attributes.exercises[0].sets![0].status = 'INCOMPLETE';
+      },
+    ])
+      expect(result(change).observedComparison).toMatchObject({
+        state: 'NOT_COMPARABLE',
+        repetitionsDelta: null,
+      });
+  });
+  it('distinguishes a changed load without claiming a universal improvement', () => {
+    expect(
+      result((s) => {
+        s.attributes.exercises[0].sets![0].load = new Decimal('65');
+      }).observedComparison,
+    ).toMatchObject({ state: 'LOAD_CHANGED', repetitionsDelta: null });
+  });
+  it('withholds percentage progress without a previous comparable session', () => {
+    const value = new WorkoutInsightsPresenter().insights(
+      workoutInsights(insightFixture(), new Map()),
+    ).exercises[0];
+    expect(value.observedComparison).toMatchObject({
+      state: 'NO_REFERENCE',
+      repetitionsDelta: null,
+    });
+    expect(JSON.stringify(value.observedComparison)).not.toContain('%');
   });
 });

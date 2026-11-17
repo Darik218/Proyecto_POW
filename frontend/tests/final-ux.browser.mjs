@@ -536,20 +536,25 @@ try {
       await until(
         () =>
           sync(
-            'return [...document.querySelectorAll("button")].some(e=>e.textContent.trim()==="Registrar serie")',
+            `return !!document.querySelector('.workout-live .quick-set-form input[id$="-load"]')`,
           ),
         "recordable session",
       );
-      await textClick(".workout-exercise-card button", "Registrar serie");
-      await until(
-        () => sync('return !!document.querySelector(".quick-set-form")'),
-        "set form",
+      assert.equal(
+        await sync(
+          'return [...document.querySelectorAll(".workout-live .quick-set-form")].filter(e=>e.getClientRects().length).length',
+        ),
+        1,
       );
-      await field('.quick-set-form input[id$="-load"]', "60");
-      await field('.quick-set-form select[id$="-unit"]', "KG");
-      await field('.quick-set-form input[id$="-reps"]', "8");
-      await field('.quick-set-form input[id$="-rpe"]', "8");
-      await textClick(".quick-set-form button", "Guardar serie");
+      await field('.workout-live .quick-set-form input[id$="-load"]', "60");
+      await field('.workout-live .quick-set-form select[id$="-unit"]', "KG");
+      await field('.workout-live .quick-set-form input[id$="-reps"]', "8");
+      await click(".workout-live .set-effort summary");
+      await field('.workout-live .quick-set-form input[id$="-rpe"]', "8");
+      await textClick(
+        ".workout-live .quick-set-form button",
+        "Registrar serie",
+      );
       await until(async () => {
         const { rows } = await sql.query(
           "SELECT s.* FROM set_records s JOIN workout_exercises w ON w.id=s.workout_exercise_id WHERE w.session_id=$1",
@@ -557,24 +562,24 @@ try {
         );
         return rows.length === 1;
       }, "persisted actual set");
-      await textClick("button", "Finalizar entrenamiento");
-      await until(
-        () =>
-          sync(
-            'return [...document.querySelectorAll("form")].some(e=>e.textContent.includes("Confirmación de cierre"))',
-          ),
-        "completion confirmation",
+      await textClick(
+        ".workout-live .live-dominant button",
+        "Finalizar entrenamiento",
       );
-      await sync(
-        'const form=[...document.querySelectorAll("form")].find(e=>e.textContent.includes("Confirmación de cierre"));form.querySelector("input[type=checkbox]").click()',
-      );
-      await textClick("button", "Confirmar finalización");
       await until(
         () =>
           sync(
             'return !!document.querySelector(".workout-insights .insight-orientation")',
           ),
         "immediate orientation",
+      );
+      assert.equal(
+        (
+          await sql.query("SELECT status FROM workout_sessions WHERE id=$1", [
+            firstSession.id,
+          ])
+        ).rows[0].status,
+        "COMPLETED",
       );
       const {
         rows: [set],
@@ -650,7 +655,7 @@ try {
     },
   );
   await check(
-    "U09 next workout copies prior actual values only after confirmation",
+    "U09 next workout prepares an editable historical draft and saves only on explicit registration",
     async () => {
       const today = await sync("return new Date().toISOString().slice(0,10)");
       secondSession = await sessionSetup(today, "LIVE");
@@ -663,42 +668,24 @@ try {
       await until(
         () =>
           sync(
-            'return [...document.querySelectorAll(".workout-exercise-card button")].some(e=>e.textContent.trim()==="Registrar serie")',
+            `return document.querySelector('.workout-live .quick-set-form input[id$="-load"]')?.value==="60"&&!!document.querySelector(".live-previous")`,
           ),
-        "record second",
-      );
-      await textClick(".workout-exercise-card button", "Registrar serie");
-      await until(
-        () =>
-          sync(
-            'return [...document.querySelectorAll(".quick-set-form button")].some(e=>e.textContent.trim()==="Usar carga y repeticiones anteriores")',
-          ),
-        "previous actual reference",
-      );
-      await textClick(
-        ".quick-set-form button",
-        "Usar carga y repeticiones anteriores",
+        "previous actual draft",
       );
       assert.deepEqual(
         await sync(
           "return arguments[0].map(selector=>document.querySelector(selector).value)",
           [
             [
-              '.quick-set-form input[id$="-load"]',
-              '.quick-set-form input[id$="-reps"]',
-              '.quick-set-form input[id$="-rpe"]',
+              '.workout-live .quick-set-form input[id$="-load"]',
+              '.workout-live .quick-set-form select[id$="-unit"]',
+              '.workout-live .quick-set-form input[id$="-reps"]',
+              '.workout-live .quick-set-form input[id$="-rpe"]',
+              '.workout-live .quick-set-form select[id$="-rir"]',
             ],
           ],
         ),
-        ["60", "8", ""],
-      );
-      await textClick(".quick-set-form button", "Guardar serie");
-      await until(
-        () =>
-          sync(
-            'return document.querySelector(".quick-set-form [role=alert]")?.textContent.includes("Confirma")',
-          ),
-        "explicit copied result confirmation",
+        ["60", "KG", "8", "", ""],
       );
       assert.equal(
         (
@@ -709,9 +696,21 @@ try {
         ).rowCount,
         0,
       );
-      await click(".quick-set-confirm input[type=checkbox]");
-      await field('.quick-set-form input[id$="-rpe"]', "8");
-      await textClick(".quick-set-form button", "Guardar serie");
+      assert.deepEqual(await history(firstSession.id), firstHistory);
+      await field('.workout-live .quick-set-form input[id$="-load"]', "61");
+      assert.equal(
+        await sync(
+          "return document.querySelector('.workout-live .quick-set-form input[id$=\"-load\"]').value",
+        ),
+        "61",
+      );
+      await field('.workout-live .quick-set-form input[id$="-load"]', "60");
+      await click(".workout-live .set-effort summary");
+      await field('.workout-live .quick-set-form input[id$="-rpe"]', "8");
+      await textClick(
+        ".workout-live .quick-set-form button",
+        "Registrar serie",
+      );
       await until(
         async () =>
           (
@@ -730,7 +729,9 @@ try {
         previousLoad: "60",
         previousReps: 8,
         rpeWasNotCopied: true,
-        confirmationRequired: true,
+        rirWasNotCopied: true,
+        editableDraft: true,
+        explicitRegistrationRequired: true,
         historicalSetsUnchanged: true,
       };
     },
@@ -1261,6 +1262,351 @@ try {
         changedPayload: 409,
         staleSourceVersion: 409,
         foreignSource: 404,
+      };
+    },
+  );
+
+  let calendarActivity,
+    calendarSession,
+    calendarToday,
+    calendarDateZone,
+    calendarPlanBefore;
+  await check(
+    "C01 Home has seven days, four main links and real responsive calendar",
+    async () => {
+      await go("/app/overview");
+      await until(
+        () =>
+          sync(
+            'return document.querySelectorAll(".week-day").length===7&&!document.querySelector(".weekly-training[aria-busy=true]")',
+          ),
+        "weekly calendar",
+      );
+      assert.deepEqual(
+        await sync(
+          'return [...document.querySelectorAll(".week-day>span:first-child")].map(e=>e.textContent)',
+        ),
+        ["L", "M", "X", "J", "V", "S", "D"],
+      );
+      assert.deepEqual(
+        await sync(
+          'return [...document.querySelectorAll(".app-nav__link")].map(e=>e.textContent.trim())',
+        ),
+        ["Inicio", "Mi plan", "Progreso", "Perfil"],
+      );
+      calendarToday = await sync(
+        'return new Intl.DateTimeFormat("en-CA",{timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone,year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date())',
+      );
+      calendarDateZone = "UTC";
+      calendarToday = await sync("return new Date().toISOString().slice(0,10)");
+      await health("desktop-weekly-calendar");
+      await viewport(390, 844);
+      await health("mobile-weekly-calendar");
+      await viewport(1440, 1000);
+      return { days: 7, primaryLinks: 4 };
+    },
+  );
+  await check(
+    "C02 calendar guide uses real history and starts one correctly associated workout",
+    async () => {
+      const created = await request("post", "/routine/activities", {
+        id: randomUUID(),
+        planWeekId: planning.weeks[0].id,
+        planDayId: planning.weeks[0].days.find((d) => d.weekday === 1).id,
+        scheduledOn: calendarToday,
+        timeZone: calendarDateZone,
+        title: "Calendario verificado",
+        status: "PLANNED",
+      });
+      assert.equal(created.status, 201, JSON.stringify(created.data));
+      calendarActivity = created.data;
+      calendarPlanBefore = (
+        await sql.query(
+          "SELECT row_to_json(p)::text AS row FROM plan_exercises p JOIN plan_days d ON d.id=p.plan_day_id JOIN plan_weeks w ON w.id=d.plan_week_id WHERE w.training_plan_id=$1 ORDER BY p.id",
+          [planId],
+        )
+      ).rows;
+      await go("/app");
+      await go("/app/overview");
+      await until(
+        () => sync('return !!document.querySelector(".calendar-zone summary")'),
+        "calendar zone control",
+      );
+      await click(".calendar-zone summary");
+      await field(
+        '.weekly-training select[aria-label="Zona horaria del calendario"]',
+        calendarDateZone,
+      );
+      await until(
+        () =>
+          sync(
+            'return !document.querySelector(".weekly-training[aria-busy=true]")',
+          ),
+        "calendar ready",
+      );
+      if (
+        !(await sync(
+          'return [...document.querySelectorAll(".week-day")].some(e=>e.getAttribute("aria-label").includes(arguments[0]))',
+          [calendarToday],
+        ))
+      )
+        await click('button[aria-label="Semana siguiente"]');
+      await until(
+        () =>
+          sync(
+            'return !document.querySelector(".weekly-training[aria-busy=true]")&&document.querySelector(".week-days")?.textContent.includes("Calendario verificado")',
+          ),
+        "calendar linked activity",
+      );
+      await sync(
+        'const b=[...document.querySelectorAll(".week-day")].find(e=>e.getAttribute("aria-label").includes(arguments[0]));b.click()',
+        [calendarToday],
+      );
+      if (await sync('return !!document.querySelector(".activity-choices")'))
+        await textClick(
+          ".activity-choices button",
+          "Calendario verificado · Previsto · sin registro",
+        );
+      await until(
+        () =>
+          sync(
+            'return !!document.querySelector(".weekly-training .daily-guide .guide-exercise")',
+          ),
+        "real guide",
+      );
+      assert.match(
+        await sync('return document.querySelector(".daily-guide").textContent'),
+        /Último registro anterior/,
+      );
+      await sync(
+        'const b=[...document.querySelectorAll(".week-day")].find(e=>e.getAttribute("aria-label").includes(arguments[0]));b.click()',
+        [calendarToday],
+      );
+      await until(
+        () =>
+          sync(
+            'return [...document.querySelectorAll(".weekly-training>button")].some(e=>e.textContent.trim()==="Comenzar entrenamiento")',
+          ),
+        "same selected day retains guide",
+      );
+      await sync(
+        'const b=[...document.querySelectorAll(".weekly-training>button")].find(e=>e.textContent.trim()==="Comenzar entrenamiento");b.click();b.click()',
+      );
+      await until(
+        () =>
+          sync(
+            'return location.pathname.startsWith("/app/workouts/")&&!!document.querySelector(".workout-live .quick-set-form")',
+          ),
+        "started calendar session",
+      );
+      calendarSession = await sync('return location.pathname.split("/").pop()');
+      const { rows } = await sql.query(
+        "SELECT id,status,scheduled_activity_id,performed_on::text,time_zone FROM workout_sessions WHERE scheduled_activity_id=$1",
+        [calendarActivity.id],
+      );
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].id, calendarSession);
+      assert.equal(rows[0].status, "IN_PROGRESS");
+      assert.equal(rows[0].performed_on, calendarToday);
+      assert.equal(rows[0].time_zone, calendarDateZone);
+      return {
+        oneSession: true,
+        activityAssociation: true,
+        guideReadOnly: true,
+      };
+    },
+  );
+  await check(
+    "C03 optional open RIR persists independently of RPE and survives reload",
+    async () => {
+      await until(
+        () =>
+          sync(
+            'return !!document.querySelector(".workout-live .quick-set-form")',
+          ),
+        "RIR set form",
+      );
+      await click(".workout-live .set-effort summary");
+      assert.equal(
+        await sync(`return document.querySelector('select[id$="-rir"]').value`),
+        "",
+      );
+      await field('.quick-set-form input[id$="-load"]', "60");
+      await field('.quick-set-form select[id$="-unit"]', "KG");
+      await field('.quick-set-form input[id$="-reps"]', "9");
+      await field('.quick-set-form select[id$="-rir"]', "4_PLUS");
+      await textClick(
+        ".workout-live .quick-set-form button",
+        "Registrar serie",
+      );
+      await until(async () => {
+        const { rows } = await sql.query(
+          "SELECT r.rir,r.rpe FROM set_records r JOIN workout_exercises w ON w.id=r.workout_exercise_id WHERE w.session_id=$1",
+          [calendarSession],
+        );
+        return (
+          rows.length === 1 && rows[0].rir === "4_PLUS" && rows[0].rpe === null
+        );
+      }, "persisted open RIR");
+      await command("/refresh", "POST", {});
+      await until(
+        () =>
+          sync(
+            'return document.querySelector(".compact-set-values")?.textContent.includes("RIR 4+")',
+          ),
+        "RIR after refresh",
+      );
+      await click(".workout-live .live-review summary");
+      await health("desktop-live-rir");
+      await viewport(390, 844);
+      await health("mobile-live-rir");
+      await viewport(1440, 1000);
+      assert.deepEqual(
+        (
+          await sql.query(
+            "SELECT row_to_json(p)::text AS row FROM plan_exercises p JOIN plan_days d ON d.id=p.plan_day_id JOIN plan_weeks w ON w.id=d.plan_week_id WHERE w.training_plan_id=$1 ORDER BY p.id",
+            [planId],
+          )
+        ).rows,
+        calendarPlanBefore,
+      );
+      assert.deepEqual(await history(firstSession.id), firstHistory);
+      return { rir: "4_PLUS", rpe: null, historyAndGoalsUnchanged: true };
+    },
+  );
+  await check(
+    "C04 rest omission and future preview stay distinct without automatic applications",
+    async () => {
+      const shifted = (days) => {
+        const d = new Date(calendarToday + "T00:00:00Z");
+        d.setUTCDate(d.getUTCDate() + days);
+        return d.toISOString().slice(0, 10);
+      };
+      const future = shifted(2),
+        past = shifted(-1);
+      const rest = await request("post", "/routine/activities", {
+        id: randomUUID(),
+        scheduledOn: future,
+        timeZone: calendarDateZone,
+        title: "Descanso verificado",
+        status: "REST",
+      });
+      assert.equal(rest.status, 201, JSON.stringify(rest.data));
+      const omitted = await request("post", "/routine/activities", {
+        id: randomUUID(),
+        planWeekId: planning.weeks[0].id,
+        planDayId: planning.weeks[0].days.find((d) => d.weekday === 1).id,
+        scheduledOn: past,
+        timeZone: calendarDateZone,
+        title: "Omisión explícita",
+        status: "PLANNED",
+      });
+      assert.equal(omitted.status, 201);
+      const omit = await request(
+        "patch",
+        "/routine/activities/" + omitted.data.id,
+        { expectedVersion: omitted.data.version, status: "OMITTED" },
+      );
+      assert.equal(omit.status, 200);
+      const preview = await request(
+        "get",
+        "/progression/workout-guide?planDayId=" +
+          planning.weeks[0].days.find((d) => d.weekday === 1).id +
+          "&performedOn=" +
+          future +
+          "&timeZone=" +
+          encodeURIComponent(calendarDateZone),
+      );
+      assert.equal(preview.status, 200, JSON.stringify(preview.data));
+      assert.equal(preview.data.executionAuthorized, false);
+      assert.equal(preview.data.historyCutoffOn, calendarToday);
+      const foreign = await fetch(
+        new URL(
+          "/api/v1/progression/workout-guide?activityId=" + calendarActivity.id,
+          cfg.origin,
+        ),
+        { headers: { Authorization: "Bearer " + otherAccountToken } },
+      );
+      assert.equal(foreign.status, 404);
+      await go("/app/overview");
+      await until(
+        () =>
+          sync(
+            'return !document.querySelector(".weekly-training[aria-busy=true]")',
+          ),
+        "home reload",
+      );
+      await until(
+        () =>
+          sync(
+            'return [...document.querySelectorAll(".ongoing-workouts a")].some(e=>e.href.endsWith(arguments[0]))',
+            [calendarSession],
+          ),
+        "persistent continuation",
+      );
+      const {
+        rows: [counts],
+      } = await sql.query(
+        "SELECT (SELECT count(*) FROM progression_applications WHERE athlete_id=$1 AND operational_grant_id IS NOT NULL)::int AS automatic",
+        [athleteId],
+      );
+      assert.equal(counts.automatic, 0);
+      return {
+        rest: true,
+        explicitOmission: true,
+        futureReadCutoff: calendarToday,
+        foreign: 404,
+        automatic: 0,
+      };
+    },
+  );
+
+  await check(
+    "C05 calendar workout completion gives an observed comparison and preserves its source",
+    async () => {
+      await go("/app/workouts/" + calendarSession);
+      await until(
+        () =>
+          sync(
+            'return !!document.querySelector(".workout-live .live-finish:not([disabled])")',
+          ),
+        "calendar session ready to finish",
+      );
+      await textClick(".workout-live .live-finish", "Terminar");
+      await until(
+        () =>
+          sync(
+            'return document.querySelector(".insight-observation")?.textContent.includes("1 repetición más")',
+          ),
+        "plain comparison after completion",
+      );
+      await health("desktop-calendar-comparison");
+      await viewport(390, 844);
+      await health("mobile-calendar-comparison");
+      await viewport(1440, 1000);
+      const {
+        rows: [session],
+      } = await sql.query(
+        "SELECT status,scheduled_activity_id FROM workout_sessions WHERE id=$1",
+        [calendarSession],
+      );
+      assert.equal(session.status, "COMPLETED");
+      assert.equal(session.scheduled_activity_id, calendarActivity.id);
+      assert.deepEqual(await history(firstSession.id), firstHistory);
+      assert.deepEqual(
+        (
+          await sql.query(
+            "SELECT row_to_json(p)::text AS row FROM plan_exercises p JOIN plan_days d ON d.id=p.plan_day_id JOIN plan_weeks w ON w.id=d.plan_week_id WHERE w.training_plan_id=$1 ORDER BY p.id",
+            [planId],
+          )
+        ).rows,
+        calendarPlanBefore,
+      );
+      return {
+        completed: true,
+        observedRepetitionsDelta: 1,
+        automatic: false,
+        planningAndPriorHistoryUnchanged: true,
       };
     },
   );

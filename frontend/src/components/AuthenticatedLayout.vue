@@ -30,6 +30,8 @@ const parentSections: Record<string, string> = {
   settings: "progression",
   automation: "progression",
   plans: "routine",
+  workouts: "dashboard",
+  exercises: "routine",
 };
 const primarySection = computed(
   () => parentSections[section.value] ?? section.value,

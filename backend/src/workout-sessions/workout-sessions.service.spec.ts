@@ -68,6 +68,7 @@ const repository = {
   get: jest.fn<WorkoutSessionsRepository['get']>(),
   create: jest.fn<WorkoutSessionsRepository['create']>(),
   addExercise: jest.fn<WorkoutSessionsRepository['addExercise']>(),
+  replaceExercise: jest.fn<WorkoutSessionsRepository['replaceExercise']>(),
   start: jest.fn<WorkoutSessionsRepository['start']>(),
   complete: jest.fn<WorkoutSessionsRepository['complete']>(),
 };

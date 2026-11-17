@@ -333,7 +333,10 @@ isolated('Intelligent exercise search with isolated PostgreSQL', () => {
       ...input,
       aliases: ['Bíceps', 'biceps'],
     }).expect(400);
-    await post('/exercises',{...input,aliases:['Press Æ','Press AE']}).expect(400);
+    await post('/exercises', {
+      ...input,
+      aliases: ['Press Æ', 'Press AE'],
+    }).expect(400);
     await post('/exercises', { ...input, ownerId: randomUUID() }).expect(400);
     const alias = await prisma.exerciseAlias.findFirstOrThrow({
       where: { exerciseId: created.body.id },
@@ -406,6 +409,77 @@ isolated('Intelligent exercise search with isolated PostgreSQL', () => {
       (await get('', '/visible', other, '&selection=RECENT').expect(200)).body
         .items,
     ).toEqual([]);
+  });
+  it('orders frequent exercises by owned recorded sessions rather than sets or planned exercises', async () => {
+    const choices = (
+      await get('', '/visible', token, '&selection=FEATURED').expect(200)
+    ).body.items;
+    const first = choices[0].id,
+      second = choices[1].id;
+    async function recorded(exerciseId: string, sets: number) {
+      let session = (
+        await post('/workout-sessions', {
+          id: randomUUID(),
+          performedOn: '2026-01-02',
+          timeZone: 'UTC',
+          recordingMode: 'RETROSPECTIVE',
+        }).expect(201)
+      ).body;
+      session = (
+        await post(`/workout-sessions/${session.id}/exercises`, {
+          id: randomUUID(),
+          exerciseId,
+          expectedVersion: session.version,
+        }).expect(201)
+      ).body;
+      session = (
+        await post(`/workout-sessions/${session.id}/start`, {
+          expectedVersion: session.version,
+        }).expect(200)
+      ).body;
+      for (let i = 1; i <= sets; i++)
+        session = (
+          await post(
+            `/workout-sessions/${session.id}/exercises/${session.exercises[0].id}/sets`,
+            {
+              id: randomUUID(),
+              expectedVersion: session.version,
+              setNumber: i,
+              repetitions: 8,
+              load: '20',
+              loadUnit: 'KG',
+              kind: 'WORK',
+              status: 'COMPLETED',
+            },
+          ).expect(201)
+        ).body;
+    }
+    // The preceding RECENT fixture has one executed session for the first exercise.
+    await recorded(first, 1);
+    await recorded(second, 4);
+    const frequent = (
+      await get('', '/visible', token, '&selection=FREQUENT').expect(200)
+    ).body.items;
+    expect(frequent.map((e: { id: string }) => e.id)).toEqual([first, second]);
+    expect(
+      (await get('', '/visible', other, '&selection=FREQUENT').expect(200)).body
+        .items,
+    ).toEqual([]);
+    expect(
+      (await get('', '', '', '&selection=FREQUENT').expect(200)).body.items,
+    ).toEqual([]);
+    expect(
+      (
+        await get(
+          '',
+          '/visible',
+          token,
+          '&selection=FREQUENT&origin=PERSONAL',
+        ).expect(200)
+      ).body.items,
+    ).toEqual([]);
+    expect(frequent[0]).not.toHaveProperty('ownerId');
+    expect(frequent[0]).not.toHaveProperty('usage_count');
   });
   it('verifies stored normalization triggers, usable GIN indices and measures actual query times', async () => {
     const functions = await prisma.$queryRaw<

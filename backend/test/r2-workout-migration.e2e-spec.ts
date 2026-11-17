@@ -166,7 +166,7 @@ isolated('R2-D additive migration with historical training records', () => {
       expect(
         (
           await db.query(
-            'SELECT status,kind,load_unit,load_kg,is_completed FROM set_records WHERE id=$1',
+            'SELECT status,kind,load_unit,load_kg,is_completed,rir FROM set_records WHERE id=$1',
             [set],
           )
         ).rows[0],
@@ -176,7 +176,32 @@ isolated('R2-D additive migration with historical training records', () => {
         load_unit: null,
         load_kg: null,
         is_completed: false,
+        rir: null,
       });
+      await expect(
+        db.query('UPDATE set_records SET rir=$1 WHERE id=$2', ['4', set]),
+      ).rejects.toMatchObject({ code: '23514' });
+      await expect(
+        db.query('UPDATE set_records SET rir=$1 WHERE id=$2', ['0', set]),
+      ).rejects.toMatchObject({ code: '23514' });
+      await db.query(
+        "UPDATE set_records SET status='COMPLETED',kind='WORK',load_unit='KG',load_kg=42.125,is_completed=true,rir='4_PLUS' WHERE id=$1",
+        [set],
+      );
+      expect(
+        (await db.query('SELECT rir,rpe FROM set_records WHERE id=$1', [set]))
+          .rows[0],
+      ).toEqual({ rir: '4_PLUS', rpe: '7.5' });
+      await expect(
+        db.query(
+          "UPDATE set_records SET status='PENDING',load=NULL,load_unit=NULL,load_kg=NULL,repetitions=NULL,rpe=NULL,is_completed=false WHERE id=$1",
+          [set],
+        ),
+      ).rejects.toMatchObject({ code: '23514' });
+      await db.query(
+        'UPDATE set_records SET status=NULL,kind=NULL,load_unit=NULL,load_kg=NULL,is_completed=false,rir=NULL WHERE id=$1',
+        [set],
+      );
       const secondWeek = randomUUID();
       const secondDay = randomUUID();
       await db.query(

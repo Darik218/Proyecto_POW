@@ -85,6 +85,8 @@ export class SaveWorkoutDayDto {
 }
 
 export class WorkoutSetInputDto {
+  @IsOptional() @IsIn(['0', '1', '2', '3', '4_PLUS']) rir?:
+    '0' | '1' | '2' | '3' | '4_PLUS' | null;
   @IsInt() @Min(1) @Max(1000) setNumber!: number;
   @IsIn(['PENDING', 'COMPLETED', 'INCOMPLETE', 'FAILED', 'SKIPPED']) status!:
     'PENDING' | 'COMPLETED' | 'INCOMPLETE' | 'FAILED' | 'SKIPPED';

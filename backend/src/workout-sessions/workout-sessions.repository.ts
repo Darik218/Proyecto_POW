@@ -14,6 +14,7 @@ import type {
 import type {
   CreateWorkoutSessionDto,
   AddWorkoutExerciseDto,
+  ReplaceWorkoutExerciseDto,
   ListWorkoutSessionsDto,
   AssociateWorkoutDto,
   WorkoutSuggestionsDto,
@@ -54,6 +55,12 @@ export interface WorkoutSessionsRepository {
     athleteId: string,
     id: string,
     input: AddWorkoutExerciseDto,
+  ): Promise<WorkoutDetail>;
+  replaceExercise(
+    athleteId: string,
+    id: string,
+    exerciseId: string,
+    input: ReplaceWorkoutExerciseDto,
   ): Promise<WorkoutDetail>;
   start(
     athleteId: string,

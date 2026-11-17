@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useAuthStore } from "../stores/auth.store";
+import DailyWorkoutGuide from "../components/workouts/DailyWorkoutGuide.vue";
 import PageHeader from "../components/ui/PageHeader.vue";
 import LoadingState from "../components/ui/LoadingState.vue";
 import { computed, onUnmounted, ref, watch } from "vue";
@@ -23,6 +25,7 @@ import {
 } from "../services/training-plans.service";
 import "../assets/training-plans.css";
 import "../assets/routine.css";
+const auth = useAuthStore();
 const route = useRoute(),
   router = useRouter(),
   actions = useTrainingPlan(),
@@ -69,6 +72,12 @@ const availableActivities = computed(() =>
       a.scheduledOn.slice(0, 10) === date.value &&
       ["PLANNED", "RESCHEDULED"].includes(a.status),
   ),
+);
+const selectedActivity = computed(() =>
+  availableActivities.value.find((a) => a.id === activityId.value),
+);
+const selectedZone = computed(
+  () => selectedActivity.value?.timeZone ?? timeZone,
 );
 let calendarRevision = 0,
   calendarController: AbortController | undefined;
@@ -144,9 +153,29 @@ async function begin() {
     calendarLoading.value ||
     calendarError.value ||
     !day.value ||
-    !trainable.value
+    !trainable.value ||
+    date.value > localTrainingDate(selectedZone.value)
   )
     return;
+  const generation = auth.getSessionGeneration(),
+    account = auth.user?.id,
+    origin = JSON.stringify([
+      route.fullPath,
+      date.value,
+      activityId.value,
+      selectedZone.value,
+    ]);
+  const same = () =>
+    auth.isAuthenticated &&
+    auth.user?.id === account &&
+    auth.getSessionGeneration() === generation &&
+    origin ===
+      JSON.stringify([
+        route.fullPath,
+        date.value,
+        activityId.value,
+        selectedZone.value,
+      ]);
   busy.value = true;
   failure.value = "";
   try {
@@ -154,6 +183,9 @@ async function begin() {
       dayId: dayId.value,
       date: date.value,
       activityId: activityId.value,
+      timeZone: selectedZone.value,
+      activityVersion: selectedActivity.value?.version,
+      generation,
     });
     if (intent?.key !== key)
       intent = {
@@ -167,26 +199,31 @@ async function begin() {
           planWeekId: weekId.value,
           planDayId: dayId.value,
           performedOn: date.value,
-          timeZone,
+          timeZone: selectedZone.value,
           recordingMode:
-            date.value === localTrainingDate(timeZone)
+            date.value === localTrainingDate(selectedZone.value)
               ? "LIVE"
               : "RETROSPECTIVE",
           name: day.value.name,
         },
       };
-    if (!intent!.sessionId) {
-      const prepared = await workoutSessionsService.create(intent!.input);
-      intent!.sessionId = prepared.id;
+    const operation = intent!;
+    if (!operation.sessionId) {
+      const prepared = await workoutSessionsService.create(operation.input);
+      if (!same()) return;
+      operation.sessionId = prepared.id;
     }
-    const current = await workoutSessionsService.get(intent!.sessionId);
+    const current = await workoutSessionsService.get(operation.sessionId);
+    if (!same()) return;
     if (current.status === "PLANNED")
       await workoutSessionsService.start(current.id, current.version ?? 0);
+    if (!same()) return;
     await router.push({
       name: "workout-session-detail",
       params: { sessionId: current.id },
     });
   } catch (cause) {
+    if (!same()) return;
     failure.value = workoutErrorMessage(
       cause,
       "No se pudo iniciar el entrenamiento. Reintenta para recuperar la misma sesión.",
@@ -358,15 +395,23 @@ onUnmounted(() => {
           </option></select
         ><button
           class="primary-button"
-          :disabled="busy || !date || calendarLoading || !!calendarError"
+          :disabled="
+            busy ||
+            !date ||
+            calendarLoading ||
+            !!calendarError ||
+            date > localTrainingDate(selectedZone)
+          "
           @click="begin"
         >
           {{
             busy
               ? "Procesando…"
-              : date === localTrainingDate(timeZone)
-                ? "Empezar entrenamiento"
-                : "Registrar entrenamiento de esta fecha"
+              : date > localTrainingDate(selectedZone)
+                ? "Vista previa de entrenamiento futuro"
+                : date === localTrainingDate(selectedZone)
+                  ? "Empezar entrenamiento"
+                  : "Registrar entrenamiento de esta fecha"
           }}
         </button>
       </section>
@@ -376,6 +421,22 @@ onUnmounted(() => {
           La programación está protegida. Crea una copia editable para adaptar
           entrenamientos futuros.
         </p>
+        <DailyWorkoutGuide
+          v-if="day"
+          :key="
+            day.id +
+            ':' +
+            plan.version +
+            ':' +
+            (selectedActivity?.version ?? '')
+          "
+          :query="
+            selectedActivity
+              ? { activityId: selectedActivity.id }
+              : { planDayId: dayId, performedOn: date, timeZone }
+          "
+          compact
+        />
         <PlanDayCard
           :key="day.id"
           :day="day"

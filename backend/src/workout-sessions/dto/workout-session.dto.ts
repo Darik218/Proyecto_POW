@@ -24,7 +24,9 @@ import { BadRequestException, Injectable, PipeTransform } from '@nestjs/common';
 import { WorkoutStatus } from '../../generated/prisma/enums';
 
 export class CreateWorkoutSessionDto {
-  @ValidateIf((_o,v)=>v!==undefined) @IsUUID('4') scheduledActivityId?: string;
+  @ValidateIf((_o, v) => v !== undefined)
+  @IsUUID('4')
+  scheduledActivityId?: string;
   @Matches(/^(?!0000)\d{4}-\d{2}-\d{2}$/)
   @IsDateString({ strict: true })
   performedOn!: string;
@@ -61,6 +63,12 @@ export class CreateWorkoutSessionDto {
   notes?: string | null;
 }
 
+export class ReplaceWorkoutExerciseDto extends WorkoutVersionDto {
+  @IsUUID('4') id!: string;
+  @IsUUID('4') exerciseId!: string;
+  @IsOptional() @IsString() @MaxLength(4000) notes?: string | null;
+}
+
 export class AddWorkoutExerciseDto extends WorkoutTargetsDto {
   @IsInt() @Min(0) expectedVersion: number = 0;
   @ValidateIf((_object, value: unknown) => value !== undefined)
@@ -79,11 +87,17 @@ export class AddWorkoutExerciseDto extends WorkoutTargetsDto {
 }
 
 export class ListWorkoutSessionsDto {
-  @IsOptional() @IsUUID('4') planWeekId?:string;
+  @IsOptional() @IsUUID('4') planWeekId?: string;
   @IsOptional() @IsUUID('4') planDayId?: string;
   @IsOptional() @IsUUID('4') scheduledActivityId?: string;
-  @IsOptional() @Matches(/^(?!0000)\d{4}-\d{2}-\d{2}$/) @IsDateString({strict:true}) from?: string;
-  @IsOptional() @Matches(/^(?!0000)\d{4}-\d{2}-\d{2}$/) @IsDateString({strict:true}) to?: string;
+  @IsOptional()
+  @Matches(/^(?!0000)\d{4}-\d{2}-\d{2}$/)
+  @IsDateString({ strict: true })
+  from?: string;
+  @IsOptional()
+  @Matches(/^(?!0000)\d{4}-\d{2}-\d{2}$/)
+  @IsDateString({ strict: true })
+  to?: string;
   @IsOptional()
   @Type(() => Number)
   @IsInt()

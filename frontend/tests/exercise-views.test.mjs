@@ -92,18 +92,18 @@ test("la navegación agrupada conserva rutina, historial, perfil y acceso al cat
     await router.isReady();
     const layoutHtml = await renderToString(layoutApp);
     assert.match(layoutHtml, /href="\/app\/progression"/);
-    assert.match(layoutHtml, /Mi rutina/);
-    assert.match(layoutHtml, /Mi progreso/);
+    assert.match(layoutHtml, /Mi plan/);
+    assert.match(layoutHtml, /Progreso/);
     assert.equal(
       (layoutHtml.match(/<a\b[^>]*class="[^"]*\bapp-nav__link\b/g) || [])
         .length,
-      6,
+      4,
     );
     assert.doesNotMatch(
       layoutHtml.match(/<nav[^>]*>[\s\S]*?<\/nav>/)?.[0] ?? "",
       /Historial|Automatización|Configuración/,
     );
-    assert.match(layoutHtml, /href="\/app\/exercises"/);
+    assert.match(layoutHtml, /href="\/app"/);
 
     const { default: catalogView } = await server.ssrLoadModule(
       "/src/views/ExercisesView.vue",

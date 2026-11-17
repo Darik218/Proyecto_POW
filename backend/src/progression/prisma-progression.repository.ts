@@ -442,7 +442,15 @@ export class PrismaProgressionRepository implements ProgressionRepository {
     userId: string,
     query: ValidatedPerformanceQuery,
     destination: Destination,
+    transaction?: Prisma.TransactionClient,
   ): Promise<RecommendationContext> {
+    if (transaction)
+      return this.readRecommendationContextWithin(
+        transaction,
+        userId,
+        query,
+        destination,
+      );
     return this.prisma.$transaction(
       async (tx) => {
         await tx.$executeRaw`SET TRANSACTION READ ONLY`;

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import NextWorkoutPanel from "../components/workouts/NextWorkoutPanel.vue";
+import WeeklyTrainingCalendar from "../components/workouts/WeeklyTrainingCalendar.vue";
 import { useDashboard } from "../composables/useDashboard";
 import { workoutStatusLabel } from "../services/workout-sessions.service";
 import PageHeader from "../components/ui/PageHeader.vue";
@@ -22,192 +22,217 @@ const {
 <template>
   <section class="page-view dashboard-page">
     <PageHeader
-      title="Cada sesión cuenta."
-      description="Tu entrenamiento y tu rendimiento, en un mismo lugar."
+      title="Inicio"
+      description="Consulta tu semana y empieza por el entrenamiento de hoy."
       ><template #actions
-        ><RouterLink class="primary-button" :to="{ name: 'workout-sessions' }"
-          ><PulsoIcon name="plus" :size="18" />Registrar
-          entrenamiento</RouterLink
+        ><RouterLink
+          class="text-button"
+          :to="{ name: 'workout-sessions', query: { new: 'free' } }"
+          ><PulsoIcon name="plus" :size="18" />Entrenamiento libre</RouterLink
         ></template
       ></PageHeader
     >
-    <NextWorkoutPanel />
-    <section class="performance-hero" aria-label="PULSO, tu progreso medido">
-      <div class="performance-hero__copy">
-        <h2 aria-label="Tu progreso, medido.">
-          Tu progreso,<br /><span>medido.</span>
-        </h2>
-        <p>Planifica <span>/</span> Entrena <span>/</span> Progresa</p>
-      </div>
-      <svg
-        class="performance-track"
-        viewBox="0 0 640 290"
-        fill="none"
-        aria-hidden="true"
-      >
-        <g transform="translate(320 150) rotate(-10)">
-          <ellipse rx="290" ry="100" />
-          <ellipse rx="255" ry="83" />
-          <ellipse rx="220" ry="66" />
-          <ellipse rx="185" ry="49" />
-          <path d="M-30 48v100" />
-        </g>
-      </svg>
-    </section>
-    <div
-      class="dashboard-metrics"
-      aria-label="Totales consultados en el servidor"
-      :aria-busy="loading"
+    <WeeklyTrainingCalendar />
+    <section
+      v-if="recent.length"
+      class="ui-panel home-last-session"
+      aria-label="Tu último registro"
     >
-      <div>
-        <PulsoIcon name="activity" /><strong>{{ total ?? "—" }}</strong
-        ><span>Sesiones registradas</span>
-      </div>
-      <div>
-        <PulsoIcon name="check" /><strong>{{ completed ?? "—" }}</strong
-        ><span>Sesiones finalizadas</span>
-      </div>
-      <div>
-        <PulsoIcon name="chart" /><strong>{{ pending ?? "—" }}</strong
-        ><span>Propuestas pendientes</span>
-      </div>
-    </div>
-    <div v-if="errors.length" class="state-card state-card--error" role="alert">
-      <p v-for="message in errors" :key="message">{{ message }}</p>
-      <button class="secondary-button" :disabled="loading" @click="load">
-        Volver a consultar
-      </button>
-    </div>
-    <div class="dashboard-main-grid">
-      <section class="ui-panel dashboard-recent">
-        <div class="dashboard-panel-heading">
-          <div>
-            <h2>Últimas sesiones</h2>
-            <p>Hasta 5 entrenamientos de tu historial.</p>
-          </div>
-          <RouterLink :to="{ name: 'workout-history' }"
-            >Ver historial <PulsoIcon name="arrow-right" :size="16"
-          /></RouterLink>
+      <h2>Tu último registro</h2>
+      <p>
+        {{
+          recent[0]?.name || recent[0]?.trainingPlan?.name || "Entrenamiento"
+        }}
+        · {{ recent[0]?.performedOn?.slice(0, 10) || "Fecha sin registrar" }}
+      </p>
+      <RouterLink
+        :to="{
+          name: 'workout-session-detail',
+          params: { sessionId: recent[0]!.id },
+        }"
+        >Ver resultados y referencias</RouterLink
+      ><span> · </span
+      ><RouterLink :to="{ name: 'progression' }"
+        >Consultar mi progreso</RouterLink
+      >
+    </section>
+    <details class="dashboard-overview">
+      <summary>Mi actividad y accesos adicionales</summary>
+      <div
+        class="dashboard-metrics"
+        aria-label="Totales consultados en el servidor"
+        :aria-busy="loading"
+      >
+        <div>
+          <PulsoIcon name="activity" /><strong>{{ total ?? "—" }}</strong
+          ><span>Sesiones registradas</span>
         </div>
-        <LoadingState
-          v-if="loading"
-          label="Consultando tus entrenamientos…"
-          :rows="3"
-        />
-        <ol v-else-if="recent.length" class="dashboard-session-list">
-          <li v-for="session in recent" :key="session.id">
-            <RouterLink
-              :to="{
-                name: 'workout-session-detail',
-                params: { sessionId: session.id },
-              }"
-              ><span class="dashboard-session-icon"
-                ><PulsoIcon name="dumbbell" /></span
-              ><span class="dashboard-session-copy"
-                ><strong>{{
-                  session.name || session.trainingPlan?.name || "Entrenamiento"
-                }}</strong
-                ><small
-                  >{{
-                    session.performedOn?.slice(0, 10) ??
-                    "Fecha deportiva sin registrar"
-                  }}
-                  · {{ session.exerciseCount }} ejercicios</small
-                ></span
-              ><StatusBadge
-                :status="session.status"
-                :label="workoutStatusLabel(session.status)" /><PulsoIcon
-                name="chevron-right"
-                :size="16"
+        <div>
+          <PulsoIcon name="check" /><strong>{{ completed ?? "—" }}</strong
+          ><span>Sesiones finalizadas</span>
+        </div>
+        <div>
+          <PulsoIcon name="chart" /><strong>{{ pending ?? "—" }}</strong
+          ><span>Propuestas pendientes</span>
+        </div>
+      </div>
+      <div
+        v-if="errors.length"
+        class="state-card state-card--error"
+        role="alert"
+      >
+        <p v-for="message in errors" :key="message">{{ message }}</p>
+        <button class="secondary-button" :disabled="loading" @click="load">
+          Volver a consultar
+        </button>
+      </div>
+      <div class="dashboard-main-grid">
+        <section class="ui-panel dashboard-recent">
+          <div class="dashboard-panel-heading">
+            <div>
+              <h2>Últimas sesiones</h2>
+              <p>Hasta 5 entrenamientos de tu historial.</p>
+            </div>
+            <RouterLink :to="{ name: 'workout-history' }"
+              >Ver historial <PulsoIcon name="arrow-right" :size="16"
             /></RouterLink>
-          </li>
-        </ol>
-        <EmptyState
-          v-else-if="total === 0"
-          title="Comienza tu progreso"
-          description="Crea tu rutina o registra tu primer entrenamiento libre. Tus resultados serán tu primera referencia."
-          icon="dumbbell"
-          ><RouterLink
-            class="secondary-button"
-            :to="{ name: 'workout-sessions' }"
-            >Registrar entrenamiento</RouterLink
-          ></EmptyState
-        >
-        <p v-else class="state-message">
-          El historial no está disponible. Puedes volver a consultarlo.
-        </p>
-      </section>
-      <aside class="ui-panel dashboard-next">
-        <h2>Tu siguiente paso</h2>
-        <RouterLink :to="{ name: 'home' }"
-          ><span class="dashboard-action-icon"
-            ><PulsoIcon name="calendar" /></span
-          ><span
-            ><strong>Mi rutina</strong
-            ><small>Consulta tu programación actual.</small></span
-          ><PulsoIcon name="chevron-right" :size="16" /></RouterLink
-        ><RouterLink :to="{ name: 'progression' }"
-          ><span class="dashboard-action-icon"><PulsoIcon name="chart" /></span
-          ><span
-            ><strong>Ver mi progreso</strong
-            ><small>Consulta tus referencias y próximos objetivos.</small></span
-          ><PulsoIcon name="chevron-right" :size="16" /></RouterLink
-        ><RouterLink :to="{ name: 'exercise-catalog' }"
-          ><span class="dashboard-action-icon"
-            ><PulsoIcon name="settings" /></span
-          ><span
-            ><strong>Añadir ejercicio</strong
-            ><small>Encuentra movimientos para tu rutina.</small></span
-          ><PulsoIcon name="chevron-right" :size="16"
-        /></RouterLink>
-      </aside>
-      <section class="ui-panel dashboard-distribution">
-        <h2>El ritmo de tu entrenamiento</h2>
-        <p class="ui-muted">
-          Una lectura de las sesiones visibles; no representa todo el historial.
-        </p>
-        <SessionDistribution
-          v-if="recent.length"
-          :sessions="recent"
-        /><EmptyState
-          v-else
-          title="El ritmo lo marcas tú"
-          description="Aquí verás la distribución real de tus sesiones recientes."
-          icon="activity"
-        />
-      </section>
-      <section class="dashboard-bottom">
-        <div>
-          <PulsoIcon name="layers" :size="30" />
-          <h2>Un plan para avanzar.</h2>
-          <p>
-            {{
-              activePlans === null
-                ? "Consulta y organiza tu planificación."
-                : `${activePlans} planes activos en la consulta actual.`
-            }}
-            Cada semana y cada objetivo, en su lugar.
+          </div>
+          <LoadingState
+            v-if="loading"
+            label="Consultando tus entrenamientos…"
+            :rows="3"
+          />
+          <ol v-else-if="recent.length" class="dashboard-session-list">
+            <li v-for="session in recent" :key="session.id">
+              <RouterLink
+                :to="{
+                  name: 'workout-session-detail',
+                  params: { sessionId: session.id },
+                }"
+                ><span class="dashboard-session-icon"
+                  ><PulsoIcon name="dumbbell" /></span
+                ><span class="dashboard-session-copy"
+                  ><strong>{{
+                    session.name ||
+                    session.trainingPlan?.name ||
+                    "Entrenamiento"
+                  }}</strong
+                  ><small
+                    >{{
+                      session.performedOn?.slice(0, 10) ??
+                      "Fecha deportiva sin registrar"
+                    }}
+                    · {{ session.exerciseCount }} ejercicios</small
+                  ></span
+                ><StatusBadge
+                  :status="session.status"
+                  :label="workoutStatusLabel(session.status)" /><PulsoIcon
+                  name="chevron-right"
+                  :size="16"
+              /></RouterLink>
+            </li>
+          </ol>
+          <EmptyState
+            v-else-if="total === 0"
+            title="Comienza tu progreso"
+            description="Crea tu rutina o registra tu primer entrenamiento libre. Tus resultados serán tu primera referencia."
+            icon="dumbbell"
+            ><RouterLink
+              class="secondary-button"
+              :to="{ name: 'workout-sessions' }"
+              >Registrar entrenamiento</RouterLink
+            ></EmptyState
+          >
+          <p v-else class="state-message">
+            El historial no está disponible. Puedes volver a consultarlo.
           </p>
-          <RouterLink class="secondary-button" :to="{ name: 'training-plans' }"
-            >Ver planificación <PulsoIcon name="arrow-right" :size="17"
+        </section>
+        <aside class="ui-panel dashboard-next">
+          <h2>Tu siguiente paso</h2>
+          <RouterLink :to="{ name: 'home' }"
+            ><span class="dashboard-action-icon"
+              ><PulsoIcon name="calendar" /></span
+            ><span
+              ><strong>Mi rutina</strong
+              ><small>Consulta tu programación actual.</small></span
+            ><PulsoIcon name="chevron-right" :size="16" /></RouterLink
+          ><RouterLink :to="{ name: 'progression' }"
+            ><span class="dashboard-action-icon"
+              ><PulsoIcon name="chart" /></span
+            ><span
+              ><strong>Ver mi progreso</strong
+              ><small
+                >Consulta tus referencias y próximos objetivos.</small
+              ></span
+            ><PulsoIcon name="chevron-right" :size="16" /></RouterLink
+          ><RouterLink :to="{ name: 'exercise-catalog' }"
+            ><span class="dashboard-action-icon"
+              ><PulsoIcon name="settings" /></span
+            ><span
+              ><strong>Añadir ejercicio</strong
+              ><small>Encuentra movimientos para tu rutina.</small></span
+            ><PulsoIcon name="chevron-right" :size="16"
           /></RouterLink>
-        </div>
-        <div>
-          <PulsoIcon name="scale" :size="30" />
-          <h2>Tu evolución, registrada.</h2>
-          <p>
-            Consulta tu perfil y conserva un historial de tus medidas
-            corporales.
+        </aside>
+        <section class="ui-panel dashboard-distribution">
+          <h2>El ritmo de tu entrenamiento</h2>
+          <p class="ui-muted">
+            Una lectura de las sesiones visibles; no representa todo el
+            historial.
           </p>
-          <RouterLink class="secondary-button" :to="{ name: 'measurements' }"
-            >Medidas corporales <PulsoIcon name="arrow-right" :size="17"
-          /></RouterLink>
-        </div>
-      </section>
-    </div>
+          <SessionDistribution
+            v-if="recent.length"
+            :sessions="recent"
+          /><EmptyState
+            v-else
+            title="El ritmo lo marcas tú"
+            description="Aquí verás la distribución real de tus sesiones recientes."
+            icon="activity"
+          />
+        </section>
+        <section class="dashboard-bottom">
+          <div>
+            <PulsoIcon name="layers" :size="30" />
+            <h2>Un plan para avanzar.</h2>
+            <p>
+              {{
+                activePlans === null
+                  ? "Consulta y organiza tu planificación."
+                  : `${activePlans} planes activos en la consulta actual.`
+              }}
+              Cada semana y cada objetivo, en su lugar.
+            </p>
+            <RouterLink
+              class="secondary-button"
+              :to="{ name: 'training-plans' }"
+              >Ver planificación <PulsoIcon name="arrow-right" :size="17"
+            /></RouterLink>
+          </div>
+          <div>
+            <PulsoIcon name="scale" :size="30" />
+            <h2>Tu evolución, registrada.</h2>
+            <p>
+              Consulta tu perfil y conserva un historial de tus medidas
+              corporales.
+            </p>
+            <RouterLink class="secondary-button" :to="{ name: 'measurements' }"
+              >Medidas corporales <PulsoIcon name="arrow-right" :size="17"
+            /></RouterLink>
+          </div>
+        </section>
+      </div>
+    </details>
   </section>
 </template>
 <style scoped>
+.home-last-session {
+  margin-bottom: 1.5rem;
+}
+.dashboard-overview > summary {
+  cursor: pointer;
+  padding: 1rem 0;
+  margin-bottom: 1rem;
+}
 .performance-hero {
   position: relative;
   overflow: hidden;

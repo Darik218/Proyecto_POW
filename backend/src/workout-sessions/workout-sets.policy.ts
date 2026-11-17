@@ -10,6 +10,7 @@ export function executedSet(input: WorkoutSetInputDto) {
       load !== null ||
       reps !== null ||
       rpe !== null ||
+      input.rir != null ||
       input.loadUnit != null
     )
       throw new WorkoutRepositoryError(
@@ -46,6 +47,8 @@ export function executedSet(input: WorkoutSetInputDto) {
     loadKg,
     repetitions: reps,
     rpe,
+    // Preserve legacy creation hashes and partial edits when the field is absent.
+    ...(input.rir !== undefined ? { rir: input.rir } : {}),
     notes: input.notes ?? null,
     isCompleted: input.status === 'COMPLETED',
   };

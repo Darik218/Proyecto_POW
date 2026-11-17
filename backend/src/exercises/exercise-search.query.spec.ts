@@ -3,9 +3,14 @@ import { sqltag, join, raw, empty } from '@prisma/client/runtime/client';
 jest.unstable_mockModule('../generated/prisma/client', () => ({
   Prisma: { sql: sqltag, join, raw, empty },
 }));
-import type {exerciseSearchQuery as QueryBuilder} from './exercise-search.query';
-let exerciseSearchQuery:typeof QueryBuilder;
-beforeAll(async()=>{const path='./exercise-search.query';exerciseSearchQuery=(await import(path) as {exerciseSearchQuery:typeof QueryBuilder}).exerciseSearchQuery;});
+import type { exerciseSearchQuery as QueryBuilder } from './exercise-search.query';
+let exerciseSearchQuery: typeof QueryBuilder;
+beforeAll(async () => {
+  const path = './exercise-search.query';
+  exerciseSearchQuery = (
+    (await import(path)) as { exerciseSearchQuery: typeof QueryBuilder }
+  ).exerciseSearchQuery;
+});
 describe('Exercise search SQL construction', () => {
   it('binds every user input instead of interpolating it into SQL text', () => {
     const search = "'; DROP TABLE exercises; --";
@@ -36,5 +41,30 @@ describe('Exercise search SQL construction', () => {
       'ORDER BY rank ASC,score DESC,name ASC,id ASC',
     );
     expect(query.ids.values).toContain(5);
+  });
+});
+
+// Frequency counts distinct executed sessions, not the number of planned sets.
+describe('Personal exercise frequency', () => {
+  it('filters by owner and counts distinct sessions with actual results', () => {
+    const query = exerciseSearchQuery(
+      { selection: 'FREQUENT', limit: 20, offset: 0 },
+      'VISIBLE',
+      '10000000-0000-4000-8000-000000000001',
+    );
+    expect(query.ids.text).toContain('count(DISTINCT ws.id)');
+    expect(query.ids.text).toContain("s.status IN ('INCOMPLETE','FAILED')");
+    expect(query.ids.text).toContain(
+      'ORDER BY usage_count DESC,recent_at DESC,name ASC,id ASC',
+    );
+    expect(query.ids.values).toContain('10000000-0000-4000-8000-000000000001');
+  });
+  it('returns no personal frequency results without an authenticated owner', () => {
+    const query = exerciseSearchQuery(
+      { selection: 'FREQUENT', limit: 20, offset: 0 },
+      'GLOBAL',
+    );
+    expect(query.ids.text).toContain('AND false');
+    expect(query.ids.text).not.toContain('JOIN workout_sessions');
   });
 });

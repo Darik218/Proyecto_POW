@@ -7,7 +7,7 @@ describe('PROG-6A MVC and authorization boundaries (real registration also exerc
       controller = source('controllers/progression/progression.controller.ts');
     expect(
       module.match(
-        /controllers:\s*\[\s*AutomaticProgressionController,\s*ProgressionController,\s*AutomationConsentController,\s*ProgressionSettingsController,?\s*\]/g,
+        /controllers:\s*\[\s*WorkoutGuideController,\s*AutomaticProgressionController,\s*ProgressionController,\s*AutomationConsentController,\s*ProgressionSettingsController,?\s*\]/g,
       ),
     ).toHaveLength(1);
     expect(controller).toMatch(/recommendations:\s*RecommendationService/);

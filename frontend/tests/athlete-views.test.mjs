@@ -90,12 +90,12 @@ test("renderiza navegación privada, perfil y estado inicial de medidas", async 
     assert.match(layoutHtml, /Navegación principal/);
     assert.match(layoutHtml, /Perfil/);
     assert.match(layoutHtml, /href="\/app\/progression"/);
-    assert.match(layoutHtml, /Mi rutina/);
-    assert.match(layoutHtml, /Mi progreso/);
+    assert.match(layoutHtml, /Mi plan/);
+    assert.match(layoutHtml, /Progreso/);
     assert.equal(
       (layoutHtml.match(/<a\b[^>]*class="[^"]*\bapp-nav__link\b/g) || [])
         .length,
-      6,
+      4,
     );
     assert.doesNotMatch(
       layoutHtml.match(/<nav[^>]*>[\s\S]*?<\/nav>/)?.[0] ?? "",

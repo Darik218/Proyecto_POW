@@ -23,8 +23,9 @@ import {
 const muscleGroupKeyPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export class ListExercisesDto {
-  @IsOptional() @IsEnum(ExerciseOrigin) origin?:ExerciseOrigin;
-  @IsOptional() @IsIn(['ALL','FEATURED','RECENT']) selection?: 'ALL'|'FEATURED'|'RECENT';
+  @IsOptional() @IsEnum(ExerciseOrigin) origin?: ExerciseOrigin;
+  @IsOptional() @IsIn(['ALL', 'FEATURED', 'RECENT', 'FREQUENT']) selection?:
+    'ALL' | 'FEATURED' | 'RECENT' | 'FREQUENT';
   @IsOptional()
   @Type(() => Number)
   @IsInt()

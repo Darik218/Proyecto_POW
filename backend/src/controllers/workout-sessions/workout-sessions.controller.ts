@@ -30,6 +30,7 @@ import type { AuthenticatedIdentity } from '../../auth/auth.types';
 import { AccessTokenGuard } from '../../auth/guards/access-token.guard';
 import {
   AddWorkoutExerciseDto,
+  ReplaceWorkoutExerciseDto,
   CreateWorkoutSessionDto,
   ListWorkoutSessionsDto,
   AssociateWorkoutDto,
@@ -182,6 +183,17 @@ export class WorkoutSessionsController {
   ) {
     return this.presenter.detail(
       await this.sessions.addExercise(identity, id, body),
+    );
+  }
+  @Post(':sessionId/exercises/:exerciseId/replace')
+  async replaceExercise(
+    @CurrentAuth() identity: AuthenticatedIdentity,
+    @Param('sessionId', uuid) id: string,
+    @Param('exerciseId', uuid) exerciseId: string,
+    @Body() body: ReplaceWorkoutExerciseDto,
+  ) {
+    return this.presenter.detail(
+      await this.sessions.replaceExercise(identity, id, exerciseId, body),
     );
   }
   @Post(':sessionId/exercises/:exerciseId/sets')

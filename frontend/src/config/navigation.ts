@@ -9,7 +9,7 @@ export const navigation = [
   },
   {
     name: "home",
-    label: "Mi rutina",
+    label: "Mi plan",
     icon: "dumbbell",
     section: "Tu entrenamiento",
     key: "routine",
@@ -44,7 +44,7 @@ export const navigation = [
   },
   {
     name: "progression",
-    label: "Mi progreso",
+    label: "Progreso",
     icon: "chart",
     section: "Tu rendimiento",
     key: "progression",
@@ -74,10 +74,8 @@ export const navigation = [
 /** Daily destinations only; advanced capabilities remain linked from their owning pages. */
 export const primaryNavigation = [
   "dashboard",
-  "workout-sessions",
   "home",
   "progression",
-  "exercise-catalog",
   "profile",
 ].map((name) => navigation.find((item) => item.name === name)!);
 export function navigationSection(routeName: unknown): string {

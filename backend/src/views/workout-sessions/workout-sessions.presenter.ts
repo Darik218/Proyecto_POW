@@ -113,6 +113,7 @@ export class WorkoutSessionsPresenter {
       loadKg: set.loadKg?.toString() ?? null,
       repetitions: set.repetitions,
       rpe: set.rpe === null ? null : Number(set.rpe),
+      rir: set.rir ?? null,
       kind: set.kind,
       status: set.status,
       isCompleted: set.isCompleted,

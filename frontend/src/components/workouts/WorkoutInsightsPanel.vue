@@ -126,6 +126,13 @@ onUnmounted(() => {
         Referencia anterior: {{ exercise.reference.sessionLabel }} ·
         {{ exercise.reference.performedOn ?? "Fecha no registrada" }}.
       </p>
+      <p
+        v-if="exercise.observedComparison"
+        class="insight-observation"
+        role="status"
+      >
+        {{ exercise.observedComparison.message }}
+      </p>
       <ExerciseReferenceComparison
         :current="exercise.actualSets"
         :reference="exercise.reference"

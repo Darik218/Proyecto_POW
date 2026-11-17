@@ -238,6 +238,7 @@ export interface ProgressionRepository {
     userId: string,
     query: ValidatedPerformanceQuery,
     destination: Destination,
+    transaction?: import('../generated/prisma/client').Prisma.TransactionClient,
   ): Promise<RecommendationContext>;
   readHistory(
     userId: string,

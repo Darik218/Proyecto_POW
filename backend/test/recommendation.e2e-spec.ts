@@ -118,6 +118,8 @@ isolated('PROG-4B real PostgreSQL neutral recommendation persistence', () => {
         },
       });
       await db.setRecord.create({
+        // Historical retry tests use this fixture before the optional RIR migration.
+        select: { id: true },
         data: {
           workoutExerciseId: task.id,
           setNumber: 1,
@@ -618,6 +620,7 @@ isolated('PROG-4B real PostgreSQL neutral recommendation persistence', () => {
     const f = await fixture(),
       set = await db.setRecord.findFirstOrThrow({
         where: { workoutExerciseId: f.tasks[0].id },
+        select: { id: true, version: true },
       });
     const estimates = new OneRmService(new PrismaProgressionRepository(db));
     await estimates.estimateFromSet(f.identity, {
@@ -765,15 +768,18 @@ isolated('PROG-4B real PostgreSQL neutral recommendation persistence', () => {
         input = await envelope(f),
         set = await db.setRecord.findFirstOrThrow({
           where: { workoutExerciseId: f.tasks[0].id },
+          select: { id: true },
         });
       if (change === 'incomplete')
         await db.setRecord.update({
           where: { id: set.id },
+          select: { id: true },
           data: { status: 'INCOMPLETE', isCompleted: false },
         });
       if (change === 'warmup')
         await db.setRecord.update({
           where: { id: set.id },
+          select: { id: true },
           data: { kind: 'WARMUP' },
         });
       if (change === 'omitted')
@@ -784,6 +790,7 @@ isolated('PROG-4B real PostgreSQL neutral recommendation persistence', () => {
       if (change === 'unknownUnit')
         await db.setRecord.update({
           where: { id: set.id },
+          select: { id: true },
           data: { status: null, kind: null, loadUnit: null, loadKg: null },
         });
       if (change === 'unknownMeaning')
@@ -791,6 +798,7 @@ isolated('PROG-4B real PostgreSQL neutral recommendation persistence', () => {
       if (change === 'partial')
         await db.setRecord.update({
           where: { id: set.id },
+          select: { id: true },
           data: { repetitions: 4 },
         });
       if (change === 'truncated') f.command.history.limit = 1;

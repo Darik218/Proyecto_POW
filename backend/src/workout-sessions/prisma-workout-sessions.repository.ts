@@ -19,6 +19,7 @@ import { PrismaService } from '../database/prisma.service';
 import type {
   CreateWorkoutSessionDto,
   AddWorkoutExerciseDto,
+  ReplaceWorkoutExerciseDto,
   ListWorkoutSessionsDto,
 } from './dto/workout-session.dto';
 import { WorkoutRepositoryError } from './workout-sessions.repository';
@@ -85,6 +86,7 @@ const detailSelect = {
           loadKg: true,
           repetitions: true,
           rpe: true,
+          rir: true,
           kind: true,
           status: true,
           isCompleted: true,
@@ -809,6 +811,33 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
     id: string,
     input: AddWorkoutExerciseDto,
   ): Promise<WorkoutDetail> {
+    return this.createExercise(athleteId, id, input);
+  }
+  async replaceExercise(
+    athleteId: string,
+    id: string,
+    exerciseId: string,
+    input: ReplaceWorkoutExerciseDto,
+  ): Promise<WorkoutDetail> {
+    return this.createExercise(
+      athleteId,
+      id,
+      {
+        id: input.id,
+        exerciseId: input.exerciseId,
+        expectedVersion: input.expectedVersion,
+        notes: input.notes,
+        replacesWorkoutExerciseId: exerciseId,
+      },
+      true,
+    );
+  }
+  private async createExercise(
+    athleteId: string,
+    id: string,
+    input: AddWorkoutExerciseDto,
+    directReplacement = false,
+  ): Promise<WorkoutDetail> {
     return this.prisma.$transaction(async (tx) => {
       await this.lockSession(tx, athleteId, id);
       const values = targets(input);
@@ -818,6 +847,7 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
         targets: values,
         notes: input.notes ?? null,
         replaces: input.replacesWorkoutExerciseId ?? null,
+        ...(directReplacement ? { action: 'DIRECT_REPLACEMENT' } : {}),
       });
       const existing = await tx.workoutExercise.findUnique({
         where: { id: input.id },
@@ -834,7 +864,8 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
       const session = await tx.workoutSession.findUniqueOrThrow({
         where: { id },
       });
-      requireEditable(session.status);
+      if (directReplacement) requireInProgress(session.status);
+      else requireEditable(session.status);
       requireVersion(session.version, input.expectedVersion);
       const exercise = await this.visibleExercise(
         tx,
@@ -851,14 +882,49 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
           where: {
             id: input.replacesWorkoutExerciseId,
             sessionId: id,
-            isOmitted: true,
+            ...(directReplacement ? {} : { isOmitted: true }),
           },
         });
         if (!previous)
           throw new WorkoutRepositoryError(
             'missing',
-            'An omitted exercise in this session must be selected for replacement.',
+            directReplacement
+              ? 'Workout exercise not found in this session.'
+              : 'An omitted exercise in this session must be selected for replacement.',
           );
+        if (directReplacement) {
+          if (previous.exerciseId === input.exerciseId)
+            throw new WorkoutRepositoryError(
+              'invalid',
+              'Choose a different exercise for substitution.',
+            );
+          if (
+            await tx.workoutExercise.findFirst({
+              where: { sessionId: id, replacesWorkoutExerciseId: previous.id },
+              select: { id: true },
+            })
+          )
+            throw new WorkoutRepositoryError(
+              'conflict',
+              'This exercise has already been substituted.',
+            );
+          const actualResults = await tx.setRecord.count({
+            where: {
+              workoutExerciseId: previous.id,
+              OR: [
+                { status: { in: ['COMPLETED', 'INCOMPLETE', 'FAILED'] } },
+                { status: null },
+              ],
+            },
+          });
+          // Partial execution belongs to the original exercise. Keep its row,
+          // sets and snapshot intact while recording the substitution link.
+          if (!actualResults)
+            await tx.workoutExercise.update({
+              where: { id: previous.id },
+              data: { isOmitted: true },
+            });
+        }
       }
       const last = await tx.workoutExercise.aggregate({
         where: { sessionId: id },
@@ -1318,7 +1384,13 @@ export class PrismaWorkoutSessionsRepository implements WorkoutSessionsRepositor
         );
         await tx.setRecord.update({
           where: { id: setId },
-          data: { ...values, version: { increment: 1 } },
+          data: {
+            ...values,
+            ...(input.status === 'PENDING' || input.status === 'SKIPPED'
+              ? { rir: null }
+              : {}),
+            version: { increment: 1 },
+          },
         });
       } else {
         await tx.setRecord.create({

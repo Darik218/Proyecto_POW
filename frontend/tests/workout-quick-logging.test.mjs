@@ -50,7 +50,7 @@ const workSet = {
   notes: null,
 };
 
-test("previous completed work values require explicit copying and confirmation; RPE stays a reference", async (t) => {
+test("previous values remain an editable draft and the register action confirms actual results; RPE stays a reference", async (t) => {
   const saved = [];
   const previousReference = { sessionLabel: "Push · 10 nov", sets: [workSet] };
   const state = mount(
@@ -70,10 +70,6 @@ test("previous completed work values require explicit copying and confirmation; 
   assert.equal(state.form.loadUnit, "LB");
   assert.equal(state.form.repetitions, "8");
   assert.equal(state.form.rpe, "");
-  await state.submit();
-  assert.equal(saved.length, 0);
-  assert.match(state.error, /Confirma/);
-  state.confirmCopied = true;
   state.form.repetitions = "9";
   await state.submit();
   assert.equal(saved[0].repetitions, 9);
@@ -104,7 +100,7 @@ test("copying rejects unknown units, non-work sets and invalid actual values", a
   }
 });
 
-test("last-set reuse selects the last completed work set and clears confirmation for another source", async (t) => {
+test("last-set reuse selects the last completed work set and keeps subjective effort separate", async (t) => {
   const state = mount(
     await component("WorkoutSetForm"),
     {
@@ -123,10 +119,9 @@ test("last-set reuse selects the last completed work set and clears confirmation
   );
   state.copyReference("CURRENT");
   assert.equal(state.form.load, "140");
-  state.confirmCopied = true;
   state.copyReference("PREVIOUS");
   assert.equal(state.form.load, "130");
-  assert.equal(state.confirmCopied, false);
+  assert.equal(state.form.rpe, "");
 });
 
 test("editing retains unknown-unit results until explicit correction and uses the existing record version", async (t) => {

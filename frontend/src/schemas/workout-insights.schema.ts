@@ -9,6 +9,7 @@ export const referenceSetSchema = z
     loadUnit: z.enum(["KG", "LB"]).nullable(),
     repetitions: z.number().int().nullable(),
     rpe: z.number().min(0).max(10).nullable(),
+    rir: z.enum(["0", "1", "2", "3", "4_PLUS"]).nullable().optional(),
     status: z
       .enum(["PENDING", "COMPLETED", "INCOMPLETE", "FAILED", "SKIPPED"])
       .nullable(),
@@ -81,6 +82,20 @@ export const workoutInsightsSchema = z
               })
               .strict(),
           ),
+          observedComparison: z
+            .object({
+              basis: z.literal("LAST_COMPLETED_WORK_SET"),
+              state: z.enum([
+                "NO_REFERENCE",
+                "NOT_COMPARABLE",
+                "SAME_LOAD",
+                "LOAD_CHANGED",
+              ]),
+              repetitionsDelta: z.number().int().nullable(),
+              message: z.string(),
+            })
+            .strict()
+            .optional(),
           orientation: z
             .object({
               action: z.enum([

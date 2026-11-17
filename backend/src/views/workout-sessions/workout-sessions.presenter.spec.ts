@@ -84,6 +84,7 @@ describe('Workout JSON representations', () => {
               loadUnit: 'KG',
               repetitions: 7,
               rpe: 9.5,
+              rir: null,
               kind: 'WORK',
               status: 'INCOMPLETE',
               isCompleted: false,

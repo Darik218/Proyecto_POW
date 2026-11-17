@@ -14,6 +14,7 @@ import type { PreviousWorkoutReference } from "../../utils/workout-set-reference
 import type { useWorkoutSession } from "../../composables/useWorkoutSessions";
 const props = defineProps<{
   item: Workout["exercises"][number];
+  reviewOnly?: boolean;
   status: Workout["status"];
   busy: boolean;
   index: number;
@@ -21,6 +22,13 @@ const props = defineProps<{
   actions: ReturnType<typeof useWorkoutSession>;
   previousReference?: PreviousWorkoutReference;
 }>();
+const nextExercise = computed(() => {
+  const list = props.actions.session?.value?.exercises ?? [];
+  const current = list.findIndex((item) => item.id === props.item.id);
+  return current < 0
+    ? undefined
+    : list.slice(current + 1).find((item) => !item.isOmitted);
+});
 const editing = ref(false);
 const addingSet = ref(false);
 const editingSet = ref("");
@@ -70,7 +78,7 @@ async function run(operation: () => Promise<unknown>) {
 }
 function move(direction: number) {
   const ids =
-    props.actions.session.value?.exercises.map((item) => item.id) ?? [];
+    props.actions.session?.value?.exercises.map((item) => item.id) ?? [];
   const from = ids.indexOf(props.item.id);
   const to = from + direction;
   if (from < 0 || to < 0 || to >= ids.length) return;
@@ -103,6 +111,8 @@ function recorded() {
 
 <template>
   <article
+    :id="'workout-exercise-' + item.id"
+    tabindex="-1"
     class="workout-exercise-card"
     :class="{ 'workout-exercise-card--omitted': item.isOmitted }"
   >
@@ -168,6 +178,9 @@ function recorded() {
                   ? (set.loadUnit ?? "(unidad desconocida)")
                   : ""
               }}<span v-if="set.rpe !== null"> · RPE {{ set.rpe }}</span>
+              <span v-if="set.rir != null">
+                · RIR {{ set.rir === "4_PLUS" ? "4+" : set.rir }}</span
+              >
             </p>
             <p v-else>Sin resultados ejecutados.</p>
             <StatusBadge
@@ -205,7 +218,7 @@ function recorded() {
     </ol>
     <p v-if="savedNotice" role="status" class="field-hint">{{ savedNotice }}</p>
     <button
-      v-if="canRecord && !addingSet"
+      v-if="canRecord && !addingSet && !reviewOnly"
       class="primary-button"
       type="button"
       :disabled="busy"
@@ -214,7 +227,7 @@ function recorded() {
       Registrar serie
     </button>
     <WorkoutSetForm
-      v-if="canRecord && addingSet"
+      v-if="canRecord && addingSet && !reviewOnly"
       :key="'new-' + nextSetNumber"
       :busy="busy"
       :next-number="nextSetNumber"
@@ -339,6 +352,12 @@ function recorded() {
       />
     </details>
     <p v-if="error" role="alert" class="form-error">{{ error }}</p>
+    <a
+      v-if="nextExercise && status === 'IN_PROGRESS' && !reviewOnly"
+      class="secondary-button"
+      :href="'#workout-exercise-' + nextExercise.id"
+      >Siguiente ejercicio: {{ nextExercise.exercise.name }}</a
+    >
   </article>
 </template>
 

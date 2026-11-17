@@ -32,6 +32,7 @@ import type {
 } from './workout-sessions.repository';
 import type {
   AddWorkoutExerciseDto,
+  ReplaceWorkoutExerciseDto,
   CreateWorkoutSessionDto,
   ListWorkoutSessionsDto,
   AssociateWorkoutDto,
@@ -188,6 +189,16 @@ export class WorkoutSessionsService {
   ) {
     return this.run(identity, (athleteId) =>
       this.repository.addExercise(athleteId, id, input),
+    );
+  }
+  replaceExercise(
+    identity: AuthenticatedIdentity,
+    id: string,
+    exerciseId: string,
+    input: ReplaceWorkoutExerciseDto,
+  ) {
+    return this.run(identity, (athleteId) =>
+      this.repository.replaceExercise(athleteId, id, exerciseId, input),
     );
   }
   start(identity: AuthenticatedIdentity, id: string, expectedVersion: number) {

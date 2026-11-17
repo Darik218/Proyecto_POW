@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, useId } from "vue";
+import { computed, reactive, ref, useId, watch } from "vue";
 import {
   setInputSchema,
   workoutWriteRejected,
@@ -14,7 +14,13 @@ import {
   type WorkoutSetReference,
 } from "../../utils/workout-set-reference";
 
+import {
+  initialSetDraft,
+  type WorkoutSetDraft,
+} from "../../utils/workout-set-draft";
 const props = defineProps<{
+  inline?: boolean;
+  draft?: WorkoutSetDraft;
   initial?: SetRecord;
   nextNumber?: number;
   busy?: boolean;
@@ -33,6 +39,7 @@ const form = reactive({
   loadUnit: props.initial ? (props.initial.loadUnit ?? "") : "KG",
   repetitions: props.initial?.repetitions?.toString() ?? "",
   rpe: props.initial?.rpe?.toString() ?? "",
+  rir: props.initial?.rir ?? "",
   notes: props.initial?.notes ?? "",
 });
 const hasResults = computed(
@@ -41,9 +48,12 @@ const hasResults = computed(
 const clearsResults = computed(() =>
   Boolean(
     props.initial &&
-    [props.initial.load, props.initial.repetitions, props.initial.rpe].some(
-      (value) => value != null,
-    ) &&
+    [
+      props.initial.load,
+      props.initial.repetitions,
+      props.initial.rpe,
+      props.initial.rir,
+    ].some((value) => value != null) &&
     !hasResults.value,
   ),
 );
@@ -61,8 +71,30 @@ const previousSet = computed(() => {
     ) ?? lastCompletedWorkSet(sets)
   );
 });
+const draftEdited = ref(false),
+  draftOrigin = ref("");
+function prepareDraft() {
+  if (!props.inline || props.initial || draftEdited.value || submitted.value)
+    return;
+  const values = initialSetDraft(
+    props.currentSets,
+    props.previousReference,
+    props.draft,
+    Number(form.setNumber),
+  );
+  if (values) {
+    Object.assign(form, {
+      load: values.load,
+      loadUnit: values.loadUnit,
+      repetitions: values.repetitions,
+    });
+    draftOrigin.value = values.origin;
+  } else if (draftOrigin.value) {
+    Object.assign(form, { load: "", loadUnit: "", repetitions: "" });
+    draftOrigin.value = "";
+  }
+}
 const copiedSource = ref("");
-const confirmCopied = ref(false);
 const confirmClear = ref(false);
 const pending = ref(false);
 const submitted = ref<SetInput | null>(null);
@@ -83,23 +115,12 @@ function copyReference(source: "CURRENT" | "PREVIOUS") {
     source === "CURRENT"
       ? `Serie ${reference!.setNumber} de este entrenamiento`
       : `${props.previousReference!.sessionLabel} · serie ${reference!.setNumber}`;
-  confirmCopied.value = false;
   error.value = "";
 }
 
 async function submit() {
   if (pending.value || props.busy) return;
   error.value = "";
-  if (
-    !submitted.value &&
-    copiedSource.value &&
-    hasResults.value &&
-    !confirmCopied.value
-  ) {
-    error.value =
-      "Confirma que los valores revisados corresponden a esta serie realizada.";
-    return;
-  }
   if (clearsResults.value && !confirmClear.value) {
     error.value = "Confirma la retirada de los valores de esta serie.";
     return;
@@ -119,6 +140,7 @@ async function submit() {
           : null,
       rpe:
         hasResults.value && String(form.rpe).trim() ? Number(form.rpe) : null,
+      rir: hasResults.value ? form.rir || null : null,
       notes: form.notes.trim() || null,
     };
     const parsed = setInputSchema.safeParse(input);
@@ -141,11 +163,20 @@ async function submit() {
     pending.value = false;
   }
 }
+watch(
+  () =>
+    JSON.stringify([props.draft, props.currentSets, props.previousReference]),
+  prepareDraft,
+  { immediate: true },
+);
 </script>
 
 <template>
   <form
     class="plan-form training-editor quick-set-form"
+    :class="{ 'quick-set-form--inline': inline }"
+    @input="draftEdited = true"
+    @change="draftEdited = true"
     novalidate
     :aria-busy="pending"
     @submit.prevent="submit"
@@ -160,7 +191,7 @@ async function submit() {
     <fieldset :disabled="pending || busy || Boolean(submitted)">
       <legend class="training-section-legend">Resultados reales</legend>
       <div
-        v-if="!initial && (currentReference || previousSet)"
+        v-if="!inline && !initial && (currentReference || previousSet)"
         class="quick-set-references"
       >
         <div v-if="currentReference">
@@ -247,30 +278,65 @@ async function submit() {
             required
           />
         </div>
-        <div>
-          <label class="field-label" :for="id + '-rpe'"
-            >RPE real <span class="field-hint">opcional</span></label
-          ><input
-            :id="id + '-rpe'"
-            v-model="form.rpe"
-            class="form-control"
-            type="number"
-            inputmode="decimal"
-            min="0"
-            max="10"
-            step="0.1"
-            placeholder="Sin registrar"
-          />
-        </div>
+        <details class="set-effort" :open="initial ? undefined : false">
+          <summary>Esfuerzo opcional · RIR / RPE</summary>
+          <div>
+            <label class="field-label" :for="id + '-rpe'"
+              >RPE real <span class="field-hint">opcional</span></label
+            ><input
+              :id="id + '-rpe'"
+              v-model="form.rpe"
+              class="form-control"
+              type="number"
+              inputmode="decimal"
+              min="0"
+              max="10"
+              step="0.1"
+              placeholder="Sin registrar"
+            />
+          </div>
+          <div>
+            <label class="field-label" :for="id + '-rir'"
+              >¿Cuántas repeticiones más crees que podrías haber hecho?
+              <span class="field-hint">opcional</span></label
+            >
+            <select
+              :id="id + '-rir'"
+              v-model="form.rir"
+              class="form-control"
+              :aria-describedby="id + '-rir-help'"
+            >
+              <option value="">Omitir</option>
+              <option value="0">0: ninguna</option>
+              <option value="1">1: una</option>
+              <option value="2">2: dos</option>
+              <option value="3">3: tres</option>
+              <option value="4_PLUS">4+: varias</option>
+            </select>
+            <p :id="id + '-rir-help'" class="field-hint">
+              RIR: repeticiones más que crees que podías hacer. 0 = ninguna; 4+
+              = cuatro o más. RPE indica esfuerzo percibido; regístralos por
+              separado si los conoces.
+            </p>
+          </div>
+        </details>
       </div>
-      <p v-if="copiedSource" class="field-hint" role="status">
-        Valores copiados de {{ copiedSource }}. El RPE anterior solo es una
-        referencia.
+      <p v-if="inline && draftOrigin" class="field-hint inline-draft-note">
+        {{
+          draftOrigin === "CURRENT_RESULTS"
+            ? "Última serie"
+            : draftOrigin === "HISTORICAL_REFERENCE"
+              ? "Referencia anterior"
+              : draftOrigin === "PLAN_TARGET"
+                ? "Objetivo del plan"
+                : "Propuesta calculada"
+        }}
+        · Borrador editable. Registra después de realizarla.
       </p>
-      <label v-if="copiedSource && hasResults" class="quick-set-confirm"
-        ><input v-model="confirmCopied" type="checkbox" /> Confirmo que estos
-        valores corresponden a la serie que he realizado.</label
-      >
+      <p v-if="copiedSource" class="field-hint" role="status">
+        Valores copiados de {{ copiedSource }}. RPE y RIR se registran de nuevo
+        para esta serie.
+      </p>
       <details
         class="quick-set-options"
         :open="Boolean(initial && (!initial.status || !initial.kind))"
@@ -354,9 +420,10 @@ async function submit() {
               ? "Reintentar"
               : initial
                 ? "Guardar cambios"
-                : "Guardar serie"
+                : "Registrar serie"
         }}</button
       ><button
+        v-if="!inline || initial"
         class="text-button"
         type="button"
         :disabled="pending"
@@ -369,6 +436,49 @@ async function submit() {
 </template>
 
 <style scoped>
+.set-effort {
+  grid-column: 1/-1;
+  margin-top: 0.3rem;
+}
+.set-effort summary {
+  min-height: 44px;
+  align-content: center;
+  cursor: pointer;
+}
+.set-effort > div {
+  margin-top: 0.75rem;
+}
+.quick-set-form--inline {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.quick-set-form--inline .quick-set-fields {
+  grid-template-columns: minmax(0, 1.2fr) minmax(5rem, 0.7fr) minmax(0, 1.2fr);
+}
+.quick-set-form--inline .quick-set-fields > div:nth-child(1) input,
+.quick-set-form--inline .quick-set-fields > div:nth-child(3) input {
+  font-size: 1.7rem;
+  font-weight: 700;
+  min-height: 64px;
+}
+.quick-set-form--inline > .plan-actions {
+  position: sticky;
+  bottom: 0;
+  background: var(--color-surface);
+  padding: 0.75rem 0 calc(0.75rem + env(safe-area-inset-bottom));
+  z-index: 2;
+}
+.quick-set-form--inline > .plan-actions > .primary-button {
+  width: 100%;
+  min-height: 56px;
+  font-size: 1.1rem;
+}
+.quick-set-form--inline .quick-set-options {
+  font-size: 0.85rem;
+}
+
 .quick-set-form {
   margin-block: 1rem;
 }

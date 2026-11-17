@@ -109,7 +109,7 @@ test("renderiza formularios accesibles de login y registro", async () => {
     await homeRouter.push("/");
     await homeRouter.isReady();
     const homeHtml = await renderToString(homeApp);
-    assert.match(homeHtml, /Tu progreso, medido\./);
+    assert.match(homeHtml, /¿Qué toca entrenar\?/);
     assert.doesNotMatch(homeHtml, /POW/);
   } finally {
     await server.close();

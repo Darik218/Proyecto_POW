@@ -74,9 +74,15 @@ try {
   };
   browser = spawn(
     process.execPath,
-    process.argv.includes("--functional")
-      ? ["tests/final-ux.browser.mjs"]
-      : ["tests/ui-redesign.browser.mjs", "--prepare"],
+    process.argv.includes("--ux4")
+      ? ["tests/workout-ux4.browser.mjs"]
+      : process.argv.includes("--ux3")
+        ? ["tests/workout-ux3.browser.mjs"]
+        : process.argv.includes("--ux2")
+          ? ["tests/workout-ux2.browser.mjs"]
+          : process.argv.includes("--functional")
+            ? ["tests/final-ux.browser.mjs"]
+            : ["tests/ui-redesign.browser.mjs", "--prepare"],
     { cwd: frontend, stdio: ["pipe", "inherit", "inherit"] },
   );
   browser.stdin.end(JSON.stringify(config));

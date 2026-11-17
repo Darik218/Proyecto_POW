@@ -10,7 +10,14 @@ export type WorkoutReference = {
   performedOn: Date | null;
   sets: SetRecordAttributes[];
 };
+export type RecordedPerformanceComparison = {
+  basis: 'LAST_COMPLETED_WORK_SET';
+  state: 'NO_REFERENCE' | 'NOT_COMPARABLE' | 'SAME_LOAD' | 'LOAD_CHANGED';
+  repetitionsDelta: number | null;
+  message: string;
+};
 export type WorkoutInsight = {
+  observedComparison: RecordedPerformanceComparison;
   workoutExerciseId: string;
   exerciseId: string;
   name: string;

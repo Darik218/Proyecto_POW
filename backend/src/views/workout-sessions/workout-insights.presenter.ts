@@ -13,6 +13,7 @@ export class WorkoutInsightsPresenter {
       loadUnit: set.loadUnit,
       repetitions: set.repetitions,
       rpe: set.rpe === null ? null : Number(set.rpe),
+      rir: set.rir ?? null,
       kind: set.kind,
       status: set.status,
       isCompleted: set.isCompleted,
@@ -48,6 +49,12 @@ export class WorkoutInsightsPresenter {
         name: item.name,
         actualSets: item.actualSets.map((set) => this.set(set)),
         reference: this.reference(item.reference),
+        observedComparison: {
+          basis: item.observedComparison.basis,
+          state: item.observedComparison.state,
+          repetitionsDelta: item.observedComparison.repetitionsDelta,
+          message: item.observedComparison.message,
+        },
         loadMeaning: item.loadMeaning,
         loadMeaningSource: item.loadMeaningSource,
         oneRm: item.oneRm.map((result) => ({

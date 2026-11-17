@@ -305,7 +305,7 @@ onUnmounted(() => {
   <section class="page-view routine-view" aria-labelledby="routine-title">
     <PageHeader
       id="routine-title"
-      title="Mi rutina"
+      title="Mi plan"
       description="Planifica a tu ritmo. Entrena según tu día."
       icon="dumbbell"
       ><template #actions>
@@ -332,6 +332,9 @@ onUnmounted(() => {
             Duplicar rutina
           </button>
         </div>
+        <RouterLink class="text-button" :to="{ name: 'exercise-catalog' }"
+          >Catálogo de ejercicios</RouterLink
+        >
       </template></PageHeader
     >
     <DuplicatePlanForm

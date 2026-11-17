@@ -88,6 +88,8 @@ export async function reviewFixture(
       },
     });
     await db.setRecord.create({
+      // This fixture also runs on real predecessor schemas without newer set fields.
+      select: { id: true },
       data: {
         workoutExerciseId: task.id,
         setNumber: 1,

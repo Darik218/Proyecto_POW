@@ -169,6 +169,318 @@ isolated('R2 daily training with isolated PostgreSQL', () => {
   async function create(extra: object = {}) {
     return post(root, { id: randomUUID(), ...date, ...extra }).expect(201);
   }
+  describe('UX-4 direct exercise substitution', () => {
+    async function activePlanSession() {
+      const { plan, week, push } = await planning();
+      const prepared = await create({
+        trainingPlanId: plan.id,
+        planWeekId: week.id,
+        planDayId: push.id,
+      });
+      const active = await post(`${root}/${prepared.body.id}/start`, {
+        expectedVersion: prepared.body.version,
+      }).expect(200);
+      return { session: active.body, source: active.body.exercises[0] };
+    }
+    const replace = (
+      sessionId: string,
+      sourceId: string,
+      body: object,
+      actor = owner,
+    ) =>
+      post(`${root}/${sessionId}/exercises/${sourceId}/replace`, body, actor);
+
+    it('atomically substitutes an untouched source without inheriting its load or changing its snapshot and plan', async () => {
+      const { session, source } = await activePlanSession();
+      const result = await replace(session.id, source.id, {
+        id: randomUUID(),
+        exerciseId: row,
+        expectedVersion: session.version,
+      }).expect(201);
+      const preserved = result.body.exercises.find(
+        (item: { id: string }) => item.id === source.id,
+      );
+      expect(preserved).toMatchObject({ ...source, isOmitted: true });
+      const replacement = result.body.exercises.find(
+        (item: { replacesWorkoutExerciseId: string }) =>
+          item.replacesWorkoutExerciseId === source.id,
+      );
+      expect(replacement).toMatchObject({
+        exercise: { id: row },
+        prescription: null,
+        sets: [],
+        isOmitted: false,
+        targets: { targetSets: null, targetLoad: null, targetLoadUnit: null },
+        original: {
+          source: { kind: 'FREE', id: null },
+          targets: { targetLoad: null },
+        },
+      });
+      expect(result.body.version).toBe(session.version + 1);
+      const original = await prisma.planExercise.findUniqueOrThrow({
+        where: { id: source.original.source.id },
+      });
+      expect(original.targetLoad?.toString()).toBe('80');
+    });
+
+    it.each(['COMPLETED', 'INCOMPLETE', 'FAILED'] as const)(
+      'preserves %s results under the original exercise and keeps manual omission forbidden',
+      async (status) => {
+        const { session, source } = await activePlanSession();
+        const recorded = await post(
+          `${root}/${session.id}/exercises/${source.id}/sets`,
+          {
+            id: randomUUID(),
+            setNumber: 1,
+            status,
+            kind: 'WORK',
+            repetitions: status === 'FAILED' ? 0 : 5,
+            load: '80',
+            loadUnit: 'KG',
+            expectedVersion: session.version,
+          },
+        ).expect(201);
+        const before = recorded.body.exercises[0];
+        const result = await replace(session.id, source.id, {
+          id: randomUUID(),
+          exerciseId: row,
+          expectedVersion: recorded.body.version,
+        }).expect(201);
+        expect(
+          result.body.exercises.find(
+            (item: { id: string }) => item.id === source.id,
+          ),
+        ).toEqual(before);
+        expect(
+          result.body.exercises.find(
+            (item: { id: string }) => item.id !== source.id,
+          ).sets,
+        ).toEqual([]);
+        await patch(`${root}/${session.id}/exercises/${source.id}`, {
+          isOmitted: true,
+          expectedVersion: result.body.version,
+        }).expect(409);
+        expect(
+          await prisma.setRecord.count({
+            where: { workoutExerciseId: source.id },
+          }),
+        ).toBe(1);
+      },
+    );
+
+    it.each(['PENDING', 'SKIPPED'] as const)(
+      'preserves %s rows on the omitted source without transferring them',
+      async (status) => {
+        const { session, source } = await activePlanSession();
+        const recorded = await post(
+          `${root}/${session.id}/exercises/${source.id}/sets`,
+          {
+            id: randomUUID(),
+            setNumber: 1,
+            status,
+            kind: 'WORK',
+            expectedVersion: session.version,
+          },
+        ).expect(201);
+        const result = await replace(session.id, source.id, {
+          id: randomUUID(),
+          exerciseId: row,
+          expectedVersion: recorded.body.version,
+        }).expect(201);
+        expect(result.body.exercises[0]).toEqual({
+          ...recorded.body.exercises[0],
+          isOmitted: true,
+        });
+        expect(result.body.exercises[1].sets).toEqual([]);
+      },
+    );
+
+    it('preserves legacy actual results with null status on the original exercise', async () => {
+      const { session, source } = await activePlanSession();
+      await prisma.setRecord.create({
+        data: {
+          workoutExerciseId: source.id,
+          setNumber: 1,
+          repetitions: 5,
+          load: 80,
+          loadKg: null,
+          loadUnit: null,
+          kind: 'WORK',
+          status: null,
+        },
+      });
+      const before = await get(`${root}/${session.id}`).expect(200);
+      const result = await replace(session.id, source.id, {
+        id: randomUUID(),
+        exerciseId: row,
+        expectedVersion: session.version,
+      }).expect(201);
+      expect(result.body.exercises[0]).toEqual(before.body.exercises[0]);
+      await patch(`${root}/${session.id}/exercises/${source.id}`, {
+        isOmitted: true,
+        expectedVersion: result.body.version,
+      }).expect(409);
+    });
+
+    it('rolls back the source omission if the replacement cannot be inserted', async () => {
+      const { session, source } = await activePlanSession();
+      await prisma.workoutExercise.create({
+        data: { sessionId: session.id, exerciseId: row, orderInSession: 1000 },
+      });
+      const before = await get(`${root}/${session.id}`).expect(200);
+      await replace(session.id, source.id, {
+        id: randomUUID(),
+        exerciseId: row,
+        expectedVersion: session.version,
+      }).expect(409);
+      const after = await get(`${root}/${session.id}`).expect(200);
+      expect(after.body).toEqual(before.body);
+      expect(
+        await prisma.workoutExercise.count({
+          where: { replacesWorkoutExerciseId: source.id },
+        }),
+      ).toBe(0);
+    });
+
+    it('replays the same substitution intent once and rejects a different payload or second replacement', async () => {
+      const { session, source } = await activePlanSession();
+      const body = {
+        id: randomUUID(),
+        exerciseId: row,
+        notes: 'Mancuernas disponibles',
+        expectedVersion: session.version,
+      };
+      const first = await replace(session.id, source.id, body).expect(201);
+      const replay = await replace(session.id, source.id, {
+        ...body,
+        expectedVersion: first.body.version,
+      }).expect(201);
+      expect(replay.body).toEqual(first.body);
+      await replace(session.id, source.id, {
+        ...body,
+        notes: 'Changed intent',
+      }).expect(409);
+      await replace(session.id, source.id, {
+        ...body,
+        id: randomUUID(),
+        expectedVersion: first.body.version,
+      }).expect(409);
+      expect(
+        await prisma.workoutExercise.count({
+          where: { replacesWorkoutExerciseId: source.id },
+        }),
+      ).toBe(1);
+      const completed = await post(`${root}/${session.id}/complete`, {
+        expectedVersion: first.body.version,
+        confirmWithoutResults: true,
+      }).expect(200);
+      const afterCompletion = await replace(session.id, source.id, body).expect(
+        201,
+      );
+      expect(afterCompletion.body).toEqual(completed.body);
+    });
+
+    it('serializes competing substitutions and preserves exactly one source link', async () => {
+      const { session, source } = await activePlanSession();
+      const results = await Promise.all(
+        [randomUUID(), randomUUID()].map((id) =>
+          replace(session.id, source.id, {
+            id,
+            exerciseId: row,
+            expectedVersion: session.version,
+          }),
+        ),
+      );
+      expect(results.map((item) => item.status).sort((a, b) => a - b)).toEqual([
+        201, 409,
+      ]);
+      expect(
+        await prisma.workoutExercise.count({
+          where: { replacesWorkoutExerciseId: source.id },
+        }),
+      ).toBe(1);
+      const detail = await get(`${root}/${session.id}`).expect(200);
+      expect(detail.body.version).toBe(session.version + 1);
+    });
+
+    it('rejects stale versions, same exercise, unavailable catalog IDs and foreign sources without modifying the source', async () => {
+      const { session, source } = await activePlanSession();
+      const foreignSource = await activePlanSession();
+      const body = {
+        id: randomUUID(),
+        exerciseId: row,
+        expectedVersion: session.version,
+      };
+      await replace(session.id, source.id, {
+        ...body,
+        expectedVersion: session.version - 1,
+      }).expect(409);
+      await replace(session.id, source.id, {
+        ...body,
+        exerciseId: press,
+      }).expect(400);
+      await replace(session.id, source.id, {
+        ...body,
+        exerciseId: randomUUID(),
+      }).expect(404);
+      await replace(session.id, foreignSource.source.id, body).expect(404);
+      await replace(session.id, source.id, body, other).expect(404);
+      const catalog = await prisma.exercise.findUniqueOrThrow({
+        where: { id: row },
+      });
+      const privateExercise = await prisma.exercise.create({
+        data: {
+          name: 'Foreign replacement',
+          equipment: 'Barra',
+          primaryMuscleGroupId: catalog.primaryMuscleGroupId,
+          origin: 'PERSONAL',
+          ownerId: other.userId,
+        },
+      });
+      await replace(session.id, source.id, {
+        ...body,
+        exerciseId: privateExercise.id,
+      }).expect(404);
+      const detail = await get(`${root}/${session.id}`).expect(200);
+      expect(detail.body).toEqual(session);
+    });
+
+    it('requires an active session and a precise body without copied plan or target fields', async () => {
+      const { session, source } = await activePlanSession();
+      const body = {
+        id: randomUUID(),
+        exerciseId: row,
+        expectedVersion: session.version,
+      };
+      for (const extra of [
+        { targetLoad: '80' },
+        { prescriptionId: source.original.source.id },
+        { replacesWorkoutExerciseId: source.id },
+      ])
+        await replace(session.id, source.id, { ...body, ...extra }).expect(400);
+      await replace(session.id, source.id, {
+        id: randomUUID(),
+        exerciseId: row,
+      }).expect(400);
+      await post(`${root}/${session.id}/cancel`, {
+        expectedVersion: session.version,
+      }).expect(200);
+      await replace(session.id, source.id, {
+        ...body,
+        expectedVersion: session.version + 1,
+      }).expect(409);
+      const prepared = await create();
+      const added = await post(`${root}/${prepared.body.id}/exercises`, {
+        id: randomUUID(),
+        exerciseId: press,
+        expectedVersion: prepared.body.version,
+      }).expect(201);
+      await replace(prepared.body.id, added.body.exercises[0].id, {
+        ...body,
+        expectedVersion: added.body.version,
+      }).expect(409);
+    });
+  });
   describe('R2-A origin, association and safe calendar', () => {
     it('prepares independent Push and Pull sessions using exclusively the chosen day', async () => {
       const { plan, week, push, pull } = await planning();
@@ -546,6 +858,103 @@ isolated('R2 daily training with isolated PostgreSQL', () => {
         version: started.body.version as number,
       };
     }
+    it('persists optional RIR independently, preserves omitted edits and legacy retries, and clears non-results', async () => {
+      const session = await ready();
+      const path = `${root}/${session.id}/exercises/${session.exerciseId}/sets`;
+      const input = {
+        id: randomUUID(),
+        expectedVersion: session.version,
+        setNumber: 1,
+        repetitions: 8,
+        load: '60',
+        loadUnit: 'KG',
+        status: 'COMPLETED',
+        kind: 'WORK',
+        rpe: 7,
+      };
+      let result = await post(path, input).expect(201);
+      expect(result.body.exercises[0].sets[0]).toMatchObject({
+        rir: null,
+        rpe: 7,
+      });
+      const edit = async (fields: object) => {
+        const current = result.body.exercises[0].sets[0];
+        result = await patch(`${path}/${input.id}`, {
+          ...input,
+          id: undefined,
+          expectedVersion: result.body.version,
+          expectedSetVersion: current.version,
+          ...fields,
+        }).expect(200);
+        return result.body.exercises[0].sets[0];
+      };
+      expect(await edit({ rir: '4_PLUS' })).toMatchObject({
+        rir: '4_PLUS',
+        rpe: 7,
+      });
+      expect(await edit({ repetitions: 7 })).toMatchObject({
+        rir: '4_PLUS',
+        rpe: 7,
+      });
+      const replay = await post(path, input).expect(201);
+      expect(replay.body.exercises[0].sets[0].rir).toBe('4_PLUS');
+      await post(path, { ...input, rir: '4_PLUS' }).expect(409);
+      expect(await edit({ rir: '0' })).toMatchObject({ rir: '0', rpe: 7 });
+      expect(await edit({ rir: null })).toMatchObject({ rir: null, rpe: 7 });
+      await edit({ rir: '2' });
+      expect(
+        await edit({
+          status: 'PENDING',
+          repetitions: null,
+          load: null,
+          loadUnit: null,
+          rpe: null,
+        }),
+      ).toMatchObject({ rir: null, rpe: null });
+      const openInput = {
+        ...input,
+        id: randomUUID(),
+        setNumber: 2,
+        expectedVersion: result.body.version,
+        rir: '4_PLUS',
+        rpe: null,
+      };
+      const duplicates = await Promise.all([
+        post(path, openInput),
+        post(path, openInput),
+      ]);
+      expect(duplicates.map((item) => item.status)).toEqual([201, 201]);
+      result = duplicates[0];
+      expect(result.body.exercises[0].sets[1]).toMatchObject({
+        rir: '4_PLUS',
+        rpe: null,
+      });
+      await post(path, { ...openInput, rir: '0' }).expect(409);
+      for (const rir of ['4', 4])
+        await post(path, {
+          ...openInput,
+          id: randomUUID(),
+          setNumber: 3,
+          expectedVersion: result.body.version,
+          rir,
+        }).expect(400);
+      for (const status of ['PENDING', 'SKIPPED'])
+        await post(path, {
+          id: randomUUID(),
+          setNumber: 3,
+          expectedVersion: result.body.version,
+          kind: 'WORK',
+          status,
+          rir: '0',
+        }).expect(400);
+      await get(`${root}/${session.id}`, other).expect(404);
+      const completed = await post(`${root}/${session.id}/complete`, {
+        expectedVersion: result.body.version,
+      }).expect(200);
+      expect(completed.body.exercises[0].sets[1].rir).toBe('4_PLUS');
+      const repeated = await create({ repeatFromId: session.id });
+      expect(repeated.body.exercises[0].sets).toEqual([]);
+    });
     it('records different repetitions, loads and units, persists through reads, and freezes completed results', async () => {
       const session = await ready();
       const path = `${root}/${session.id}/exercises/${session.exerciseId}/sets`;

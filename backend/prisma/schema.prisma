@@ -579,6 +579,7 @@ model SetRecord {
   version             Int               @default(0)
   repetitions         Int?
   rpe                 Decimal?          @db.Decimal(3, 1)
+  rir                 String?           @db.VarChar(6)
   isCompleted         Boolean           @default(true) @map("is_completed")
   recordedAt          DateTime          @default(now()) @map("recorded_at") @db.Timestamptz(6)
   notes               String?           @db.Text

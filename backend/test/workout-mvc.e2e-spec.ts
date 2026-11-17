@@ -83,6 +83,7 @@ isolated('MVC-4 workout contracts with isolated PostgreSQL', () => {
         loadKg: null,
         repetitions: 8,
         rpe: 7.5,
+        rir: null,
         kind: null,
         status: null,
         isCompleted: false,
