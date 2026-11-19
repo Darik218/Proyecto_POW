@@ -94,6 +94,19 @@ const progressiveContext = z
         timeZone: z.string().nullable(),
       }),
     ),
+    comparability: z
+      .object({
+        state: z.enum([
+          "AUTOMATIC_VERIFIED",
+          "USER_CONFIRMED",
+          "CONFIRMATION_REQUIRED",
+          "NOT_COMPARABLE",
+        ]),
+        source: z
+          .enum(["PLANNED_NOMINAL_LOAD", "REQUEST_DECLARATION"])
+          .nullable(),
+      })
+      .optional(),
     policyContract: z.literal("session-repetition-preview-v2"),
     executionAuthorized: z.literal(false),
   })

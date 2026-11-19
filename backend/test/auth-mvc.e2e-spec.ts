@@ -15,6 +15,8 @@ import { ModulesContainer } from '@nestjs/core';
 import { AuthController } from '../src/controllers/auth/auth.controller';
 import { AuthPresenter } from '../src/views/auth/auth.presenter';
 import { AuthAccount } from '../src/models/auth/auth-account.model';
+import { activeActor } from '../src/progression/recommendation-review.persistence';
+import { PrismaWorkoutProgressRepository } from '../src/workout-sessions/prisma-workout-progress.repository';
 import {
   AUTH_REPOSITORY,
   type AuthRepository,
@@ -58,6 +60,11 @@ isolated('MVC-5 auth characterization with isolated PostgreSQL', () => {
       .post('/api/v1/auth/refresh')
       .set('Origin', ORIGIN)
       .set('X-CSRF-Token', auth.body.csrfToken)
+      .set('Cookie', csrf(auth));
+  const context = (auth: Login) =>
+    http()
+      .post('/api/v1/auth/context')
+      .set('Origin', ORIGIN)
       .set('Cookie', csrf(auth));
   const logout = (auth: Login) =>
     http()
@@ -154,8 +161,11 @@ isolated('MVC-5 auth characterization with isolated PostgreSQL', () => {
 
   it('bootstraps current CSRF and stable non-credential context without rotating or writing a session', async () => {
     const first = await register();
-    const read = (cookies: string, origin = ORIGIN) => http()
-      .post('/api/v1/auth/context').set('Origin', origin).set('Cookie', cookies);
+    const read = (cookies: string, origin = ORIGIN) =>
+      http()
+        .post('/api/v1/auth/context')
+        .set('Origin', origin)
+        .set('Cookie', cookies);
     const before = await session(first);
     const result = await read(csrf(first)).expect(200);
     expect(Object.keys(result.body).sort()).toEqual(['contextId', 'csrfToken']);
@@ -166,15 +176,22 @@ isolated('MVC-5 auth characterization with isolated PostgreSQL', () => {
     expect(result.headers['set-cookie']).toBeUndefined();
     expect(await session(first)).toEqual(before);
     await read(csrf(first), 'https://foreign.test').expect(403);
-    await http().post('/api/v1/auth/context').set('Cookie', csrf(first)).expect(403);
+    await http()
+      .post('/api/v1/auth/context')
+      .set('Cookie', csrf(first))
+      .expect(403);
     await read('pow_csrf=only-csrf').expect(401);
     await read(first.cookie).expect(401);
     const rotated = from(await refresh(first).expect(200), first.email);
-    expect((await read(csrf(rotated)).expect(200)).body.contextId).toBe(result.body.contextId);
+    expect((await read(csrf(rotated)).expect(200)).body.contextId).toBe(
+      result.body.contextId,
+    );
     await read(csrf(first)).expect(401);
     expect((await session(first)).revokedAt).toBeNull();
     const replacement = await login(first);
-    expect((await read(csrf(replacement)).expect(200)).body.contextId).not.toBe(result.body.contextId);
+    expect((await read(csrf(replacement)).expect(200)).body.contextId).not.toBe(
+      result.body.contextId,
+    );
     await logout(rotated).expect(204);
     await read(csrf(rotated)).expect(401);
   });
@@ -225,17 +242,17 @@ isolated('MVC-5 auth characterization with isolated PostgreSQL', () => {
       'sid',
       'sub',
     ]);
-    // The response expiry uses the clock before createSession persistence; JWT iat
-    // is sampled afterwards and rounded to seconds. A DB round-trip may cross a second.
+    // JWT times have whole-second precision and come from the post-persistence clock.
     expect(Date.parse(auth.body.accessTokenExpiresAt)).toBeGreaterThanOrEqual(
-      requestStartedAt + 900000,
+      requestStartedAt + 899001,
     );
     expect(Date.parse(auth.body.accessTokenExpiresAt)).toBeLessThanOrEqual(
       requestFinishedAt + 900000,
     );
-    expect((await me(auth.body.accessToken).expect(200)).body).toEqual(
-      auth.body.user,
-    );
+    const profile = await me(auth.body.accessToken).expect(200);
+    expect(profile.body).toEqual(auth.body.user);
+    expect(profile.headers['cache-control']).toContain('no-store');
+
     await http()
       .post('/api/v1/auth/register')
       .set('Origin', ORIGIN)
@@ -413,15 +430,13 @@ isolated('MVC-5 auth characterization with isolated PostgreSQL', () => {
       const auth = await register();
       const initial = await session(auth);
       expect(initial.expiresAt.getTime() - initial.createdAt.getTime()).toBe(
-        7 * 86400000,
+        8 * 3600000,
       );
-      expect(
-        initial.absoluteExpiresAt.getTime() - initial.createdAt.getTime(),
-      ).toBe(30 * 86400000);
+      expect(initial.absoluteExpiresAt).toEqual(initial.expiresAt);
       await prisma.authSession.update({
         where: { id: sid(auth) },
         data: {
-          createdAt: new Date(Date.now() - 40 * 86400000),
+          createdAt: new Date(Date.now() - 60_000),
           ...(kind === 'idle'
             ? { expiresAt: new Date(Date.now() - 1000) }
             : { absoluteExpiresAt: new Date(Date.now() - 1000) }),
@@ -432,6 +447,114 @@ isolated('MVC-5 auth characterization with isolated PostgreSQL', () => {
       expect((await session(auth)).revokedAt).not.toBeNull();
     },
   );
+
+  it('caps a still-live legacy row and its cookies when rotating shortly before eight hours', async () => {
+    const auth = await register();
+    const createdAt = new Date(Date.now() - (8 * 60 - 5) * 60_000);
+    const deadline = new Date(createdAt.getTime() + 8 * 3600000);
+    await prisma.authSession.update({
+      where: { id: sid(auth) },
+      data: {
+        createdAt,
+        expiresAt: new Date(createdAt.getTime() + 7 * 86400000),
+        absoluteExpiresAt: new Date(createdAt.getTime() + 30 * 86400000),
+      },
+    });
+    await me(auth.body.accessToken).expect(200);
+    await context(auth).expect(200);
+    const result = await refresh(auth).expect(200);
+    const rotated = from(result, auth.email);
+    expect(sid(rotated)).toEqual(sid(auth));
+    expect(Date.parse(rotated.body.accessTokenExpiresAt)).toBe(
+      deadline.getTime(),
+    );
+    expect(result.headers['cache-control']).toContain('no-store');
+    const cookies = result.headers['set-cookie'] as unknown as string[];
+    expect(cookies).toHaveLength(2);
+    for (const value of cookies)
+      expect(value).toContain('Expires=' + deadline.toUTCString());
+    const current = await session(rotated);
+    expect(current.createdAt).toEqual(createdAt);
+    expect(current.expiresAt).toEqual(deadline);
+    expect(current.absoluteExpiresAt).toEqual(deadline);
+    expect(current.generation).toBe(1);
+    await me(rotated.body.accessToken).expect(200);
+  });
+
+  it('rejects an active-looking legacy row through context, bearer and rotation after eight hours', async () => {
+    const old = await register();
+    const other = await login(old);
+    const createdAt = new Date(Date.now() - 8 * 3600000 - 1000);
+    await prisma.authSession.update({
+      where: { id: sid(old) },
+      data: {
+        createdAt,
+        expiresAt: new Date(createdAt.getTime() + 7 * 86400000),
+        absoluteExpiresAt: new Date(createdAt.getTime() + 30 * 86400000),
+      },
+    });
+    expect(
+      verify(old.body.accessToken, config.accessTokenSecret),
+    ).toMatchObject({
+      sid: sid(old),
+    });
+    await me(old.body.accessToken).expect(401, {
+      message: 'Authentication required.',
+      error: 'Unauthorized',
+      statusCode: 401,
+    });
+    await expect(
+      prisma.$transaction((tx) => activeActor(tx, old.body.user.id, sid(old))),
+    ).rejects.toMatchObject({ code: 'AUTHENTICATION_REQUIRED' });
+    await expect(
+      new PrismaWorkoutProgressRepository(prisma).read(
+        old.body.user.id,
+        sid(old),
+        {
+          period: 'all',
+          from: null,
+          to: new Date().toISOString().slice(0, 10),
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'AUTHENTICATION_REQUIRED' });
+    const pageRestoration = await context(old).expect(401);
+    expect(pageRestoration.headers['set-cookie']).toBeUndefined();
+    const rejected = await refresh(old).expect(401, {
+      message: 'Refresh session is invalid.',
+      error: 'Unauthorized',
+      statusCode: 401,
+    });
+    expect(rejected.headers['set-cookie']).toBeUndefined();
+    const expired = await session(old);
+    expect(expired.generation).toBe(0);
+    expect(expired.revokedAt).not.toBeNull();
+    await me(other.body.accessToken).expect(200);
+    const renewedLogin = await login(old);
+    expect(sid(renewedLogin)).not.toEqual(sid(old));
+    await me(renewedLogin.body.accessToken).expect(200);
+  });
+
+  it('includes Secure, SameSite=Strict and the original deadline in production cookies', async () => {
+    const replacement = jest.replaceProperty(config, 'cookieSecure', true);
+    try {
+      const auth = await register();
+      const result = await refresh(auth).expect(200);
+      const cookies = result.headers['set-cookie'] as unknown as string[];
+      expect(cookies).toHaveLength(2);
+      const deadline = (await session(auth)).absoluteExpiresAt;
+      for (const value of cookies) {
+        expect(value).toContain('Path=/api/v1/auth;');
+        expect(value).toContain('Secure');
+        expect(value).toContain('SameSite=Strict');
+        expect(value).toContain('Expires=' + deadline.toUTCString());
+      }
+      expect(
+        cookies.find((value) => value.startsWith('pow_refresh=')),
+      ).toContain('HttpOnly');
+    } finally {
+      replacement.restore();
+    }
+  });
 
   it('caps idle expiry at the absolute deadline without extending the absolute lifetime', async () => {
     const auth = await register();
@@ -505,8 +628,7 @@ isolated('MVC-5 auth characterization with isolated PostgreSQL', () => {
       repository.rotateRefreshToken({
         previousHash: hash(first),
         nextHash: hash(other),
-        now: new Date(),
-        nextIdleExpiry: new Date(Date.now() + 7 * 86400000),
+        idleTtlMs: config.idleTtlMs,
       }),
     ).rejects.toMatchObject({ code: 'P2002' });
     expect(

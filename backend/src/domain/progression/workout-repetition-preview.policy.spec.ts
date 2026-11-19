@@ -1,6 +1,7 @@
 import { context } from '../../../test/helpers/recommendation-fixtures';
 import type { WorkoutGuideSource } from '../../models/progression/workout-guide.model';
 import {
+  automaticRepetitionPreview,
   prepareRepetitionContext,
   repetitionPreview,
 } from './workout-repetition-preview.policy';
@@ -373,6 +374,103 @@ describe('versioned comparable prescription evidence', () => {
     );
     return f;
   }
+  function plannedSmith(
+    f: ReturnType<typeof variableSets>,
+    changes: { exerciseId?: string; equipment?: string; planId?: string } = {},
+  ) {
+    f.source.trainingPlanId = 'plan';
+    return {
+      exercise: {
+        id: 'exercise',
+        catalogKey: 'press-vertical-smith',
+        origin: 'GLOBAL',
+        equipment: 'Máquina Smith y banco',
+        equipmentType: 'SMITH_MACHINE',
+        machineType: 'SMITH',
+        resistanceType: 'PLATE_LOADED',
+      },
+      destinationCaptured: true,
+      tasks: f.c.history.tasks.map((task) => ({
+        taskId: task.id,
+        exerciseId: changes.exerciseId ?? 'exercise',
+        equipment: changes.equipment ?? 'Máquina Smith y banco',
+        planId: changes.planId ?? 'plan',
+      })),
+    };
+  }
+  function prepareAutomatic(
+    f: ReturnType<typeof variableSets>,
+    evidence = plannedSmith(f),
+  ) {
+    return prepareRepetitionContext(
+      f.c,
+      f.source,
+      '2026-01-14',
+      f.c.target.targets,
+      undefined,
+      'session-repetition-preview-v2',
+      evidence,
+    );
+  }
+  it('automatically compares canonical Smith prescriptions and keeps the recording nominal', () => {
+    const f = variableSets();
+    f.c.history.sets = f.c.history.sets.map((set) => ({
+      ...set,
+      repetitions: [10, 9, 8][set.setNumber - 1],
+    }));
+    const prepared = prepareAutomatic(f);
+    expect(prepared.comparability).toEqual({
+      state: 'AUTOMATIC_VERIFIED',
+      source: 'PLANNED_NOMINAL_LOAD',
+    });
+    expect(automaticRepetitionPreview(f.c, f.source, prepared)).toMatchObject({
+      origin: 'CALCULATED',
+      load: '60.000000',
+      repsBySet: [10, 9, 9],
+      executionAuthorized: false,
+      reason: expect.stringContaining('serie 3'),
+    });
+  });
+  it.each([
+    { exerciseId: 'different-exercise' },
+    { equipment: 'Otra máquina' },
+    { planId: 'another-plan' },
+  ])(
+    'requires declaration if verified nominal evidence differs: %j',
+    (changed) => {
+      const f = variableSets();
+      const prepared = prepareAutomatic(f, plannedSmith(f, changed));
+      expect(prepared.comparability).toEqual({
+        state: 'CONFIRMATION_REQUIRED',
+        source: null,
+      });
+      expect(automaticRepetitionPreview(f.c, f.source, prepared)).toBeNull();
+    },
+  );
+  it('uses a verified monotonic trend conservatively and refuses contradictory slots', () => {
+    const f = variableSets();
+    f.c.history.sets = f.c.history.sets.map((set) => ({
+      ...set,
+      repetitions:
+        set.workoutExerciseId === 'a'
+          ? [9, 9, 8][set.setNumber - 1]
+          : [10, 9, 8][set.setNumber - 1],
+    }));
+    const prepared = prepareAutomatic(f);
+    expect(prepared.ready).toBe(true);
+    expect(automaticRepetitionPreview(f.c, f.source, prepared)).toMatchObject({
+      repsBySet: [10, 9, 9],
+      reasons: expect.arrayContaining(['COMPARABLE_SESSIONS_IMPROVING']),
+    });
+    f.c.history.sets.find(
+      (set) => set.workoutExerciseId === 'a' && set.setNumber === 2,
+    )!.repetitions = 10;
+    expect(prepareAutomatic(f)).toMatchObject({
+      ready: false,
+      comparability: { state: 'NOT_COMPARABLE', source: null },
+      reasons: ['HISTORY_REPETITIONS_INCONSISTENT'],
+    });
+  });
   it('advances one ordered work slot after 60 kg × 12/11/9 with stable comparable evidence', () => {
     const f = variableSets();
     const before = JSON.stringify(f.c);

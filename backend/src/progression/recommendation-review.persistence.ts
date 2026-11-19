@@ -1,4 +1,5 @@
 // Part of the existing PrismaProgressionRepository, not a second repository/provider.
+import { sessionCreationCutoff } from '../domain/auth/session-lifetime.policy';
 import { Prisma } from '../generated/prisma/client';
 import type { PrismaService } from '../database/prisma.service';
 import type {
@@ -53,9 +54,10 @@ function event(
   };
 }
 export async function activeActor(tx: Tx, userId: string, sessionId: string) {
+  const now = new Date();
   const result = await tx.$queryRaw<
     { athleteId: string }[]
-  >`SELECT a.id AS "athleteId" FROM athletes a JOIN users u ON u.id=a.user_id JOIN auth_sessions s ON s.user_id=u.id WHERE u.id=${userId}::uuid AND s.id=${sessionId}::uuid AND u.status='ACTIVE' AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp()`;
+  >`SELECT a.id AS "athleteId" FROM athletes a JOIN users u ON u.id=a.user_id JOIN auth_sessions s ON s.user_id=u.id WHERE u.id=${userId}::uuid AND s.id=${sessionId}::uuid AND u.status='ACTIVE' AND s.revoked_at IS NULL AND s.expires_at>${now}::timestamptz AND s.absolute_expires_at>${now}::timestamptz AND s.created_at>${sessionCreationCutoff(now)}::timestamptz`;
   if (!result[0]) throw new Failure('AUTHENTICATION_REQUIRED');
   return result[0];
 }

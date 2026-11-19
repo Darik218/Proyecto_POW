@@ -44,7 +44,7 @@ const hotfix = uiFinal && process.env.PULSO_BROWSER_HOTFIX === "1";
 const evidenceRoot = resolve(
   "../..",
   hotfix
-    ? "hotfix-1-validation/browser"
+    ? "hotfix-2-validation/browser"
     : uiFinal
       ? "ui-final-validation/browser"
       : "prog7-validation/browser",

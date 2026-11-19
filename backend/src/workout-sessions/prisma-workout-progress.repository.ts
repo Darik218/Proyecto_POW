@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { sessionCreationCutoff } from '../domain/auth/session-lifetime.policy';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import type {
@@ -31,9 +32,10 @@ export class PrismaWorkoutProgressRepository implements WorkoutProgressRepositor
     return this.prisma.$transaction(
       async (tx) => {
         await tx.$executeRaw`SET TRANSACTION READ ONLY`;
+        const now = new Date();
         const actors = await tx.$queryRaw<
           { athleteId: string }[]
-        >`SELECT a.id AS "athleteId" FROM athletes a JOIN users u ON u.id=a.user_id JOIN auth_sessions s ON s.user_id=u.id WHERE u.id=${userId}::uuid AND s.id=${sessionId}::uuid AND u.status='ACTIVE' AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp()`;
+        >`SELECT a.id AS "athleteId" FROM athletes a JOIN users u ON u.id=a.user_id JOIN auth_sessions s ON s.user_id=u.id WHERE u.id=${userId}::uuid AND s.id=${sessionId}::uuid AND u.status='ACTIVE' AND s.revoked_at IS NULL AND s.expires_at>${now}::timestamptz AND s.absolute_expires_at>${now}::timestamptz AND s.created_at>${sessionCreationCutoff(now)}::timestamptz`;
         const athleteId = actors[0]?.athleteId;
         if (!athleteId)
           throw new WorkoutProgressError('AUTHENTICATION_REQUIRED');

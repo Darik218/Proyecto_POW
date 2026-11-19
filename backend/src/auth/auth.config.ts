@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { SESSION_ABSOLUTE_TTL_MS } from '../domain/auth/session-lifetime.policy';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -39,7 +40,7 @@ export class AuthConfig {
   readonly cookieSecure: boolean;
   readonly accessTokenTtlSeconds = 15 * 60;
   readonly idleTtlMs = 7 * DAY_MS;
-  readonly absoluteTtlMs = 30 * DAY_MS;
+  readonly absoluteTtlMs = SESSION_ABSOLUTE_TTL_MS;
   readonly refreshCookieName = 'pow_refresh';
   readonly csrfCookieName = 'pow_csrf';
   readonly cookiePath = '/api/v1/auth';
@@ -67,6 +68,5 @@ export class AuthConfig {
     if (env.NODE_ENV === 'production' && !this.cookieSecure) {
       throw new Error('AUTH_COOKIE_SECURE must be true in production.');
     }
-
   }
 }

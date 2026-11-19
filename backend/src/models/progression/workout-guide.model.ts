@@ -163,7 +163,32 @@ export type GuideProposalAssessment = {
   performedOn: string | null;
 };
 
+export type GuideRepetitionComparability =
+  | { state: 'AUTOMATIC_VERIFIED'; source: 'PLANNED_NOMINAL_LOAD' }
+  | { state: 'USER_CONFIRMED'; source: 'REQUEST_DECLARATION' }
+  | { state: 'CONFIRMATION_REQUIRED' | 'NOT_COMPARABLE'; source: null };
+
+export type GuidePlannedComparisonEvidence = {
+  exercise: {
+    id: string;
+    catalogKey: string | null;
+    origin: string;
+    equipment: string;
+    equipmentType: string;
+    machineType: string | null;
+    resistanceType: string | null;
+  };
+  destinationCaptured: boolean;
+  tasks: {
+    taskId: string;
+    exerciseId: string;
+    equipment: string;
+    planId: string;
+  }[];
+};
+
 export type GuideRepetitionContext = {
+  comparability?: GuideRepetitionComparability;
   historyCutoffOn?: string;
   contextKey: string | null;
   comparisonKey: string | null;
@@ -188,6 +213,7 @@ export type GuideComparisonSourceEvidence = {
   originalExerciseId: string | null;
   replacesWorkoutExerciseId: string | null;
   isOmitted: boolean;
+  equipmentKey?: string;
 };
 export type WorkoutGuideRepetitionPreviewInput = {
   source: WorkoutGuideQuery;

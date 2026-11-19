@@ -11,7 +11,7 @@ import {
 type Exercise = WorkoutGuide["exercises"][number];
 type Reference = NonNullable<Exercise["lastReference"]>;
 type Target = Exercise["target"];
-const props = defineProps<{ exercise: Exercise }>();
+const props = defineProps<{ exercise: Exercise; verifying?: boolean }>();
 const preparation = computed(() => props.exercise.preparation);
 const before = computed(() =>
   preparation.value ? preparation.value.before : props.exercise.lastReference,
@@ -36,6 +36,14 @@ const calculated = computed(
     draft.value?.origin === "PERSISTED_PROPOSAL",
 );
 const proposal = computed(() => props.exercise.proposal);
+const comparisonLabel = computed(() => {
+  const decision = props.exercise.progressiveContext?.comparability;
+  if (decision?.state === "AUTOMATIC_VERIFIED")
+    return "Comparación verificada automáticamente para la carga registrada.";
+  if (decision?.state === "USER_CONFIRMED")
+    return "Comparación confirmada para estos registros.";
+  return undefined;
+});
 const setupReasons = new Set([
   "SETTING_REQUIRED",
   "CONFIGURATION_REQUIRED",
@@ -65,6 +73,8 @@ const needsLoadSetup = computed(
 
 const primaryReason = computed(() => {
   if (calculated.value) {
+    const actualReason = props.exercise.guidanceSuggested?.reason.trim();
+    if (actualReason) return actualReason;
     if (stage.value === "REPETITION_DRAFT") {
       const reason = preparation.value?.why.find((code) =>
         ["REPETITION_TARGET_ADVANCE", "REPETITION_RANGE_COMPLETED"].includes(
@@ -77,10 +87,6 @@ const primaryReason = computed(() => {
       return "Tus registros cumplen el objetivo y el incremento cabe en tus ajustes de carga.";
     return "El historial y el objetivo actual respaldan este borrador.";
   }
-  if (before.value?.scope === "FREE_SESSION")
-    return "Referencia de entrenamiento libre. Úsala para elegir tus valores si el equipo y la forma de anotar el peso coinciden.";
-  if (before.value?.scope === "OTHER_CONTEXT")
-    return workoutGuideReason("CONTEXTUAL_HISTORY_ONLY");
   if (stage.value === "REPETITION_READY")
     return workoutGuideReason("COMPARABILITY_DECLARATION_REQUIRED");
 
@@ -91,6 +97,10 @@ const primaryReason = computed(() => {
       code !== "NO_ELIGIBLE_HISTORY",
   );
   if (main) return workoutGuideReason(main);
+  if (before.value?.scope === "FREE_SESSION")
+    return "Referencia de entrenamiento libre. Úsala para elegir tus valores si el equipo y la forma de anotar el peso coinciden.";
+  if (before.value?.scope === "OTHER_CONTEXT")
+    return workoutGuideReason("CONTEXTUAL_HISTORY_ONLY");
   if (stage.value === "REVIEW_REQUIRED")
     return before.value
       ? "Revisa el registro antes de reutilizarlo."
@@ -112,13 +122,7 @@ const draftLabel = computed(() => {
 });
 
 const detailReason = computed(() => {
-  if (initial.value) return undefined;
-  if (calculated.value) {
-    // The repetition policy's prose identifies the specific work set advanced.
-    return draft.value?.repsBySet?.length
-      ? props.exercise.guidanceSuggested?.reason
-      : undefined;
-  }
+  if (initial.value || calculated.value) return undefined;
   const codes = [
     ...blockerCodes.value,
     ...(preparation.value?.why ?? props.exercise.guidance.reasons),
@@ -217,7 +221,10 @@ function sessionSets(recorded: Reference["sessions"][number]["sets"]): string {
     <template v-else>
       <p class="preparation-draft" :data-origin="draft?.origin">
         <strong>Para esta sesión</strong>
-        <template v-if="draft && stage !== 'REVIEW_REQUIRED'">
+        <span v-if="verifying && !calculated" role="status">
+          Verificando la orientación…
+        </span>
+        <template v-else-if="draft && stage !== 'REVIEW_REQUIRED'">
           <span class="preparation-draft-values">{{ draftLabel }}</span>
           <span class="preparation-hint">
             {{
@@ -237,7 +244,12 @@ function sessionSets(recorded: Reference["sessions"][number]["sets"]): string {
           realices.</span
         >
       </p>
-      <p v-if="primaryReason" class="preparation-hint">{{ primaryReason }}</p>
+      <p
+        v-if="primaryReason && (!verifying || calculated)"
+        class="preparation-hint"
+      >
+        <strong>Por qué</strong>{{ primaryReason }}
+      </p>
       <slot name="comparison" />
     </template>
     <details
@@ -245,6 +257,7 @@ function sessionSets(recorded: Reference["sessions"][number]["sets"]): string {
       class="preparation-why"
     >
       <summary>Ver explicación</summary>
+      <p v-if="comparisonLabel">{{ comparisonLabel }}</p>
       <p v-if="detailReason">{{ detailReason }}</p>
       <p v-if="needsLoadSetup">
         Para evaluar un aumento de peso, revisa los incrementos y la unidad en

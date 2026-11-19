@@ -13,16 +13,14 @@ installAuthInterceptors({
   getAccessToken: () => auth.accessToken,
   getSessionGeneration: () => auth.getSessionGeneration(),
   refreshSession: () => auth.refreshSession(),
-  clearSession: () => {
-    auth.clearSession()
-    if (router.currentRoute.value.meta.requiresAuth) {
-      void router.replace({ name: 'login', query: { reason: 'session-expired' } })
-    }
-  },
+  clearSession: () => auth.clearSession(),
 })
 watch(() => auth.status, (status) => {
   if (status === 'anonymous' && router.currentRoute.value.meta.requiresAuth) {
-    void router.replace({ name: 'login', query: { reason: 'session-expired' } })
+    void router.replace({
+      name: 'login',
+      query: { reason: 'session-expired', redirect: router.currentRoute.value.fullPath },
+    })
   }
 })
 app.use(router)

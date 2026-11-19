@@ -19,14 +19,16 @@ export type NewSession = {
 export type RotateSession = {
   previousHash: string;
   nextHash: string;
-  now: Date;
-  nextIdleExpiry: Date;
+  idleTtlMs: number;
 };
 
 export interface AuthRepository {
   createAccount(input: NewAccount): Promise<StoredAccount>;
   findAccountByEmail(email: string): Promise<StoredAccount | null>;
-  findActiveSessionByRefreshHash(tokenHash: string, now: Date): Promise<{ id: string } | null>;
+  findActiveSessionByRefreshHash(
+    tokenHash: string,
+    now: Date,
+  ): Promise<{ id: string } | null>;
   createSession(input: NewSession): Promise<{ id: string }>;
   rotateRefreshToken(input: RotateSession): Promise<RefreshOutcome>;
   findActiveSession(

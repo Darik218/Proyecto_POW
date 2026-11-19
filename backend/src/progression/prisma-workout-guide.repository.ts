@@ -14,6 +14,7 @@ import type {
   WorkoutGuideQuery,
   WorkoutGuideSnapshot,
   GuideComparisonSourceEvidence,
+  GuidePlannedComparisonEvidence,
 } from '../models/progression/workout-guide.model';
 import type { RecordedTargets } from '../models/progression/performance-analysis.model';
 import type { PersistedRecommendation } from '../models/progression/persisted-recommendation.model';
@@ -32,9 +33,11 @@ import type {
   WorkoutGuideRepetitionPreviewInput,
 } from '../models/progression/workout-guide.model';
 import {
+  automaticRepetitionPreview,
   prepareRepetitionContext,
   repetitionPreview,
 } from '../domain/progression/workout-repetition-preview.policy';
+import { recommendationIdentity } from '../domain/progression/recommendation-evidence.policy';
 import { validateRecommendationCommand } from '../domain/progression/recommendation-query.policy';
 import { readConsentSettings } from './automation-consent.sources';
 import {
@@ -60,6 +63,65 @@ function targets(p: {
     targetRpe: p.targetRpe?.toFixed(1) ?? null,
   };
 }
+const guideExerciseIdentity = {
+  id: true,
+  name: true,
+  origin: true,
+  catalogKey: true,
+  equipment: true,
+  equipmentType: true,
+  machineType: true,
+  resistanceType: true,
+} as const;
+
+function equipmentIdentity({
+  name: _name,
+  ...identity
+}: Prisma.ExerciseGetPayload<{
+  select: typeof guideExerciseIdentity;
+}>): GuidePlannedComparisonEvidence['exercise'] {
+  return identity;
+}
+
+function jsonObject(
+  value: Prisma.JsonValue | undefined,
+): Prisma.JsonObject | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : null;
+}
+
+function capturedPlanExercise(
+  snapshot: Prisma.JsonValue,
+  expected: {
+    planId: string | null;
+    weekId: string | null;
+    dayId: string | null;
+    prescriptionId: string | null;
+  },
+) {
+  const record = jsonObject(snapshot);
+  const source = jsonObject(record?.source);
+  const exercise = jsonObject(record?.exercise);
+  return expected.planId &&
+    expected.weekId &&
+    expected.dayId &&
+    expected.prescriptionId &&
+    source?.kind === 'PLAN_DAY' &&
+    source.id === expected.prescriptionId &&
+    jsonObject(source.plan)?.id === expected.planId &&
+    jsonObject(source.week)?.id === expected.weekId &&
+    jsonObject(source.day)?.id === expected.dayId &&
+    typeof exercise?.id === 'string' &&
+    typeof exercise.equipment === 'string'
+    ? {
+        exerciseId: exercise.id,
+        equipment: exercise.equipment,
+        planId: expected.planId,
+      }
+    : null;
+}
+
 @Injectable()
 export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
   constructor(
@@ -84,6 +146,14 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
         let source: WorkoutGuideSnapshot['source'];
         let occurrenceVersion: number | null = null;
         const sourceEvidence = new Map<string, GuideComparisonSourceEvidence>();
+        const equipment = new Map<
+          string,
+          GuidePlannedComparisonEvidence['exercise']
+        >();
+        const capturedDestinations = new Map<
+          string,
+          ReturnType<typeof capturedPlanExercise>
+        >();
         let status: WorkoutGuideSnapshot['status'] = 'TRAINABLE';
         let exercises: GuideExerciseSource[] = [];
         if (query.sessionId) {
@@ -92,7 +162,7 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
             include: {
               scheduledActivity: { select: { version: true } },
               exercises: {
-                include: { exercise: { select: { name: true } } },
+                include: { exercise: { select: guideExerciseIdentity } },
                 orderBy: { orderInSession: 'asc' },
               },
             },
@@ -105,6 +175,16 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
           occurrenceVersion = session.scheduledActivity?.version ?? null;
           for (const p of session.exercises) {
             const snapshot = p.originalSnapshot;
+            equipment.set(p.id, equipmentIdentity(p.exercise));
+            capturedDestinations.set(
+              p.id,
+              capturedPlanExercise(snapshot, {
+                planId: session.trainingPlanId,
+                weekId: session.planWeekId,
+                dayId: session.planDayId,
+                prescriptionId: p.planExerciseId,
+              }),
+            );
             const originalExercise =
               snapshot &&
               typeof snapshot === 'object' &&
@@ -186,7 +266,7 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
                     },
                   },
                   exercises: {
-                    include: { exercise: { select: { name: true } } },
+                    include: { exercise: { select: guideExerciseIdentity } },
                     orderBy: { position: 'asc' },
                   },
                 },
@@ -227,7 +307,10 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
                 : 'UNAVAILABLE'),
             title: activity?.title ?? day?.name ?? null,
           };
-          if (day && status === 'TRAINABLE')
+          if (day && status === 'TRAINABLE') {
+            day.exercises.forEach((p) =>
+              equipment.set(p.id, equipmentIdentity(p.exercise)),
+            );
             exercises = day.exercises.map((p) => ({
               id: p.id,
               exerciseId: p.exerciseId,
@@ -241,6 +324,7 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
               historyTruncated: false,
               candidates: [],
             }));
+          }
         }
         const today = source.timeZone
           ? new Intl.DateTimeFormat('en-CA', {
@@ -303,6 +387,7 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
                   performedOn: true,
                   timeZone: true,
                   trainingPlanId: true,
+                  planWeekId: true,
                   planDayId: true,
                 },
               },
@@ -485,30 +570,56 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
             destination,
             tx,
           );
+          const identity = equipment.get(exercise.id);
+          const captured = capturedDestinations.get(exercise.id);
+          const plannedEvidence: GuidePlannedComparisonEvidence | undefined =
+            identity
+              ? {
+                  exercise: identity,
+                  destinationCaptured:
+                    source.kind !== 'SESSION' ||
+                    (captured?.exerciseId === identity.id &&
+                      captured.equipment === identity.equipment),
+                  tasks: history.slice(0, 100).flatMap((task) => {
+                    const capture = capturedPlanExercise(
+                      task.originalSnapshot,
+                      {
+                        planId: task.session.trainingPlanId,
+                        weekId: task.session.planWeekId,
+                        dayId: task.session.planDayId,
+                        prescriptionId: task.planExerciseId,
+                      },
+                    );
+                    return capture ? [{ taskId: task.id, ...capture }] : [];
+                  }),
+                }
+              : undefined;
+          const provenance = {
+            ...(sourceEvidence.get(exercise.id) ?? {
+              occurrenceVersion,
+              originalExerciseId: exercise.exerciseId,
+              replacesWorkoutExerciseId: null,
+              isOmitted: exercise.isOmitted,
+            }),
+            ...(identity
+              ? { equipmentKey: recommendationIdentity(identity) }
+              : {}),
+          };
           exercise.repetitionContext = prepareRepetitionContext(
             analysis,
             source,
             cutoff,
             exercise.target,
-            sourceEvidence.get(exercise.id) ?? {
-              occurrenceVersion,
-              originalExerciseId: exercise.exerciseId,
-              replacesWorkoutExerciseId: null,
-              isOmitted: exercise.isOmitted,
-            },
+            provenance,
           );
           exercise.progressiveContext = prepareRepetitionContext(
             analysis,
             source,
             cutoff,
             exercise.target,
-            sourceEvidence.get(exercise.id) ?? {
-              occurrenceVersion,
-              originalExerciseId: exercise.exerciseId,
-              replacesWorkoutExerciseId: null,
-              isOmitted: exercise.isOmitted,
-            },
+            provenance,
             'session-repetition-preview-v2',
+            plannedEvidence,
           );
           if (
             status !== 'TRAINABLE' ||
@@ -524,6 +635,10 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
               'INCOMPLETE_WORKOUT_CONTEXT',
             );
             exercise.progressiveContext.ready = false;
+            exercise.progressiveContext.comparability = {
+              state: 'NOT_COMPARABLE',
+              source: null,
+            };
             exercise.progressiveContext.reasons.push(
               'INCOMPLETE_WORKOUT_CONTEXT',
             );
@@ -541,19 +656,30 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
                 : exercise.repetitionContext,
               preview,
             );
+            if (
+              exercise.repetitionSuggestion.origin === 'CALCULATED' &&
+              exercise.progressiveContext.comparability?.state ===
+                'CONFIRMATION_REQUIRED' &&
+              preview.policyContract === 'session-repetition-preview-v2'
+            )
+              exercise.progressiveContext.comparability = {
+                state: 'USER_CONFIRMED',
+                source: 'REQUEST_DECLARATION',
+              };
             continue;
           }
+          const automatic = automaticRepetitionPreview(
+            analysis,
+            source,
+            exercise.progressiveContext,
+          );
+          if (automatic) exercise.repetitionSuggestion = automatic;
           exercise.calculationContext = prepareGuideCalculationContext(
             analysis,
             source,
             cutoff,
             exercise.target,
-            sourceEvidence.get(exercise.id) ?? {
-              occurrenceVersion,
-              originalExerciseId: exercise.exerciseId,
-              replacesWorkoutExerciseId: null,
-              isOmitted: exercise.isOmitted,
-            },
+            provenance,
           );
           exercise.configurationReasons = [
             ...new Set([

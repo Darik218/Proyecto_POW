@@ -2,6 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { AuthAccount } from '../models/auth/auth-account.model';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import {
+  sessionCreationCutoff,
+  effectiveSessionDeadline,
+  sessionExpired,
+} from '../domain/auth/session-lifetime.policy';
 import { DuplicateEmailError } from './services/errors';
 import {
   AuthRepository,
@@ -55,21 +60,39 @@ function toStoredAccount(account: {
   };
 }
 
+function activeLifetimeWhere(now: Date): Prisma.AuthSessionWhereInput {
+  return {
+    revokedAt: null,
+    expiresAt: { gt: now },
+    absoluteExpiresAt: { gt: now },
+    createdAt: { gt: sessionCreationCutoff(now) },
+    user: { status: 'ACTIVE' },
+  };
+}
+
 @Injectable()
 export class PrismaAuthRepository implements AuthRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findActiveSessionByRefreshHash(tokenHash: string, now: Date): Promise<{ id: string } | null> {
-    return this.prisma.authSession.findFirst({
+  async findActiveSessionByRefreshHash(
+    tokenHash: string,
+    now: Date,
+  ): Promise<{ id: string } | null> {
+    const session = await this.prisma.authSession.findFirst({
       where: {
+        ...activeLifetimeWhere(now),
         refreshTokenHash: tokenHash,
-        revokedAt: null,
-        expiresAt: { gt: now },
-        absoluteExpiresAt: { gt: now },
-        user: { status: 'ACTIVE' },
       },
-      select: { id: true },
+      select: {
+        id: true,
+        createdAt: true,
+        expiresAt: true,
+        absoluteExpiresAt: true,
+      },
     });
+    return session && !sessionExpired(session, new Date())
+      ? { id: session.id }
+      : null;
   }
 
   async createAccount(input: NewAccount): Promise<StoredAccount> {
@@ -167,42 +190,48 @@ export class PrismaAuthRepository implements AuthRepository {
                 tokenFamilyId: reusedSession.tokenFamilyId,
                 revokedAt: null,
               },
-              data: { revokedAt: input.now },
+              data: { revokedAt: new Date() },
             });
           }
           return { kind: 'reused' };
         }
 
         if (current.revokedAt !== null) return { kind: 'invalid' };
-        if (
-          current.expiresAt <= input.now ||
-          current.absoluteExpiresAt <= input.now
-        ) {
+        // Sample the server clock after acquiring the lock and reading the account.
+        const account = await tx.user.findUnique({
+          where: { id: current.userId },
+        });
+        const now = new Date();
+        if (sessionExpired(current, now)) {
           await tx.authSession.updateMany({
             where: { id: current.id, revokedAt: null },
-            data: { revokedAt: input.now },
+            data: { revokedAt: now },
           });
           return { kind: 'expired' };
         }
 
-        const account = await tx.user.findUnique({
-          where: { id: current.userId },
-        });
         if (!account || account.status !== 'ACTIVE') {
           await tx.authSession.updateMany({
             where: { tokenFamilyId: current.tokenFamilyId, revokedAt: null },
-            data: { revokedAt: input.now },
+            data: { revokedAt: now },
           });
           return { kind: 'inactive' };
         }
 
+        const absoluteExpiresAt = effectiveSessionDeadline(current);
+        const expiresAt = new Date(
+          Math.min(
+            now.getTime() + input.idleTtlMs,
+            absoluteExpiresAt.getTime(),
+          ),
+        );
         await tx.authSessionToken.create({
           data: {
             sessionId: current.id,
             tokenHash: input.previousHash,
             generation: current.generation,
             createdAt: current.lastUsedAt,
-            consumedAt: input.now,
+            consumedAt: now,
           },
         });
         await tx.authSession.update({
@@ -210,13 +239,9 @@ export class PrismaAuthRepository implements AuthRepository {
           data: {
             refreshTokenHash: input.nextHash,
             generation: { increment: 1 },
-            lastUsedAt: input.now,
-            expiresAt: new Date(
-              Math.min(
-                input.nextIdleExpiry.getTime(),
-                current.absoluteExpiresAt.getTime(),
-              ),
-            ),
+            lastUsedAt: now,
+            expiresAt,
+            absoluteExpiresAt,
           },
         });
 
@@ -224,12 +249,7 @@ export class PrismaAuthRepository implements AuthRepository {
           kind: 'rotated',
           account: toPublicAccount(account),
           sessionId: current.id,
-          refreshExpiresAt: new Date(
-            Math.min(
-              input.nextIdleExpiry.getTime(),
-              current.absoluteExpiresAt.getTime(),
-            ),
-          ),
+          refreshExpiresAt: expiresAt,
         };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
@@ -245,10 +265,7 @@ export class PrismaAuthRepository implements AuthRepository {
       where: {
         id: sessionId,
         userId,
-        revokedAt: null,
-        expiresAt: { gt: now },
-        absoluteExpiresAt: { gt: now },
-        user: { status: 'ACTIVE' },
+        ...activeLifetimeWhere(now),
       },
       include: {
         user: {
@@ -262,12 +279,12 @@ export class PrismaAuthRepository implements AuthRepository {
         },
       },
     });
-    if (!session) return null;
+    if (!session || sessionExpired(session, new Date())) return null;
     return {
       id: session.id,
       userId: session.userId,
       expiresAt: session.expiresAt,
-      absoluteExpiresAt: session.absoluteExpiresAt,
+      absoluteExpiresAt: effectiveSessionDeadline(session),
       revokedAt: session.revokedAt,
       user: toPublicAccount(session.user),
     };

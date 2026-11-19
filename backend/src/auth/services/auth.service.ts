@@ -39,15 +39,22 @@ export class AuthService {
     private readonly config: AuthConfig,
   ) {}
 
-  async getBrowserContext(refreshToken: string | null, csrfToken: string | null): Promise<BrowserSessionContext> {
-    if (!refreshToken || !csrfToken) throw new UnauthorizedException('Refresh session is invalid.');
+  async getBrowserContext(
+    refreshToken: string | null,
+    csrfToken: string | null,
+  ): Promise<BrowserSessionContext> {
+    if (!refreshToken || !csrfToken)
+      throw new UnauthorizedException('Refresh session is invalid.');
     const session = await this.repository.findActiveSessionByRefreshHash(
-      hashRefreshToken(refreshToken, this.config.refreshTokenPepper), new Date(),
+      hashRefreshToken(refreshToken, this.config.refreshTokenPepper),
+      new Date(),
     );
-    if (!session) throw new UnauthorizedException('Refresh session is invalid.');
+    if (!session)
+      throw new UnauthorizedException('Refresh session is invalid.');
     return {
       contextId: createHmac('sha256', this.config.refreshTokenPepper)
-        .update('browser-context:' + session.id).digest('hex'),
+        .update('browser-context:' + session.id)
+        .digest('hex'),
       csrfToken,
     };
   }
@@ -115,7 +122,6 @@ export class AuthService {
   }
 
   async refresh(refreshToken: string): Promise<IssuedSession> {
-    const now = new Date();
     const nextRefreshToken = createOpaqueToken();
     const outcome = await this.repository.rotateRefreshToken({
       previousHash: hashRefreshToken(
@@ -126,25 +132,24 @@ export class AuthService {
         nextRefreshToken,
         this.config.refreshTokenPepper,
       ),
-      now,
-      nextIdleExpiry: new Date(now.getTime() + this.config.idleTtlMs),
+      idleTtlMs: this.config.idleTtlMs,
     });
 
     if (outcome.kind === 'reused') {
       this.logger.warn('AUTH_REFRESH_TOKEN_REUSE_DETECTED');
       throw new UnauthorizedException('Refresh session is invalid.');
     }
-    if (outcome.kind !== 'rotated') {
+    if (outcome.kind !== 'rotated' || outcome.refreshExpiresAt <= new Date()) {
       throw new UnauthorizedException('Refresh session is invalid.');
     }
 
-    const accessTokenExpiresAt = new Date(
-      now.getTime() + this.config.accessTokenTtlSeconds * 1000,
-    );
     return {
       account: outcome.account,
-      accessToken: this.signAccessToken(outcome.account.id, outcome.sessionId),
-      accessTokenExpiresAt,
+      ...this.accessCredentials(
+        outcome.account.id,
+        outcome.sessionId,
+        outcome.refreshExpiresAt,
+      ),
       refreshToken: nextRefreshToken,
       refreshExpiresAt: outcome.refreshExpiresAt,
       csrfToken: createOpaqueToken(),
@@ -230,28 +235,37 @@ export class AuthService {
       expiresAt: refreshExpiresAt,
       absoluteExpiresAt,
     });
-    const accessTokenExpiresAt = new Date(
-      now.getTime() + this.config.accessTokenTtlSeconds * 1000,
-    );
     return {
       account: new AuthAccount(account),
-      accessToken: this.signAccessToken(account.id, session.id),
-      accessTokenExpiresAt,
+      ...this.accessCredentials(account.id, session.id, refreshExpiresAt),
       refreshToken,
       refreshExpiresAt,
       csrfToken: createOpaqueToken(),
     };
   }
 
-  private signAccessToken(userId: string, sessionId: string): string {
-    return sign({ sid: sessionId }, this.config.accessTokenSecret, {
-      algorithm: 'HS256',
-      audience: this.config.audience,
-      expiresIn: this.config.accessTokenTtlSeconds,
-      issuer: this.config.issuer,
-      jwtid: randomUUID(),
-      subject: userId,
-    });
+  private accessCredentials(userId: string, sessionId: string, deadline: Date) {
+    const iat = Math.floor(Date.now() / 1000);
+    // JWT NumericDate uses seconds. The live session guard enforces the exact
+    // millisecond deadline even if its rounded JWT deadline is slightly later.
+    const exp = Math.min(
+      iat + this.config.accessTokenTtlSeconds,
+      Math.ceil(deadline.getTime() / 1000),
+    );
+    return {
+      accessToken: sign(
+        { sid: sessionId, iat, exp },
+        this.config.accessTokenSecret,
+        {
+          algorithm: 'HS256',
+          audience: this.config.audience,
+          issuer: this.config.issuer,
+          jwtid: randomUUID(),
+          subject: userId,
+        },
+      ),
+      accessTokenExpiresAt: new Date(Math.min(exp * 1000, deadline.getTime())),
+    };
   }
 
   private normalizeEmail(email: string): string {

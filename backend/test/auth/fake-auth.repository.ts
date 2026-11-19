@@ -10,6 +10,10 @@ import {
   SessionContext,
   StoredAccount,
 } from '../../src/auth/auth.types';
+import {
+  effectiveSessionDeadline,
+  sessionExpired,
+} from '../../src/domain/auth/session-lifetime.policy';
 import { DuplicateEmailError } from '../../src/auth/services/errors';
 
 type FakeSession = {
@@ -39,10 +43,17 @@ export class FakeAuthRepository implements AuthRepository {
   readonly consumedHashes = new Map<string, string>();
   private nextId = 1;
 
-  async findActiveSessionByRefreshHash(tokenHash: string, now: Date): Promise<{ id: string } | null> {
-    const session = [...this.sessions.values()].find(item => item.currentHash === tokenHash);
+  async findActiveSessionByRefreshHash(
+    tokenHash: string,
+    now: Date,
+  ): Promise<{ id: string } | null> {
+    const session = [...this.sessions.values()].find(
+      (item) => item.currentHash === tokenHash,
+    );
     if (!session) return null;
-    return await this.findActiveSession(session.id, session.userId, now) ? { id: session.id } : null;
+    return (await this.findActiveSession(session.id, session.userId, now))
+      ? { id: session.id }
+      : null;
   }
 
   async createAccount(input: NewAccount): Promise<StoredAccount> {
@@ -81,6 +92,7 @@ export class FakeAuthRepository implements AuthRepository {
   }
 
   async rotateRefreshToken(input: RotateSession): Promise<RefreshOutcome> {
+    const now = new Date();
     const session = [...this.sessions.values()].find(
       (item) => item.currentHash === input.previousHash,
     );
@@ -88,30 +100,27 @@ export class FakeAuthRepository implements AuthRepository {
       const consumedSessionId = this.consumedHashes.get(input.previousHash);
       if (!consumedSessionId) return { kind: 'invalid' };
       const reused = this.sessions.get(consumedSessionId);
-      if (reused?.revokedAt === null)
-        this.revokeFamily(reused.familyId, input.now);
+      if (reused?.revokedAt === null) this.revokeFamily(reused.familyId, now);
       return { kind: 'reused' };
     }
     if (session.revokedAt) return { kind: 'invalid' };
-    if (
-      session.expiresAt <= input.now ||
-      session.absoluteExpiresAt <= input.now
-    ) {
-      session.revokedAt = input.now;
+    if (sessionExpired(session, now)) {
+      session.revokedAt = now;
       return { kind: 'expired' };
     }
     const account = [...this.accounts.values()].find(
       (item) => item.id === session.userId,
     );
     if (!account || account.status !== 'ACTIVE') {
-      this.revokeFamily(session.familyId, input.now);
+      this.revokeFamily(session.familyId, now);
       return { kind: 'inactive' };
     }
     this.consumedHashes.set(input.previousHash, session.id);
     session.currentHash = input.nextHash;
+    session.absoluteExpiresAt = effectiveSessionDeadline(session);
     session.expiresAt = new Date(
       Math.min(
-        input.nextIdleExpiry.getTime(),
+        now.getTime() + input.idleTtlMs,
         session.absoluteExpiresAt.getTime(),
       ),
     );
@@ -136,8 +145,7 @@ export class FakeAuthRepository implements AuthRepository {
       !session ||
       session.userId !== userId ||
       session.revokedAt ||
-      session.expiresAt <= now ||
-      session.absoluteExpiresAt <= now ||
+      sessionExpired(session, now) ||
       !account ||
       account.status !== 'ACTIVE'
     )
@@ -146,7 +154,7 @@ export class FakeAuthRepository implements AuthRepository {
       id: session.id,
       userId: session.userId,
       expiresAt: session.expiresAt,
-      absoluteExpiresAt: session.absoluteExpiresAt,
+      absoluteExpiresAt: effectiveSessionDeadline(session),
       revokedAt: session.revokedAt,
       user: publicAccount(account),
     };

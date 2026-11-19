@@ -4,6 +4,7 @@ import type { RecordedTargets } from '../../models/progression/performance-analy
 import type {
   GuideRepetitionContext,
   GuideComparisonSourceEvidence,
+  GuidePlannedComparisonEvidence,
   GuideSuggestion,
   WorkoutGuideRepetitionPreviewInput,
   WorkoutGuideSource,
@@ -13,7 +14,10 @@ import { resolveEffectiveSettings } from './effective-settings.policy';
 import { recommendationIdentity } from './recommendation-evidence.policy';
 import { normalizeTargets } from './prescription-assessment.policy';
 import { guidePreviewPeriodReasons } from './workout-guide.policy';
-import { guideComparisonKey } from './workout-guide-comparison.policy';
+import {
+  guideComparisonKey,
+  hasPlannedNominalComparison,
+} from './workout-guide-comparison.policy';
 export const REPETITION_PREVIEW_VERSION = 'session-repetition-preview-v1';
 export const PROGRESSIVE_PREVIEW_VERSION = 'session-repetition-preview-v2';
 // Optional, bounded next-session practice target; never a strength estimate.
@@ -68,6 +72,7 @@ export function prepareRepetitionContext(
   sourceTargets: RecordedTargets | null = context.target.targets,
   comparisonSource?: GuideComparisonSourceEvidence,
   contract: GuideRepetitionContext['policyContract'] = REPETITION_PREVIEW_VERSION,
+  plannedEvidence?: GuidePlannedComparisonEvidence,
 ): GuideRepetitionContext {
   const resolved = resolveEffectiveSettings(
     context.settings,
@@ -163,7 +168,7 @@ export function prepareRepetitionContext(
       cutoff,
       context,
       sourceTargets,
-      ...(progressive ? { comparisonSource } : {}),
+      ...(progressive ? { comparisonSource, plannedEvidence } : {}),
     }),
     ready: !reasons.length,
     reasons: [...new Set(reasons)],
@@ -191,11 +196,28 @@ export function prepareRepetitionContext(
     // owner declaration. This never exposes a calculated target or declares
     // physical comparability on the owner's behalf.
     prepared.ready = !prepared.reasons.length;
-    const assessed = evaluateRepetitionEvidence(context, source, prepared);
+    const taskIds = tasks.map((task) => task.id);
+    const verified = hasPlannedNominalComparison(
+      context,
+      source,
+      taskIds,
+      plannedEvidence,
+    );
+    const assessed = evaluateRepetitionEvidence(
+      context,
+      source,
+      prepared,
+      verified,
+    );
     if (assessed.origin !== 'CALCULATED')
       prepared.reasons.push(...assessed.reasons);
     prepared.reasons = [...new Set(prepared.reasons)];
     prepared.ready = !prepared.reasons.length;
+    prepared.comparability = !prepared.ready
+      ? { state: 'NOT_COMPARABLE', source: null }
+      : verified
+        ? { state: 'AUTOMATIC_VERIFIED', source: 'PLANNED_NOMINAL_LOAD' }
+        : { state: 'CONFIRMATION_REQUIRED', source: null };
   }
   return prepared;
 }
@@ -214,12 +236,30 @@ export function repetitionPreview(
     input.declaration?.sameLoadConvention !== true
   )
     throw new RecommendationError('INVALID_COMMAND');
-  return evaluateRepetitionEvidence(context, source, prepared);
+  return evaluateRepetitionEvidence(
+    context,
+    source,
+    prepared,
+    prepared.comparability?.state === 'AUTOMATIC_VERIFIED',
+  );
 }
+
+export function automaticRepetitionPreview(
+  context: RecommendationContext,
+  source: WorkoutGuideSource,
+  prepared: GuideRepetitionContext,
+): GuideSuggestion | null {
+  return prepared.ready &&
+    prepared.comparability?.state === 'AUTOMATIC_VERIFIED'
+    ? evaluateRepetitionEvidence(context, source, prepared, true)
+    : null;
+}
+
 function evaluateRepetitionEvidence(
   context: RecommendationContext,
   source: WorkoutGuideSource,
   prepared: GuideRepetitionContext,
+  allowImprovingTrend = false,
 ): GuideSuggestion {
   const progressive = prepared.policyContract === PROGRESSIVE_PREVIEW_VERSION;
   const target = context.target.targets!,
@@ -371,13 +411,29 @@ function evaluateRepetitionEvidence(
   const latestRepetitions = sessionRepetitions[0];
   if (
     !latestRepetitions?.length ||
-    sessionRepetitions.some((repetitions) =>
-      repetitions.some(
-        (value, index) => value !== latestRepetitions[progressive ? index : 0],
-      ),
+    sessionRepetitions.some((repetitions, sessionIndex) =>
+      repetitions.some((value, index) => {
+        if (!allowImprovingTrend)
+          return value !== latestRepetitions[progressive ? index : 0];
+        return (
+          sessionIndex > 0 &&
+          value > sessionRepetitions[sessionIndex - 1][index]
+        );
+      }),
     )
   )
     return no(['HISTORY_REPETITIONS_INCONSISTENT']);
+  const improving = sessionRepetitions
+    .slice(1)
+    .some((repetitions) =>
+      repetitions.some((value, index) => value < latestRepetitions[index]),
+    );
+  const evidenceDescription =
+    slice.length === 1
+      ? 'Cumpliste el rango en la sesión comparable.'
+      : improving
+        ? `Mejoraste repeticiones sin perderlas en ninguna serie de las ${slice.length} sesiones comparables.`
+        : `Repetiste los resultados en ${slice.length} sesiones comparables.`;
 
   const mixed = new Set(latestRepetitions).size > 1;
   const previous = mixed
@@ -400,15 +456,24 @@ function evaluateRepetitionEvidence(
     ...(repsBySet ? { repsBySet } : {}),
     sets: target.targetSets,
     reason: repsBySet
-      ? `Lograste ${latestRepetitions.join(' / ')} repeticiones con esta carga. Puedes intentar una repetición más en la serie ${slot + 1} y conservar las demás metas dentro del rango del plan.`
+      ? `${evidenceDescription} Con ${latestRepetitions.join(' / ')} repeticiones registradas, prueba ${next} en la serie ${slot + 1} a la misma carga y conserva las demás metas del plan.`
       : advance
-        ? `Completaste ${previous} repeticiones por serie con esta carga. Puedes intentar ${next}, dentro del rango de tu plan, y ajustar el objetivo si lo necesitas.`
+        ? progressive
+          ? `${evidenceDescription} Registraste ${previous} repeticiones por serie. Prueba ${next} a la misma carga, dentro del rango del plan.`
+          : `Completaste ${previous} repeticiones por serie con esta carga. Puedes intentar ${next}, dentro del rango de tu plan, y ajustar el objetivo si lo necesitas.`
         : 'Completaste el extremo superior del rango. Mantén esta referencia; aumentar peso requiere un incremento disponible y una política de carga explícitos.',
     reasons: [
       advance ? 'REPETITION_TARGET_ADVANCE' : 'REPETITION_RANGE_COMPLETED',
       ...(advance ? [] : ['LOAD_INCREMENT_REQUIRES_EXPLICIT_POLICY']),
       'EFFORT_NOT_REQUIRED_BY_POLICY',
       ...(effort ? ['RECORDED_EFFORT_CONTEXT'] : []),
+      ...(allowImprovingTrend && slice.length > 1
+        ? [
+            improving
+              ? 'COMPARABLE_SESSIONS_IMPROVING'
+              : 'COMPARABLE_SESSIONS_STABLE',
+          ]
+        : []),
       prepared.minimumSource,
       ...(baseline.baselineSource === 'RECORDED_HISTORY'
         ? ['LOAD_FROM_RECORDED_HISTORY']

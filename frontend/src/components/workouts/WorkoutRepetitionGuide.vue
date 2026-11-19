@@ -14,6 +14,7 @@ import type {
 const props = defineProps<{
   query: WorkoutGuideQuery;
   exerciseId: string;
+  occurrenceId?: string;
   context: NonNullable<
     | WorkoutGuide["exercises"][number]["repetitionContext"]
     | WorkoutGuide["exercises"][number]["progressiveContext"]
@@ -21,7 +22,10 @@ const props = defineProps<{
   disabled?: boolean;
   compact?: boolean;
 }>();
-const emit = defineEmits<{ calculated: [value: WorkoutGuide] }>();
+const emit = defineEmits<{
+  calculated: [value: WorkoutGuide, occurrenceId: string, contextKey: string];
+  checking: [occurrenceId: string, active: boolean];
+}>();
 const auth = useAuthStore(),
   loading = ref(false),
   error = ref(""),
@@ -39,6 +43,13 @@ const missing = computed(() => {
     repetitionClaims,
   );
 });
+const needsConfirmation = computed(
+  () =>
+    props.context.ready &&
+    (!("comparability" in props.context) ||
+      !props.context.comparability ||
+      props.context.comparability.state === "CONFIRMATION_REQUIRED"),
+);
 const question = computed(() => {
   const labels = {
     sameVariant: "la misma variante",
@@ -54,11 +65,19 @@ const question = computed(() => {
 });
 let revision = 0,
   controller: AbortController | undefined;
+let checkingId: string | undefined;
+function stopChecking() {
+  loading.value = false;
+  if (checkingId) emit("checking", checkingId, false);
+  checkingId = undefined;
+}
 watch(
   () =>
     JSON.stringify([
       props.query,
       props.exerciseId,
+      props.occurrenceId,
+      needsConfirmation.value,
       props.context.contextKey,
       props.context.comparisonKey,
       auth.user?.id,
@@ -68,25 +87,38 @@ watch(
   () => {
     revision++;
     controller?.abort();
-    loading.value = false;
+    stopChecking();
     error.value = "";
     workoutComparability.setScope(scope.value);
-    if (auth.isAuthenticated && props.context.ready && !missing.value.length)
+    if (
+      auth.isAuthenticated &&
+      needsConfirmation.value &&
+      !missing.value.length
+    )
       void calculate(false);
   },
   { immediate: true, flush: "sync" },
 );
+watch(
+  () => props.disabled,
+  (disabled) => {
+    if (!disabled && !error.value && !missing.value.length)
+      void calculate(false);
+  },
+);
 onUnmounted(() => {
   revision++;
   controller?.abort();
+  stopChecking();
 });
 async function calculate(explicit = true) {
+  const contextKey = props.context.contextKey;
   if (
     loading.value ||
     props.disabled ||
     !auth.isAuthenticated ||
-    !props.context.ready ||
-    !props.context.contextKey
+    !needsConfirmation.value ||
+    !contextKey
   )
     return;
   if (!explicit && missing.value.length) return;
@@ -97,13 +129,15 @@ async function calculate(explicit = true) {
   controller = new AbortController();
   const signal = controller.signal;
   loading.value = true;
+  checkingId = props.occurrenceId ?? props.exerciseId;
+  emit("checking", checkingId, true);
   error.value = "";
   try {
     const result = await workoutGuideService.repetitionPreview(
       {
         source: props.query,
         exerciseId: props.exerciseId,
-        contextKey: props.context.contextKey,
+        contextKey,
         declaration: {
           sameVariant: true,
           sameEquipment: true,
@@ -115,14 +149,16 @@ async function calculate(explicit = true) {
     );
     if (n === revision && !signal.aborted) {
       const exercise = result.exercises.find(
-        (item) => item.exerciseId === props.exerciseId,
+        (item) =>
+          item.exerciseId === props.exerciseId &&
+          (!props.occurrenceId || item.id === props.occurrenceId),
       );
-      const returned = (
+      const returned =
         props.context.policyContract === "session-repetition-preview-v2"
           ? exercise?.progressiveContext
-          : exercise?.repetitionContext
-      )?.comparisonKey;
-      if (comparisonKey && returned === comparisonKey) {
+          : exercise?.repetitionContext;
+      if (!exercise || returned?.contextKey !== contextKey) return;
+      if (comparisonKey && returned.comparisonKey === comparisonKey) {
         workoutComparability.record(requestedScope, comparisonKey, {
           sameVariant: true,
           sameEquipment: true,
@@ -130,7 +166,7 @@ async function calculate(explicit = true) {
         });
         memoryRevision.value++;
       }
-      emit("calculated", result);
+      emit("calculated", result, exercise.id, contextKey);
     }
   } catch (cause) {
     if (n === revision && !signal.aborted)
@@ -139,39 +175,35 @@ async function calculate(explicit = true) {
         "La referencia cambió o no se pudo comprobar. Actualiza la guía; puedes seguir entrenando con tus propios valores.",
       );
   } finally {
-    if (n === revision) loading.value = false;
+    if (n === revision) stopChecking();
   }
 }
 </script>
 <template>
   <div
-    v-if="context.ready"
+    v-if="needsConfirmation"
     class="repetition-guidance"
     :class="{ 'repetition-guidance--compact': compact }"
   >
-    <p v-if="missing.length">{{ question }}</p>
-    <p v-else-if="!compact || loading" class="field-hint">
-      Comparabilidad confirmada para estos registros.
-      {{
-        loading
-          ? "Actualizando la orientación…"
-          : "Puedes consultar de nuevo el resultado."
-      }}
+    <p v-if="loading && !compact" role="status" class="field-hint">
+      Verificando la orientación…
     </p>
-    <button
-      class="text-button repetition-preview-button"
-      type="button"
-      :disabled="disabled || loading"
-      @click="calculate()"
-    >
-      {{
-        loading
-          ? "Comprobando tus resultados…"
-          : missing.length
+    <template v-if="!loading">
+      <p v-if="missing.length">{{ question }}</p>
+      <button
+        v-if="missing.length || error"
+        class="text-button repetition-preview-button"
+        type="button"
+        :disabled="disabled"
+        @click="calculate()"
+      >
+        {{
+          missing.length
             ? "Sí, orientar mis repeticiones"
-            : "Actualizar orientación"
-      }}
-    </button>
+            : "Reintentar orientación"
+        }}
+      </button>
+    </template>
     <p v-if="!compact" class="field-hint">
       Sin registrar esfuerzo ni configurar incrementos. Solo propone
       repeticiones dentro del rango del plan, con el mismo peso; tú puedes

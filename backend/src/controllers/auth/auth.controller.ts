@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Post,
@@ -50,13 +51,16 @@ export class AuthController {
   ) {
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('Pragma', 'no-cache');
-    return this.presenter.browserContext(await this.authService.getBrowserContext(
-      readCookie(request, this.config.refreshCookieName),
-      readCookie(request, this.config.csrfCookieName),
-    ));
+    return this.presenter.browserContext(
+      await this.authService.getBrowserContext(
+        readCookie(request, this.config.refreshCookieName),
+        readCookie(request, this.config.csrfCookieName),
+      ),
+    );
   }
 
   @Post('register')
+  @Header('Cache-Control', 'no-store')
   @UseGuards(AuthOriginGuard)
   @HttpCode(HttpStatus.CREATED)
   async register(
@@ -73,6 +77,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @Header('Cache-Control', 'no-store')
   @UseGuards(AuthOriginGuard)
   @HttpCode(HttpStatus.OK)
   async login(
@@ -89,6 +94,7 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @Header('Cache-Control', 'no-store')
   @UseGuards(CsrfGuard)
   @HttpCode(HttpStatus.OK)
   async refresh(
@@ -127,6 +133,7 @@ export class AuthController {
   }
 
   @Get('me')
+  @Header('Cache-Control', 'no-store')
   @UseGuards(AccessTokenGuard)
   async getMe(@CurrentAuth() identity: AuthenticatedIdentity) {
     return this.presenter.account(

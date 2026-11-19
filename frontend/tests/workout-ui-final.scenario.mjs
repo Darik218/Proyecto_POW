@@ -37,8 +37,8 @@ export async function runUiFinal({
   const name = "PPL seis días · UI FINAL";
   const visualFaults = [];
   const priorLoad = hotfix ? 60 : 40;
-  const priorReps = hotfix ? [12, 11, 9] : [8, 8, 8];
-  const nextReps = hotfix ? [12, 11, 10] : [9, 9, 9];
+  const priorReps = hotfix ? [10, 9, 8] : [8, 8, 8];
+  const nextReps = hotfix ? [10, 9, 9] : [9, 9, 9];
   const firstOffset = -(
     (new Date(today + "T00:00:00Z").getUTCDay() + 4) % 7 || 7
   );
@@ -560,7 +560,18 @@ export async function runUiFinal({
         "/progression/workout-guide?activityId=" + secondActivity.id,
       );
       const first = guide.exercises[0];
-      assert.equal(first.guidanceSuggested.origin, "HISTORICAL_REFERENCE");
+      const automatic =
+        first.progressiveContext.comparability?.state === "AUTOMATIC_VERIFIED";
+      if (hotfix)
+        assert.equal(
+          automatic,
+          true,
+          "scheduled history is automatically comparable",
+        );
+      assert.equal(
+        first.guidanceSuggested.origin,
+        automatic ? "CALCULATED" : "HISTORICAL_REFERENCE",
+      );
       assert.equal(
         Number(first.lastReference.sessions[0].sets[0].load),
         priorLoad,
@@ -575,7 +586,7 @@ export async function runUiFinal({
           'const e=document.querySelector(".guide-exercise");return {details:e.querySelectorAll("details").length,text:e.textContent}',
         );
         assert.equal(card.details, 1);
-        assert.match(normalized(card.text), /60 kg.*12\s*[/]\s*11\s*[/]\s*9/i);
+        assert.match(normalized(card.text), /60 kg.*10\s*[/]\s*9\s*[/]\s*8/i);
         assert.doesNotMatch(
           card.text,
           /HISTORY_REPETITIONS_INCONSISTENT|NO_ELIGIBLE_HISTORY|TARGET_UNIT_REQUIRED|INCREMENT_REQUIRED|SETTING_REQUIRED|60\.000/,
@@ -583,29 +594,58 @@ export async function runUiFinal({
       }
       await sweep("legs-a-programacion-detalle");
       await observeRequests();
-      await click(".guide-exercise .repetition-preview-button");
+      if (automatic) {
+        assert.equal(
+          await sync(
+            'return document.querySelector(".guide-exercise")?.querySelectorAll(".repetition-preview-button").length',
+          ),
+          0,
+        );
+        for (let i = 0; i < 2; i++) {
+          await command("/refresh", "POST", {});
+          await waitVisible(
+            ".guide-exercise .workout-preparation[data-stage=REPETITION_DRAFT]",
+          );
+          assert.match(
+            normalized(
+              await sync(
+                'return document.querySelector(".guide-exercise .preparation-draft").textContent',
+              ),
+            ),
+            hotfix ? /60.*10\s*\/\s*9\s*\/\s*9/i : /40.*9/,
+          );
+        }
+        const explanation = await sync(
+          'return document.querySelector(".guide-exercise .workout-preparation").textContent',
+        );
+        if (hotfix) assert.match(explanation, /serie 3/i);
+        await observeRequests();
+      } else {
+        await click(".guide-exercise .repetition-preview-button");
+      }
       await until(
         () =>
           sync(
             'return document.querySelector(".guide-exercise .workout-preparation")?.dataset.stage==="REPETITION_DRAFT"',
           ),
-        "orientación calculada únicamente tras confirmar",
+        "orientación calculada para el contexto vigente",
       );
       const calculated = await sync(
         'return document.querySelector(".guide-exercise .preparation-draft").textContent',
       );
       assert.match(
         normalized(calculated),
-        hotfix ? /60.*12\s*\/\s*11\s*\/\s*10/i : /40.*9/,
+        hotfix ? /60.*10\s*\/\s*9\s*\/\s*9/i : /40.*9/,
       );
       const previews = await sync(
         'return window.__prog7Requests.filter(r=>r.method==="POST"&&r.path.endsWith("/repetition-preview"))',
       );
-      assert.equal(previews.length, 1);
-      assert.equal(
-        previews[0].body.policyContract,
-        "session-repetition-preview-v2",
-      );
+      assert.equal(previews.length, automatic ? 0 : 1);
+      if (!automatic)
+        assert.equal(
+          previews[0].body.policyContract,
+          "session-repetition-preview-v2",
+        );
       assert.equal(await immutableHistory(), startingHistory);
       assert.equal(await immutablePlans(), startingPlans);
       await shot(
@@ -618,11 +658,65 @@ export async function runUiFinal({
           ".guide-exercise",
         );
       }
+      let manualReused = false;
+      if (hotfix && automatic) {
+        const index = await sync(`
+          return [...document.querySelectorAll(".guide-exercise")].findIndex(
+            (card) => card.querySelector(".repetition-preview-button:not(:disabled)")
+          )
+        `);
+        assert.ok(index > 0, "another exercise needs its own declaration");
+        const manualCard = `.guide-exercise:nth-of-type(${index + 1})`;
+        const automaticCard = ".guide-exercise .preparation-draft";
+        const waitForManualDraft = () =>
+          waitVisible(
+            `${manualCard} .workout-preparation[data-stage=REPETITION_DRAFT]`,
+          );
+        const route = await sync("return location.pathname+location.search");
+        await click(`${manualCard} .repetition-preview-button`);
+        await waitForManualDraft();
+        const manualDraft = await sync(
+          "return document.querySelector(arguments[0]).textContent",
+          [`${manualCard} .preparation-draft`],
+        );
+        assert.equal(
+          await sync(
+            "return document.querySelector(arguments[0]).textContent",
+            [automaticCard],
+          ),
+          calculated,
+        );
+        await go("/app/overview");
+        await go(route);
+        await waitForManualDraft();
+        assert.equal(
+          await sync(
+            "return document.querySelector(arguments[0]).textContent",
+            [`${manualCard} .preparation-draft`],
+          ),
+          manualDraft,
+        );
+        assert.equal(
+          await sync(
+            "return document.querySelector(arguments[0]).textContent",
+            [automaticCard],
+          ),
+          calculated,
+        );
+        await sync(
+          "document.querySelector(arguments[0]).scrollIntoView({block:'start'})",
+          [manualCard],
+        );
+        await shot("orientacion-comparabilidad-reutilizada");
+        manualReused = true;
+      }
       return {
         points: actual.series[0].points.length,
         nextActivity: secondActivity.id,
         previousPrescription: firstDay.exercises[0].id,
         nextPrescription: secondDay.exercises[0].id,
+        automatic,
+        manualReused,
         calculated: normalized(calculated),
       };
     },

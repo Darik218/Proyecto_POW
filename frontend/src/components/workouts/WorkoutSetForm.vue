@@ -110,6 +110,7 @@ function copyReference(source: "CURRENT" | "PREVIOUS") {
       "Esta referencia no tiene carga, unidad y repeticiones de trabajo verificables. Introduce los resultados reales.";
     return;
   }
+  draftEdited.value = true;
   Object.assign(form, values, { status: "COMPLETED", kind: "WORK" });
   copiedSource.value =
     source === "CURRENT"

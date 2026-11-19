@@ -10,6 +10,12 @@ import { createAuthCoordination } from '../services/auth-coordination'
 export type AuthStatus = 'unknown' | 'loading' | 'authenticated' | 'anonymous'
 let nextStoreScope = 0
 
+class BrowserSessionChanged extends Error {
+  constructor() {
+    super('La sesión del navegador cambió. Vuelve a iniciar sesión.')
+  }
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const accessToken = ref<string | null>(null)
   const csrfToken = ref<string | null>(null)
@@ -47,7 +53,7 @@ export const useAuthStore = defineStore('auth', () => {
     const context = await authService.context()
     assertGeneration(generation)
     if (cookieContext && context.contextId !== cookieContext) {
-      throw new Error('La sesión del navegador cambió. Vuelve a iniciar sesión.')
+      throw new BrowserSessionChanged()
     }
     return context
   }
@@ -124,6 +130,45 @@ export const useAuthStore = defineStore('auth', () => {
     return initialization
   }
 
+  async function verifySession(): Promise<void> {
+    const token = accessToken.value
+    if (!isAuthenticated.value || !token) return
+    const generation = sessionGeneration
+    let verifiedUser: PublicAccount
+    try {
+      verifiedUser = await authService.me(token)
+    } catch (error) {
+      assertGeneration(generation)
+      if (!axios.isAxiosError(error) || error.response?.status !== 401) throw error
+      const replacement = accessToken.value
+      if (!replacement || replacement === token) {
+        await refreshSession()
+        return
+      }
+      try {
+        verifiedUser = await authService.me(replacement)
+      } catch (retryError) {
+        if (generation === sessionGeneration && replacement === accessToken.value &&
+          axios.isAxiosError(retryError) && retryError.response?.status === 401) clearSession()
+        throw retryError
+      }
+    }
+    assertGeneration(generation)
+    if (verifiedUser.id !== user.value?.id) {
+      clearSession()
+      throw new Error('La cuenta de la sesión cambió.')
+    }
+    if (!cookieContext) return
+    try {
+      await coordination.run(() => currentContext(generation))
+    } catch (error) {
+      if (generation === sessionGeneration &&
+        (error instanceof BrowserSessionChanged ||
+          (axios.isAxiosError(error) && error.response?.status === 401))) clearSession()
+      throw error
+    }
+  }
+
   async function logout(): Promise<void> {
     const generation = sessionGeneration
     try {
@@ -172,7 +217,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     accessToken, csrfToken, user, status, isAuthenticated,
-    initialize, login, register, refreshSession, logout, logoutAll, clearSession, getSessionGeneration,
+    initialize, login, register, refreshSession, verifySession, logout, logoutAll, clearSession, getSessionGeneration,
     getSessionContextId: () => cookieContext,
   }
 })

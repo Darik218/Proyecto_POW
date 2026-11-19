@@ -82,6 +82,89 @@ describe('AuthService', () => {
     expect(config.accessTokenTtlSeconds).toBe(900);
   });
 
+  it('keeps the original authentication deadline through a near-expiry rotation', async () => {
+    const { service, repository } = createHarness();
+    const start = new Date('2026-11-19T08:00:00Z');
+    const deadline = new Date('2026-11-19T16:00:00Z');
+    jest.useFakeTimers({ now: start });
+    try {
+      const initial = await service.register(
+        'user@example.com',
+        'very-long-password',
+        '127.0.0.1',
+      );
+      expect(initial.refreshExpiresAt).toEqual(deadline);
+      const session = [...repository.sessions.values()][0]!;
+      expect(session.absoluteExpiresAt).toEqual(deadline);
+      jest.setSystemTime(new Date('2026-11-19T15:55:00Z'));
+      const rotated = await service.refresh(initial.refreshToken);
+      expect(rotated.refreshExpiresAt).toEqual(deadline);
+      expect(rotated.accessTokenExpiresAt).toEqual(deadline);
+      expect(session.createdAt).toEqual(start);
+      expect(session.absoluteExpiresAt).toEqual(deadline);
+      jest.setSystemTime(new Date('2026-11-19T15:59:59Z'));
+      await expect(
+        service.authenticate(rotated.accessToken),
+      ).resolves.toHaveProperty('sessionId');
+      await expect(
+        service.getBrowserContext(rotated.refreshToken, rotated.csrfToken),
+      ).resolves.toHaveProperty('contextId');
+      jest.setSystemTime(deadline);
+      await expect(
+        service.authenticate(rotated.accessToken),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(
+        service.getBrowserContext(rotated.refreshToken, rotated.csrfToken),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(
+        service.refresh(rotated.refreshToken),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      const reauthenticated = await service.login(
+        'user@example.com',
+        'very-long-password',
+        '127.0.0.1',
+      );
+      expect(reauthenticated.refreshExpiresAt).toEqual(
+        new Date('2026-11-20T00:00:00Z'),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('rejects every authentication path for a legacy session whose creation was eight hours ago', async () => {
+    const { service, repository } = createHarness();
+    const now = new Date('2026-11-19T16:00:00Z');
+    jest.useFakeTimers({ now });
+    try {
+      const issued = await service.register(
+        'user@example.com',
+        'very-long-password',
+        '127.0.0.1',
+      );
+      const legacy = [...repository.sessions.values()][0]!;
+      legacy.createdAt = new Date('2026-11-19T08:00:00Z');
+      legacy.absoluteExpiresAt = new Date('2026-12-19T08:00:00Z');
+      legacy.expiresAt = new Date('2026-11-26T08:00:00Z');
+      const claims = decode(issued.accessToken);
+      expect(typeof claims === 'object' && claims?.exp).toBeGreaterThan(
+        now.getTime() / 1000,
+      );
+      await expect(
+        service.authenticate(issued.accessToken),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(
+        service.getBrowserContext(issued.refreshToken, issued.csrfToken),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(service.refresh(issued.refreshToken)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(legacy.revokedAt).toEqual(now);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('logs in with correct credentials and does not disclose account existence on failure', async () => {
     const { service } = createHarness();
     await service.register(
@@ -199,12 +282,12 @@ describe('AuthService', () => {
       service.refresh(issued.refreshToken),
     ]);
 
-    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(
-      1,
-    );
-    expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toHaveLength(
-      1,
-    );
+    expect(
+      outcomes.filter((outcome) => outcome.status === 'fulfilled'),
+    ).toHaveLength(1);
+    expect(
+      outcomes.filter((outcome) => outcome.status === 'rejected'),
+    ).toHaveLength(1);
     expect([...repository.sessions.values()][0]?.revokedAt).not.toBeNull();
   });
 

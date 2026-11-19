@@ -1,6 +1,9 @@
 import { WorkoutGuideService } from './workout-guide.service';
 import { context, command } from '../../test/helpers/recommendation-fixtures';
-import type { WorkoutGuideSnapshot } from '../models/progression/workout-guide.model';
+import type {
+  GuideExerciseSource,
+  WorkoutGuideSnapshot,
+} from '../models/progression/workout-guide.model';
 import type { AuthenticatedIdentity } from '../auth/auth.types';
 const identity = {
   account: { id: 'user' },
@@ -109,6 +112,45 @@ describe('on-demand workout recommendations', () => {
     f.h.settings[0].incrementAbsolute = '5';
     expect((await read(f)).exercises[0]).toMatchObject({
       guidanceSuggested: { origin: 'CALCULATED', load: '85.000000' },
+    });
+  });
+  it('keeps a verified load increase ahead of the automatic upper-range repetition draft', async () => {
+    const f = fixture();
+    const exercise = f.exercise as unknown as GuideExerciseSource;
+    exercise.progressiveContext = {
+      ready: true,
+      reasons: [],
+      tasks: [],
+      contextKey: 'nominal-repetitions',
+      minimumSessions: 2,
+      minimumSource: 'PERSISTED_SETTING',
+      policyContract: 'session-repetition-preview-v2',
+      comparability: {
+        state: 'AUTOMATIC_VERIFIED',
+        source: 'PLANNED_NOMINAL_LOAD',
+      },
+      executionAuthorized: false,
+    };
+    exercise.repetitionSuggestion = {
+      origin: 'CALCULATED',
+      action: 'MAINTAIN',
+      load: '80.000000',
+      sets: 1,
+      reps: 6,
+      unit: 'KG',
+      reason: 'At the upper repetition target',
+      reasons: ['REPETITION_RANGE_COMPLETED'],
+      policyVersion: 'session-repetition-preview-v2',
+      executionAuthorized: false,
+    };
+    expect((await read(f)).exercises[0]).toMatchObject({
+      guidanceSuggested: {
+        origin: 'CALCULATED',
+        action: 'INCREASE',
+        load: '82.500000',
+        policyVersion: 'fixture-v1',
+        executionAuthorized: false,
+      },
     });
   });
   it('uses a historical reference when no declared policy exists, with no copied numeric suggestion', async () => {

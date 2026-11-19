@@ -6,6 +6,7 @@ import { useRoute, useRouter } from "vue-router";
 import { apiErrorMessage } from "../services/api";
 import { loginSchema } from "../services/auth.service";
 import { useAuthStore } from "../stores/auth.store";
+import { authReturnPath } from "../utils/auth-return-path";
 
 const auth = useAuthStore();
 const route = useRoute();
@@ -22,15 +23,6 @@ const infoMessage = computed(() => {
     return "No se pudo confirmar el cierre en el servidor. Inicia sesión para volver a comprobar tu sesión.";
   return "";
 });
-
-function destination(): string {
-  const requested = route.query.redirect;
-  return typeof requested === "string" &&
-    requested.startsWith("/") &&
-    !requested.startsWith("//")
-    ? requested
-    : "/app/overview";
-}
 
 async function submit(): Promise<void> {
   if (submitting.value) return;
@@ -52,7 +44,7 @@ async function submit(): Promise<void> {
   submitting.value = true;
   try {
     await auth.login(parsed.data);
-    await router.replace(destination());
+    await router.replace(authReturnPath(route.query.redirect));
   } catch (error) {
     errorMessage.value = apiErrorMessage(error, "No se pudo iniciar sesión.");
   } finally {

@@ -45,7 +45,7 @@ export class WorkoutGuideService {
       historyCutoffOn: snapshot.historyCutoffOn,
       executionAuthorized: false as const,
       exercises: snapshot.exercises.map((exercise) => {
-        const reference = referenceGuidance(
+        let reference = referenceGuidance(
           exercise.history,
           snapshot.source.performedOn,
           exercise.historyTruncated,
@@ -194,13 +194,43 @@ export class WorkoutGuideService {
             exercise.candidates.find((c) => c.proposal.id === proposal.id)
               ?.command?.policy?.version ?? null,
           );
-        if (
+        const explicitRepetition =
           (explicit?.policyContract === 'session-repetition-preview-v1' ||
             explicit?.policyContract === 'session-repetition-preview-v2') &&
-          explicit.exerciseId === exercise.exerciseId &&
-          exercise.repetitionSuggestion
-        )
+          explicit.exerciseId === exercise.exerciseId;
+        const verifiedLoadIncrease =
+          suggestion.origin === 'CALCULATED' &&
+          suggestion.action === 'INCREASE' &&
+          suggestion.load !== null;
+        if (
+          exercise.repetitionSuggestion &&
+          (explicitRepetition ||
+            (explicit?.exerciseId !== exercise.exerciseId &&
+              proposal?.status !== 'CURRENT' &&
+              !verifiedLoadIncrease &&
+              suggestion.action !== 'REVIEW_REQUIRED' &&
+              exercise.progressiveContext?.comparability?.state ===
+                'AUTOMATIC_VERIFIED'))
+        ) {
           suggestion = exercise.repetitionSuggestion;
+          if (suggestion.origin === 'CALCULATED') {
+            const evidence =
+              explicit?.policyContract === 'session-repetition-preview-v1'
+                ? exercise.repetitionContext
+                : exercise.progressiveContext;
+            if (evidence) {
+              // The decision and the record shown above it must refer to the same sets.
+              reference = referenceGuidance(
+                exercise.history.filter(
+                  (item) => item.taskId === evidence.tasks[0]?.id,
+                ),
+                snapshot.source.performedOn,
+                exercise.historyTruncated,
+                snapshot.source,
+              );
+            }
+          }
+        }
         const periodReasons = guidePreviewPeriodReasons(
           snapshot.source,
           reference.lastReference,

@@ -2,6 +2,7 @@ import type { RecommendationContext } from '../../models/progression/recommendat
 import type { RecordedTargets } from '../../models/progression/performance-analysis.model';
 import type {
   GuideComparisonSourceEvidence,
+  GuidePlannedComparisonEvidence,
   WorkoutGuideSource,
 } from '../../models/progression/workout-guide.model';
 import { recommendationIdentity } from './recommendation-evidence.policy';
@@ -47,6 +48,9 @@ export function guideComparisonKey(
         provenance?.originalExerciseId ?? context.history.exerciseId,
       replacesWorkoutExerciseId: provenance?.replacesWorkoutExerciseId ?? null,
       isOmitted: provenance?.isOmitted ?? false,
+      ...(provenance?.equipmentKey
+        ? { equipmentKey: provenance.equipmentKey }
+        : {}),
     },
     sourceDestination: {
       planId: source.trainingPlanId ?? null,
@@ -62,5 +66,46 @@ export function guideComparisonKey(
     truncated: context.history.truncated,
     tasks,
     sets: context.history.sets.filter((s) => selected.has(s.workoutExerciseId)),
+  });
+}
+
+/** Limits automatic comparison to the recorded nominal number in an owned plan.
+ * This does not attest physical machine identity or total external resistance. */
+export function hasPlannedNominalComparison(
+  context: RecommendationContext,
+  source: WorkoutGuideSource,
+  tasks: readonly string[],
+  evidence?: GuidePlannedComparisonEvidence,
+): boolean {
+  if (
+    !evidence?.destinationCaptured ||
+    !source.trainingPlanId ||
+    source.trainingPlanId !== context.target.planId ||
+    !tasks.length
+  )
+    return false;
+  const { exercise } = evidence;
+  if (
+    exercise.id !== context.history.exerciseId ||
+    exercise.origin !== 'GLOBAL' ||
+    !exercise.catalogKey ||
+    !exercise.equipment.trim()
+  )
+    return false;
+  const supportedEquipment =
+    (exercise.equipmentType === 'SMITH_MACHINE' &&
+      exercise.machineType === 'SMITH' &&
+      exercise.resistanceType === 'PLATE_LOADED') ||
+    (exercise.equipmentType === 'BARBELL' &&
+      exercise.machineType === null &&
+      exercise.resistanceType === 'FREE_WEIGHT');
+  if (!supportedEquipment) return false;
+  return tasks.every((taskId) => {
+    const snapshot = evidence.tasks.find((item) => item.taskId === taskId);
+    return (
+      snapshot?.exerciseId === exercise.id &&
+      snapshot.planId === source.trainingPlanId &&
+      snapshot.equipment === exercise.equipment
+    );
   });
 }

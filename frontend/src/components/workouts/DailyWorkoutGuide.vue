@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch, onUnmounted } from "vue";
-import { useAuthStore } from "../../stores/auth.store";
-import { workoutGuideService } from "../../services/workout-guide.service";
+import { computed, shallowRef } from "vue";
+import { useWorkoutGuide } from "../../composables/useWorkoutGuide";
 import type {
   WorkoutGuide,
   WorkoutGuideQuery,
 } from "../../schemas/workout-guide.schema";
-import { workoutErrorMessage } from "../../services/workout-sessions.service";
 import WorkoutRepetitionGuide from "./WorkoutRepetitionGuide.vue";
 import WorkoutPreparationSummary from "./WorkoutPreparationSummary.vue";
 const props = defineProps<{
@@ -15,10 +13,19 @@ const props = defineProps<{
   exerciseId?: string;
 }>();
 const emit = defineEmits<{ loaded: [value: WorkoutGuide] }>();
-const auth = useAuthStore(),
-  guide = ref<WorkoutGuide | null>(null),
-  error = ref(""),
-  loading = ref(false);
+const { guide, error, loading, load, calculated } = useWorkoutGuide({
+  query: () => props.query,
+  fallbackError:
+    "No se pudo consultar la guía. Puedes registrar tus resultados manualmente.",
+  onUpdate: (value) => emit("loaded", value),
+});
+const checking = shallowRef<ReadonlySet<string>>(new Set());
+function setChecking(id: string, active: boolean) {
+  const next = new Set(checking.value);
+  if (active) next.add(id);
+  else next.delete(id);
+  checking.value = next;
+}
 const visibleExercises = computed(
   () =>
     guide.value?.exercises.filter(
@@ -26,67 +33,25 @@ const visibleExercises = computed(
         !props.exerciseId || exercise.exerciseId === props.exerciseId,
     ) ?? [],
 );
-let revision = 0,
-  controller: AbortController | undefined;
-async function load() {
-  const n = ++revision;
-  controller?.abort();
-  controller = new AbortController();
-  const signal = controller.signal;
-  guide.value = null;
-  error.value = "";
-  loading.value = true;
-  if (!auth.isAuthenticated) {
-    loading.value = false;
-    return;
-  }
-  try {
-    const value = await workoutGuideService.get(props.query, signal);
-    if (n !== revision || signal.aborted) return;
-    guide.value = value;
-    emit("loaded", value);
-  } catch (cause) {
-    if (n === revision && !signal.aborted)
-      error.value = workoutErrorMessage(
-        cause,
-        "No se pudo consultar la guía. Puedes registrar tus resultados manualmente.",
-      );
-  } finally {
-    if (n === revision) loading.value = false;
-  }
-}
-function calculated(value: WorkoutGuide) {
-  guide.value = value;
-  emit("loaded", value);
-}
-watch(
-  () =>
-    JSON.stringify([
-      props.query,
-      auth.user?.id,
-      auth.isAuthenticated,
-      auth.getSessionGeneration(),
-    ]),
-  () => void load(),
-  { immediate: true, flush: "sync" },
-);
-onUnmounted(() => {
-  revision++;
-  controller?.abort();
-});
 </script>
 <template>
   <section
     class="daily-guide"
     aria-label="Guía para este entrenamiento"
-    :aria-busy="loading"
+    :aria-busy="loading || checking.size > 0"
   >
     <h3>{{ compact ? "Antes de empezar" : "Tu guía para esta sesión" }}</h3>
     <p class="field-hint">
       Usa la guía para preparar tus series. Puedes ajustar los valores al
       entrenar.
     </p>
-    <p v-if="loading" role="status">Consultando objetivos e historial…</p>
+    <p v-if="loading" role="status">
+      {{
+        guide
+          ? "Verificando la orientación…"
+          : "Consultando objetivos e historial…"
+      }}
+    </p>
     <p v-if="error" role="alert">
       {{ error }}
       <button class="text-button" type="button" @click="load">
@@ -122,7 +87,10 @@ onUnmounted(() => {
         <h4>
           {{ exercise.name }} <span v-if="exercise.isOmitted">· Omitido</span>
         </h4>
-        <WorkoutPreparationSummary :exercise="exercise">
+        <WorkoutPreparationSummary
+          :exercise="exercise"
+          :verifying="checking.has(exercise.id)"
+        >
           <template #comparison>
             <WorkoutRepetitionGuide
               v-if="
@@ -134,11 +102,14 @@ onUnmounted(() => {
               "
               :query="query"
               :exercise-id="exercise.exerciseId"
+              :occurrence-id="exercise.id"
+              :disabled="loading"
               :context="
                 (exercise.progressiveContext ?? exercise.repetitionContext)!
               "
               compact
               @calculated="calculated"
+              @checking="setChecking"
             />
           </template>
         </WorkoutPreparationSummary>

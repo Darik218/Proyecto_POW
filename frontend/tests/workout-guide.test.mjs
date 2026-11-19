@@ -559,18 +559,37 @@ test("PROG7 review blocks automatic reuse of an old reference while preserving m
   assert.equal(state.activeReference, undefined);
 });
 test("PROG7 comparison confirmation uses v2 and records only the returned verified pair", async (t) => {
+  const { workoutComparability, repetitionClaims } = await server.ssrLoadModule(
+    "/src/services/workout-comparability.service.ts",
+  );
   const requests = [];
   const value = sample();
-  value.exercises[0].progressiveContext = progressive;
-  const { state } = await setup(
+  value.exercises[0].progressiveContext = {
+    ...progressive,
+    comparability: {
+      state: "USER_CONFIRMED",
+      source: "REQUEST_DECLARATION",
+    },
+  };
+  const { state, auth } = await setup(
     t,
     "WorkoutRepetitionGuide",
     async (config) => {
       requests.push(JSON.parse(config.data));
-      return response(config, value);
+      const result = structuredClone(value);
+      if (requests.length === 1)
+        result.exercises[0].progressiveContext.contextKey = "d".repeat(64);
+      return response(config, result);
     },
     { query: { activityId: id }, exerciseId: id, context: progressive },
   );
+  const scope = JSON.stringify([auth.user.id, auth.getSessionGeneration()]);
+  const missing = () =>
+    workoutComparability.missing(
+      scope,
+      progressive.comparisonKey,
+      repetitionClaims,
+    );
   assert.equal(requests.length, 0, "an unconfirmed pair never auto-calculates");
   await state.calculate();
   assert.equal(requests[0].policyContract, "session-repetition-preview-v2");
@@ -579,6 +598,26 @@ test("PROG7 comparison confirmation uses v2 and records only the returned verifi
     sameEquipment: true,
     sameLoadConvention: true,
   });
+  assert.deepEqual(
+    missing(),
+    repetitionClaims,
+    "a different context cannot confirm the pair",
+  );
+  await state.calculate();
+  assert.deepEqual(
+    missing(),
+    [],
+    "the same authenticated context reuses the declaration",
+  );
+  assert.deepEqual(
+    workoutComparability.missing(
+      "other account",
+      progressive.comparisonKey,
+      repetitionClaims,
+    ),
+    repetitionClaims,
+    "another account cannot reuse that declaration",
+  );
 });
 
 async function renderGuideCard(exercise) {
@@ -785,4 +824,155 @@ test("hotfix first exercise shows the plan and weight choice without warnings or
     html,
     /<details|NO_ELIGIBLE_HISTORY|SETTING_REQUIRED|Anterior|Para esta sesión/,
   );
+});
+
+test("parallel repetition results publish only their own exercise and a same-scope read retains both", async (t) => {
+  const raw = sample();
+  raw.exercises[0] = {
+    ...raw.exercises[0],
+    progressiveContext: progressive,
+    preparation: preparation("REPETITION_READY"),
+  };
+  raw.exercises.push({
+    ...raw.exercises[0],
+    id: other,
+    exerciseId: other,
+    progressiveContext: { ...progressive, contextKey: "c".repeat(64) },
+  });
+  const initial = workoutGuideSchema.parse(raw);
+  let unblockRead;
+  let reads = 0;
+  const { state } = await setup(t, "DailyWorkoutGuide", async (config) => {
+    if (++reads === 2)
+      await new Promise((resolve) => {
+        unblockRead = resolve;
+      });
+    if (reads === 3) {
+      const changed = structuredClone(raw);
+      changed.exercises[0].progressiveContext.contextKey = "d".repeat(64);
+      return response(config, changed);
+    }
+    return response(config, raw);
+  });
+  const resultFor = (index, reps) => ({
+    ...initial,
+    exercises: initial.exercises.map((exercise, i) =>
+      i !== index
+        ? exercise
+        : {
+            ...exercise,
+            guidanceSuggested: {
+              origin: "CALCULATED",
+              action: "ADVANCE",
+              load: "60",
+              unit: "KG",
+              reps,
+              sets: 3,
+              reason: "Decisión de prueba",
+              reasons: [],
+              policyVersion: "session-repetition-preview-v2",
+              executionAuthorized: false,
+            },
+            preparation: {
+              ...exercise.preparation,
+              stage: "REPETITION_DRAFT",
+              draft: {
+                ...exercise.preparation.draft,
+                origin: "CALCULATED",
+                reps,
+              },
+            },
+          },
+    ),
+  });
+
+  state.calculated(resultFor(0, 9), id, progressive.contextKey);
+  state.calculated(resultFor(1, 10), other, "c".repeat(64));
+  assert.deepEqual(
+    state.guide.exercises.map((e) => e.preparation.draft.reps),
+    [9, 10],
+  );
+
+  const pending = state.load();
+  await tick();
+  assert.equal(state.loading, true);
+  assert.deepEqual(
+    state.guide.exercises.map((e) => e.preparation.draft.reps),
+    [9, 10],
+  );
+  unblockRead();
+  await pending;
+  assert.deepEqual(
+    state.guide.exercises.map((e) => e.preparation.draft.reps),
+    [9, 10],
+  );
+
+  await state.load();
+  assert.equal(
+    state.calculated(resultFor(0, 9), id, progressive.contextKey),
+    false,
+  );
+  assert.deepEqual(
+    state.guide.exercises.map((e) => e.preparation.draft.reps),
+    [8, 10],
+    "only the exercise whose verified context changed returns to the plan target",
+  );
+});
+
+test("automatic comparability renders the actual work-set rationale and never sends a manual declaration", async (t) => {
+  const value = sample();
+  const exercise = value.exercises[0];
+  exercise.progressiveContext = {
+    ...progressive,
+    comparability: {
+      state: "AUTOMATIC_VERIFIED",
+      source: "PLANNED_NOMINAL_LOAD",
+    },
+  };
+  exercise.preparation = preparation("REPETITION_DRAFT");
+  exercise.preparation.draft = {
+    ...exercise.preparation.draft,
+    origin: "CALCULATED",
+    reps: null,
+    repsBySet: [10, 9, 9],
+  };
+  exercise.guidanceSuggested = {
+    origin: "CALCULATED",
+    action: "MAINTAIN",
+    load: "60",
+    unit: "KG",
+    reps: null,
+    repsBySet: [10, 9, 9],
+    sets: 3,
+    reason: "Intenta 9 repeticiones en la serie 3 a la misma carga.",
+    reasons: ["REPETITION_TARGET_ADVANCE"],
+    policyVersion: "session-repetition-preview-v2",
+    executionAuthorized: false,
+  };
+  const parsed = workoutGuideSchema.parse(value);
+  assert.equal(
+    parsed.exercises[0].progressiveContext.comparability.state,
+    "AUTOMATIC_VERIFIED",
+  );
+  const html = await renderGuideCard(parsed.exercises[0]);
+  assert.match(html, /Por qué/);
+  assert.match(html, /Intenta 9 repeticiones en la serie 3/);
+  assert.match(html, /Comparación verificada automáticamente/);
+  let requests = 0;
+  const { state } = await setup(
+    t,
+    "WorkoutRepetitionGuide",
+    async (config) => {
+      requests++;
+      return response(config, value);
+    },
+    {
+      query: { activityId: id },
+      exerciseId: id,
+      occurrenceId: id,
+      context: exercise.progressiveContext,
+    },
+  );
+  await state.calculate();
+  assert.equal(requests, 0);
 });

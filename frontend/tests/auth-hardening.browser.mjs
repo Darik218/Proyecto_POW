@@ -5,7 +5,7 @@ import {realpath,writeFile,mkdtemp} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join,resolve} from 'node:path'
 import {randomUUID} from 'node:crypto'
-const require=createRequire(resolve('../backend/package.json')),pg=require('pg'),{sign}=require('jsonwebtoken')
+const require=createRequire(resolve('../backend/package.json')),pg=require('pg'),{sign,decode}=require('jsonwebtoken')
 let raw='';for await(const part of process.stdin)raw+=part
 const cfg=JSON.parse(raw),target=new URL(cfg.databaseUrl)
 assert.equal(target.hostname,'127.0.0.1');assert.equal(target.pathname,'/pulso_auth_hardening_test');assert.ok(target.port);assert.ok(cfg.dataDirectory.startsWith('/tmp/pulso-auth-hardening-'))
@@ -26,7 +26,7 @@ async function go(path){await command('/url','POST',{url:cfg.origin+path});await
 async function moduleApi(){await sync(`if(!window.__pulsoApi){const s=document.createElement('script');s.type='module';s.textContent="import {api} from '/src/services/api.ts'; import axios from '/node_modules/.vite/deps/axios.js'; window.__pulsoApi=api;window.__pulsoAxios=axios;";document.head.append(s)}`);await until(()=>sync('return !!window.__pulsoApi'),'actual Axios module')}
 async function http(method,path,data){await moduleApi();return execute('return (await window.__pulsoApi.request({method:arguments[0],url:arguments[1],data:arguments[2]})).data',[method,path,data])}
 async function form(path,email){await go(path);await until(()=>sync("return !!document.getElementById('password')"),'auth form rendered');await execute(`const set=(id,value)=>{const input=document.getElementById(id);input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}))};set('email',arguments[0]);set('password',arguments[1]);document.querySelector('form').requestSubmit()`,[email,password]);await until(async()=>(await state()).path.startsWith('/app'),'form completion')}
-async function check(name,fn){try{await fn();results.push({name,status:'PASS'});console.log('PASS '+name)}catch(error){results.push({name,status:'FAIL',error:error.message});console.log('FAIL '+name+': '+error.message);throw error}}
+async function check(name,fn){if(process.env.PULSO_AUTH_BROWSER_BOUNDARY_ONLY==='1'&&!name.startsWith('H32 '))return;try{await fn();results.push({name,status:'PASS'});console.log('PASS '+name)}catch(error){results.push({name,status:'FAIL',error:error.message});console.log('FAIL '+name+': '+error.message);throw error}}
 async function sessionRow(id){const {rows}=await db.query('SELECT id,generation,revoked_at AS revoked FROM auth_sessions WHERE user_id=$1 ORDER BY created_at DESC LIMIT 1',[id]);return rows[0]}
 async function expire(id){const row=await sessionRow(id);const token=sign({sub:id,sid:row.id,exp:1},cfg.secret,{issuer:'proyecto-pow',audience:'proyecto-pow-api',algorithm:'HS256'});await execute('auth.accessToken=arguments[0]',[token]);return row}
 async function screenshot(name){await writeFile(join(evidence,name+'.png'),Buffer.from(await command('/screenshot'),'base64'))}
@@ -76,6 +76,53 @@ try{
  await check('H28 valid global logout preserves another user',async()=>{const {rows:[before]}=await db.query('SELECT count(*)::int AS n FROM auth_sessions WHERE user_id=$1 AND revoked_at IS NULL',[A.id]);assert.ok(before.n>0,'another user must really have a live session');await execute('await auth.logoutAll()');const {rows:[after]}=await db.query('SELECT count(*)::int AS n FROM auth_sessions WHERE user_id=$1 AND revoked_at IS NULL',[A.id]);assert.equal(after.n,before.n)})
  await check('H29 direct URL remains protected after global logout',async()=>{await go('/app/history');assert.equal((await state()).path,'/login')})
  await check('H30 final credential storage and overlay checks',async()=>{assert.deepEqual(await execute('return {local:Object.keys(localStorage),session:Object.keys(sessionStorage)}'),{local:[],session:[]});assert.equal((await state()).overlay,false);await screenshot('login-final')})
+ await check('H32 active legacy session rotates before eight hours and rejects a live JWT and refresh at the limit',async()=>{
+  const subject={email:'authh-limit-'+randomUUID()+'@example.test'}
+  await form('/register',subject.email)
+  subject.id=(await state()).user
+  const originalToken=await execute('return auth.accessToken')
+  const sessionId=decode(originalToken).sid
+  const {rows:[before]}=await db.query('SELECT id,generation,created_at AS created FROM auth_sessions WHERE id=$1',[sessionId])
+  assert.equal(before.id,sessionId)
+  const setLegacyAge = (ageMs) => {
+   const original=before.created.getTime()
+   return db.query(`UPDATE auth_sessions SET created_at=$2,last_used_at=$3,
+     expires_at=$4,absolute_expires_at=$5 WHERE id=$1`,[
+    sessionId,new Date(original-ageMs),new Date(original),new Date(original+6*86400000),new Date(original+20*86400000),
+   ])
+  }
+  await setLegacyAge((8*60-5)*60_000)
+  const liveContext=await execute(`const r=await fetch('/api/v1/auth/context',{method:'POST'});return r.status`)
+  assert.equal(liveContext,200,'browser context valid before eight hours')
+  const rotation=await execute(`try{await auth.refreshSession();return 'rotated'}catch(error){return error.response?.status ?? error.message}`)
+  assert.equal(rotation,'rotated','browser rotation before eight hours')
+  assert.equal((await state()).user,subject.id)
+  const {rows:[rotated]}=await db.query(`SELECT generation, expires_at <= created_at + interval '8 hours' AS capped
+    FROM auth_sessions WHERE id=$1`,[sessionId])
+  assert.equal(rotated.generation,before.generation+1)
+  assert.equal(rotated.capped,true)
+  const token=await execute('return auth.accessToken')
+  await setLegacyAge(8*60*60_000+1000)
+  const protectedResponse=await fetch(cfg.origin+'/api/v1/auth/me',{headers:{Authorization:'Bearer '+token}})
+  assert.equal(protectedResponse.status,401)
+  assert.doesNotMatch(JSON.stringify(await protectedResponse.json()),new RegExp(subject.id))
+  const rejectedRefresh=await execute(`const response=await fetch('/api/v1/auth/refresh',{
+    method:'POST',headers:{'X-CSRF-Token':auth.csrfToken}});return response.status`)
+  assert.equal(rejectedRefresh,401)
+  const {rows:[expired]}=await db.query('SELECT generation FROM auth_sessions WHERE id=$1',[before.id])
+  assert.equal(expired.generation,rotated.generation)
+  await sync(`window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true}))`)
+  assert.equal(await sync("return document.querySelector('.app-route-content').hidden"),true)
+  await sync(`window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}))`)
+  await until(async()=>(await state()).path==='/login','restored expired session cannot reveal private UI')
+  assert.equal((await state()).headers,0)
+  assert.equal((await state()).status,'anonymous')
+  await until(()=>sync("return document.body.innerText.includes('Tu sesión expiró')"),'clear expiry message')
+  await screenshot('expired-session-reauthentication')
+  await form('/login',subject.email)
+  assert.equal((await state()).user,subject.id)
+ })
+
 }catch(error){throw new Error(error.message)}finally{
  await writeFile(join(evidence,'results.json'),JSON.stringify(results,null,2));console.log('Browser evidence: '+evidence);console.log(`Firefox: ${results.filter(x=>x.status==='PASS').length} passed; ${results.filter(x=>x.status==='FAIL').length} failed; ${results.length} checks executed.`)
  for(const session of sessions)try{driver=session.driver;await wd('/session/'+session.id,'DELETE')}catch{}

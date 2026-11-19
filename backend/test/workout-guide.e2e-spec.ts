@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
 import { ProgressionModule } from '../src/progression/progression.module';
@@ -10,6 +11,7 @@ import {
 } from './helpers/recommendation-review-fixtures';
 import { progressionIsolation } from './helpers/progression-isolation';
 import type { WorkoutGuidePreviewInput } from '../src/models/progression/workout-guide.model';
+import { PrismaWorkoutSessionsRepository } from '../src/workout-sessions/prisma-workout-sessions.repository';
 const isolated = process.env.PROG1B_TEST_DATABASE_URL
   ? describe
   : describe.skip;
@@ -549,6 +551,223 @@ isolated('daily workout guide real PostgreSQL read snapshot', () => {
     expect(
       await db.planExercise.findUnique({ where: { id: f.target.p.id } }),
     ).toMatchObject(targets);
+  });
+  it('automatically reuses captured Smith practice across scheduled weeks without inferring strength or applying a plan change', async () => {
+    const f = await fixture();
+    const workouts = new PrismaWorkoutSessionsRepository(db);
+    const smith = await db.exercise.create({
+      data: {
+        name: 'Press de hombros en Smith',
+        catalogKey: 'press-hombros-smith-' + randomUUID(),
+        equipment: 'Máquina Smith',
+        equipmentType: 'SMITH_MACHINE',
+        machineType: 'SMITH',
+        resistanceType: 'PLATE_LOADED',
+        primaryMuscleGroupId: f.e.primaryMuscleGroupId,
+      },
+    });
+    const targets = {
+      targetSets: 3,
+      targetRepsMin: 8,
+      targetRepsMax: 12,
+      targetLoad: null,
+      targetLoadUnit: null,
+    } as const;
+    await db.trainingPlan.update({
+      where: { id: f.target.plan.id },
+      data: { status: 'ACTIVE' },
+    });
+    await db.planExercise.update({
+      where: { id: f.target.p.id },
+      data: { exerciseId: smith.id, targetRpe: null, ...targets },
+    });
+    const sessions = [];
+    for (const [day, repetitions] of [
+      ['2026-01-05', [10, 8, 8]],
+      ['2026-01-06', [10, 9, 8]],
+    ] as const) {
+      const activity = await db.scheduledActivity.create({
+        data: {
+          athleteId: f.athleteId,
+          planWeekId: f.target.week.id,
+          planDayId: f.target.day.id,
+          originalOn: new Date(day),
+          scheduledOn: new Date(day),
+          timeZone: 'UTC',
+          title: 'Smith antes',
+        },
+      });
+      const id = randomUUID();
+      await workouts.create(f.athleteId, {
+        id,
+        performedOn: day,
+        timeZone: 'UTC',
+        trainingPlanId: f.target.plan.id,
+        planWeekId: f.target.week.id,
+        planDayId: f.target.day.id,
+        scheduledActivityId: activity.id,
+      });
+      const task = await db.workoutExercise.findFirstOrThrow({
+        where: { sessionId: id },
+      });
+      await db.workoutSession.update({
+        where: { id },
+        data: {
+          status: 'COMPLETED',
+          startedAt: new Date(day + 'T12:00:00Z'),
+          finishedAt: new Date(day + 'T13:00:00Z'),
+        },
+      });
+      await db.setRecord.createMany({
+        data: repetitions.map((reps, index) => ({
+          workoutExerciseId: task.id,
+          setNumber: index + 1,
+          repetitions: reps,
+          load: '60',
+          loadUnit: 'KG',
+          loadKg: '60',
+          kind: 'WORK',
+          status: 'COMPLETED',
+          isCompleted: true,
+        })),
+      });
+      sessions.push({ id, taskId: task.id });
+    }
+
+    const week = await db.planWeek.create({
+      data: { trainingPlanId: f.target.plan.id, weekNumber: 2 },
+    });
+    const day = await db.planDay.create({
+      data: { planWeekId: week.id, name: 'Smith semana 2', position: 1 },
+    });
+    const next = await db.planExercise.create({
+      data: {
+        planWeekId: week.id,
+        planDayId: day.id,
+        exerciseId: smith.id,
+        position: 1,
+        ...targets,
+      },
+    });
+    const activity = await db.scheduledActivity.create({
+      data: {
+        athleteId: f.athleteId,
+        planWeekId: week.id,
+        planDayId: day.id,
+        originalOn: new Date('2026-01-14'),
+        scheduledOn: new Date('2026-01-14'),
+        timeZone: 'UTC',
+        title: 'Smith luego',
+      },
+    });
+    const source = { activityId: activity.id };
+    const read = async () =>
+      (await guide.forMyWorkout(f.identity, source)).exercises[0];
+    const sets = () =>
+      db.setRecord.findMany({
+        where: {
+          workoutExerciseId: { in: sessions.map((item) => item.taskId) },
+        },
+        orderBy: { id: 'asc' },
+      });
+    const before = await sets();
+    const result = await read();
+    expect(result).toMatchObject({
+      id: next.id,
+      lastReference: {
+        scope: 'OTHER_CONTEXT',
+        sessions: [
+          {
+            sessionId: sessions[1].id,
+            planExerciseId: f.target.p.id,
+          },
+        ],
+      },
+      progressiveContext: {
+        ready: true,
+        minimumSessions: 2,
+        minimumSource: 'PERSISTED_SETTING',
+        comparability: {
+          state: 'AUTOMATIC_VERIFIED',
+          source: 'PLANNED_NOMINAL_LOAD',
+        },
+      },
+      guidanceSuggested: {
+        origin: 'CALCULATED',
+        load: '60.000000',
+        repsBySet: [10, 9, 9],
+        reasons: expect.arrayContaining(['COMPARABLE_SESSIONS_IMPROVING']),
+        executionAuthorized: false,
+      },
+      preparation: {
+        stage: 'REPETITION_DRAFT',
+        draft: { repsBySet: [10, 9, 9], executionAuthorized: false },
+      },
+    });
+    expect(result.guidanceSuggested.reason).toContain('serie 3');
+    expect(await read()).toEqual(result);
+    expect(await sets()).toEqual(before);
+    expect(
+      await db.planExercise.findUnique({ where: { id: next.id } }),
+    ).toEqual(next);
+
+    for (const { taskId } of sessions) {
+      for (const [index, repetitions] of [12, 11, 9].entries())
+        await db.setRecord.updateMany({
+          where: { workoutExerciseId: taskId, setNumber: index + 1 },
+          data: { repetitions },
+        });
+    }
+    expect((await read()).guidanceSuggested).toMatchObject({
+      repsBySet: [12, 11, 10],
+      reasons: expect.arrayContaining(['COMPARABLE_SESSIONS_STABLE']),
+    });
+    await db.progressionSetting.update({
+      where: { id: f.setting.id },
+      data: { minSuccessfulSessions: 3 },
+    });
+    expect((await read()).progressiveContext).toMatchObject({
+      ready: false,
+      reasons: expect.arrayContaining(['MINIMUM_NOT_REACHED']),
+      comparability: { state: 'NOT_COMPARABLE' },
+    });
+    await db.progressionSetting.update({
+      where: { id: f.setting.id },
+      data: { minSuccessfulSessions: 2 },
+    });
+    await db.exercise.update({
+      where: { id: smith.id },
+      data: { equipment: 'Otro equipo registrado' },
+    });
+    const changed = await read();
+    expect(changed.progressiveContext).toMatchObject({
+      comparability: { state: 'CONFIRMATION_REQUIRED', source: null },
+    });
+    expect(changed.guidanceSuggested.origin).toBe('HISTORICAL_REFERENCE');
+    expect(changed.progressiveContext?.comparisonKey).not.toBe(
+      result.progressiveContext?.comparisonKey,
+    );
+    await expect(
+      guide.forMyWorkout(f.identity, source, {
+        source,
+        exerciseId: smith.id,
+        contextKey: result.progressiveContext!.contextKey!,
+        declaration: {
+          sameVariant: true,
+          sameEquipment: true,
+          sameLoadConvention: true,
+        },
+        policyContract: 'session-repetition-preview-v2',
+      }),
+    ).rejects.toThrow('INVALID_COMMAND');
+    await db.setRecord.updateMany({
+      where: { workoutExerciseId: sessions[1].taskId, setNumber: 2 },
+      data: { loadUnit: 'LB', loadKg: '27.215542' },
+    });
+    expect((await read()).progressiveContext).toMatchObject({
+      comparability: { state: 'NOT_COMPARABLE' },
+      reasons: expect.arrayContaining(['RECORDED_LOAD_DIFFERS']),
+    });
   });
   it('keeps an exact comparison identity across activity to session and invalidates changed occurrence, history and settings', async () => {
     const f = await fixture();

@@ -10,6 +10,7 @@ import {
 } from "vue";
 import { useAuthStore } from "../../stores/auth.store";
 import { workoutGuideService } from "../../services/workout-guide.service";
+import { useWorkoutGuide } from "../../composables/useWorkoutGuide";
 import type { WorkoutGuide } from "../../schemas/workout-guide.schema";
 import type {
   Workout,
@@ -132,9 +133,14 @@ function revealCurrent() {
 onMounted(() => {
   void nextTick(revealCurrent);
 });
-async function applyGuide(value: WorkoutGuide) {
-  guide.value = value;
+async function applyGuide(
+  value: WorkoutGuide,
+  occurrenceId: string,
+  contextKey: string,
+) {
+  if (!mergeGuidePreview(value, occurrenceId, contextKey)) return;
   await nextTick();
+  if (active.value?.id !== occurrenceId) return;
   if (exerciseGuide.value?.guidanceSuggested?.load != null) {
     const load = currentCard.value?.querySelector<HTMLInputElement>(
       '.quick-set-form input[id$="-load"]',
@@ -147,9 +153,35 @@ async function applyGuide(value: WorkoutGuide) {
   }
   revealCurrent();
 }
-const guide = ref<WorkoutGuide | null>(null),
-  guideBusy = ref(false),
-  calculating = ref(false),
+const evidenceVersion = computed(() =>
+  JSON.stringify([
+    props.session.performedOn,
+    props.session.timeZone,
+    props.session.exercises.map((e) => [e.id, e.isOmitted, e.targets]),
+  ]),
+);
+const {
+  guide,
+  loading: guideBusy,
+  error: guideReadError,
+  load: loadGuide,
+  calculated: mergeGuidePreview,
+} = useWorkoutGuide({
+  query: () => ({ sessionId: props.session.id }),
+  evidenceVersion: () => evidenceVersion.value,
+  fallbackError:
+    "No se pudo actualizar la orientación. Puedes seguir registrando tus series.",
+});
+const checkingOccurrence = ref<string | null>(null);
+const repetitionChecking = computed(
+  () =>
+    !!checkingOccurrence.value && checkingOccurrence.value === active.value?.id,
+);
+function setChecking(id: string, active: boolean) {
+  if (active) checkingOccurrence.value = id;
+  else if (checkingOccurrence.value === id) checkingOccurrence.value = null;
+}
+const calculating = ref(false),
   guideError = ref(""),
   gridStep = ref(""),
   calculationPolicy = ref<
@@ -239,8 +271,7 @@ const draft = computed<WorkoutSetDraft | undefined>(() => {
     };
   return undefined;
 });
-let revision = 0,
-  controller: AbortController | undefined;
+let calculationController: AbortController | undefined;
 function switchTo(id: string) {
   if (props.busy || calculating.value || changing.value) return;
   selected.value = id;
@@ -312,34 +343,6 @@ function recorded() {
         ?.focus({ preventScroll: true });
   });
 }
-async function loadGuide() {
-  const n = ++revision;
-  controller?.abort();
-  controller = new AbortController();
-  const signal = controller.signal;
-  guide.value = null;
-  guideError.value = "";
-  guideBusy.value = true;
-  if (!auth.isAuthenticated) {
-    guideBusy.value = false;
-    return;
-  }
-  try {
-    const value = await workoutGuideService.get(
-      { sessionId: props.session.id },
-      signal,
-    );
-    if (n === revision && !signal.aborted) guide.value = value;
-  } catch (cause) {
-    if (n === revision && !signal.aborted)
-      guideError.value = workoutErrorMessage(
-        cause,
-        "No se pudo actualizar la orientación. Puedes seguir registrando tus series.",
-      );
-  } finally {
-    if (n === revision) guideBusy.value = false;
-  }
-}
 function openCalculation() {
   if (typeof document === "undefined" || !active.value) return;
   const details = document.getElementById(
@@ -353,7 +356,15 @@ function openCalculation() {
 async function calculate() {
   const c = context.value,
     e = active.value;
-  if (!c?.ready || !c.contextKey || !e || calculating.value || props.busy)
+  if (
+    !c?.ready ||
+    !c.contextKey ||
+    !e ||
+    calculating.value ||
+    repetitionChecking.value ||
+    guideBusy.value ||
+    props.busy
+  )
     return;
   const selectedMode =
     mode.value || (c.incrementModes.length === 1 ? c.incrementModes[0] : "");
@@ -362,12 +373,20 @@ async function calculate() {
       "Indica el salto de peso disponible y el incremento configurado que quieres evaluar.";
     return;
   }
-  const n = revision,
-    sessionId = props.session.id,
+  calculationController?.abort();
+  calculationController = new AbortController();
+  const { signal } = calculationController;
+  const sessionId = props.session.id,
     scope = authScope.value,
     comparisonKey = c.comparisonKey,
     exerciseId = e.exercise.id,
-    signal = controller?.signal;
+    contextKey = c.contextKey,
+    occurrenceId = e.id;
+  const isCurrent = () =>
+    !signal.aborted &&
+    sessionId === props.session.id &&
+    scope === authScope.value &&
+    occurrenceId === active.value?.id;
   calculating.value = true;
   guideError.value = "";
   try {
@@ -375,7 +394,7 @@ async function calculate() {
       {
         source: { sessionId },
         exerciseId,
-        contextKey: c.contextKey,
+        contextKey,
         gridStep: gridStep.value.trim().replace(",", "."),
         incrementMode: selectedMode,
         policyContract: calculationPolicy.value,
@@ -387,9 +406,9 @@ async function calculate() {
       },
       signal,
     );
-    if (n === revision && sessionId === props.session.id && !signal?.aborted) {
+    if (isCurrent() && mergeGuidePreview(value, occurrenceId, contextKey)) {
       const returned = value.exercises.find(
-        (item) => item.exerciseId === exerciseId,
+        (item) => item.id === occurrenceId && item.exerciseId === exerciseId,
       )?.calculationContext?.comparisonKey;
       if (comparisonKey && comparisonKey === returned)
         workoutComparability.record(scope, comparisonKey, {
@@ -397,10 +416,9 @@ async function calculate() {
           sameEquipment: true,
           externalTotal: true,
         });
-      guide.value = value;
       if (exerciseGuide.value?.guidanceSuggested?.load != null)
         void nextTick(() => {
-          if (typeof document === "undefined") return;
+          if (!isCurrent() || typeof document === "undefined") return;
           const details = document.getElementById(
             "live-calc-" + active.value?.id,
           ) as HTMLDetailsElement | null;
@@ -413,32 +431,24 @@ async function calculate() {
         });
     }
   } catch (cause) {
-    if (n === revision && !signal?.aborted)
+    if (isCurrent())
       guideError.value = workoutErrorMessage(
         cause,
         "No se pudo calcular. Actualiza la orientación para revisar los datos vigentes.",
       );
   } finally {
-    if (n === revision) calculating.value = false;
+    if (isCurrent()) calculating.value = false;
   }
 }
 watch(
-  () =>
-    JSON.stringify([
-      props.session.id,
-      props.session.performedOn,
-      props.session.timeZone,
-      props.session.exercises.map((e) => [e.id, e.isOmitted, e.targets]),
-      auth.user?.id,
-      auth.isAuthenticated,
-      auth.getSessionGeneration(),
-    ]),
+  [() => props.session.id, evidenceVersion, authScope],
   () => {
+    calculationController?.abort();
     calculating.value = false;
+    guideError.value = "";
     workoutComparability.setScope(authScope.value);
     gridStep.value = "";
     mode.value = "";
-    void loadGuide();
   },
   { immediate: true, flush: "sync" },
 );
@@ -462,8 +472,7 @@ watch(
   { immediate: true, flush: "sync" },
 );
 onUnmounted(() => {
-  revision++;
-  controller?.abort();
+  calculationController?.abort();
 });
 </script>
 <template>
@@ -673,6 +682,9 @@ onUnmounted(() => {
             v-if="exerciseGuide?.preparation"
             class="live-preparation"
             :exercise="exerciseGuide"
+            :verifying="
+              repetitionChecking && !exerciseGuide?.guidanceSuggested?.load
+            "
           >
             <template
               v-if="
@@ -687,13 +699,15 @@ onUnmounted(() => {
               <WorkoutRepetitionGuide
                 :query="{ sessionId: session.id }"
                 :exercise-id="active.exercise.id"
+                :occurrence-id="active.id"
                 :context="
                   (exerciseGuide.progressiveContext ??
                     exerciseGuide.repetitionContext)!
                 "
-                :disabled="busy || calculating"
+                :disabled="busy || calculating || guideBusy"
                 compact
                 @calculated="applyGuide"
+                @checking="setChecking"
               />
             </template>
           </WorkoutPreparationSummary>
@@ -781,10 +795,18 @@ onUnmounted(() => {
             </p>
           </div>
           <p v-if="guideBusy" role="status" class="field-hint">
-            Consultando tu referencia…
+            {{
+              guide
+                ? "Verificando la orientación…"
+                : "Consultando tu referencia…"
+            }}
           </p>
-          <p v-if="guideError" role="alert" class="form-error">
-            {{ guideError }}
+          <p
+            v-if="guideError || guideReadError"
+            role="alert"
+            class="form-error"
+          >
+            {{ guideError || guideReadError }}
             <button
               class="text-button"
               type="button"
@@ -821,12 +843,14 @@ onUnmounted(() => {
             "
             :query="{ sessionId: session.id }"
             :exercise-id="active.exercise.id"
+            :occurrence-id="active.id"
             :context="
               (exerciseGuide?.progressiveContext ??
                 exerciseGuide?.repetitionContext)!
             "
             :disabled="busy || calculating"
             @calculated="applyGuide"
+            @checking="setChecking"
           />
           <details
             v-if="
