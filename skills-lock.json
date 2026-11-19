@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "skills": {
+    "vue-best-practices": {
+      "source": "vuejs-ai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/vue-best-practices/SKILL.md",
+      "computedHash": "49d56daa53dcf016605524919fd8fadfc57b08e0e9de3a1e5afed43acb00b0e0",
+      "installMode": "copy"
+    },
+    "vue-debug-guides": {
+      "source": "vuejs-ai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/vue-debug-guides/SKILL.md",
+      "computedHash": "612ded3117ef863ff8bb5494a10fbbf5add1270ba87dbde1d44e3aa0ecb9d57b",
+      "installMode": "copy"
+    },
+    "vue-pinia-best-practices": {
+      "source": "vuejs-ai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/vue-pinia-best-practices/SKILL.md",
+      "computedHash": "0bf9272c5344930ea009b2eaa5ad289a537e43c5e7ba61c29b99c2ec8b205e4c",
+      "installMode": "copy"
+    },
+    "vue-router-best-practices": {
+      "source": "vuejs-ai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/vue-router-best-practices/SKILL.md",
+      "computedHash": "3974930676555ed9d1434cb48411f809685d0e590dc4a215418089d9b31b8af5",
+      "installMode": "copy"
+    },
+    "vue-testing-best-practices": {
+      "source": "vuejs-ai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/vue-testing-best-practices/SKILL.md",
+      "computedHash": "df25ca7c8c5866b90536ece9cd4864695502b90cda317bc1cdbd4dc6fbc5b11a",
+      "installMode": "copy"
+    },
+    "web-design-guidelines": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/web-design-guidelines/SKILL.md",
+      "computedHash": "a6a44d5498f7e8f68289902f3dedfc6f38ae0cee1e96527c80724cf27f727c2a",
+      "installMode": "copy"
+    }
+  }
+}
