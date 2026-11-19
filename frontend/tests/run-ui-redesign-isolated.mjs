@@ -7,7 +7,10 @@ import { tmpdir } from "node:os";
 import { realpath } from "node:fs/promises";
 const frontend = fileURLToPath(new URL("..", import.meta.url));
 const backend = resolve(frontend, "../backend");
-const runtime = spawn(process.execPath, ["test/run-final-mvp-demo.mjs"], {
+const runtimeArgs = ["test/run-final-mvp-demo.mjs"];
+if (process.argv.includes("--render-production"))
+  runtimeArgs.push("--render-production");
+const runtime = spawn(process.execPath, runtimeArgs, {
   cwd: backend,
   env: { ...process.env, PULSO_AUTOMATION_ENABLED: "false" },
   stdio: ["ignore", "pipe", "inherit"],
@@ -74,15 +77,23 @@ try {
   };
   browser = spawn(
     process.execPath,
-    process.argv.includes("--ux4")
-      ? ["tests/workout-ux4.browser.mjs"]
-      : process.argv.includes("--ux3")
-        ? ["tests/workout-ux3.browser.mjs"]
-        : process.argv.includes("--ux2")
-          ? ["tests/workout-ux2.browser.mjs"]
-          : process.argv.includes("--functional")
-            ? ["tests/final-ux.browser.mjs"]
-            : ["tests/ui-redesign.browser.mjs", "--prepare"],
+    process.argv.includes("--ui-final")
+      ? ["tests/workout-prog7.browser.mjs", "--ui-final"]
+      : process.argv.includes("--prog7")
+        ? ["tests/workout-prog7.browser.mjs"]
+        : process.argv.includes("--ux6")
+          ? ["tests/workout-ux6.browser.mjs"]
+          : process.argv.includes("--ux5")
+            ? ["tests/workout-ux5.browser.mjs"]
+            : process.argv.includes("--ux4")
+              ? ["tests/workout-ux4.browser.mjs"]
+              : process.argv.includes("--ux3")
+                ? ["tests/workout-ux3.browser.mjs"]
+                : process.argv.includes("--ux2")
+                  ? ["tests/workout-ux2.browser.mjs"]
+                  : process.argv.includes("--functional")
+                    ? ["tests/final-ux.browser.mjs"]
+                    : ["tests/ui-redesign.browser.mjs", "--prepare"],
     { cwd: frontend, stdio: ["pipe", "inherit", "inherit"] },
   );
   browser.stdin.end(JSON.stringify(config));

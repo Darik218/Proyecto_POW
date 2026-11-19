@@ -28,9 +28,13 @@ export type GuideSet = {
 };
 export type GuideHistoryTask = {
   sessionId: string;
+  sessionStatus?: string | null;
   taskId: string;
   performedOn: string | null;
   timeZone: string | null;
+  trainingPlanId?: string | null;
+  planDayId?: string | null;
+  planExerciseId?: string | null;
   sets: GuideSet[];
 };
 export type GuideProposal = {
@@ -85,6 +89,7 @@ export type GuideExerciseSource = {
   configurationReasons?: string[];
   calculationContext?: GuideCalculationContext;
   repetitionContext?: GuideRepetitionContext;
+  progressiveContext?: GuideRepetitionContext;
   repetitionSuggestion?: GuideSuggestion;
 };
 export type WorkoutGuidePreviewInput = {
@@ -157,6 +162,7 @@ export type GuideProposalAssessment = {
 };
 
 export type GuideRepetitionContext = {
+  historyCutoffOn?: string;
   contextKey: string | null;
   comparisonKey: string | null;
   ready: boolean;
@@ -170,7 +176,8 @@ export type GuideRepetitionContext = {
     performedOn: string | null;
     timeZone: string | null;
   }[];
-  policyContract: 'session-repetition-preview-v1';
+  policyContract:
+    'session-repetition-preview-v1' | 'session-repetition-preview-v2';
   executionAuthorized: false;
 };
 // Internal provenance for the current occurrence; never an owner declaration.
@@ -189,5 +196,58 @@ export type WorkoutGuideRepetitionPreviewInput = {
     sameEquipment: true;
     sameLoadConvention: true;
   };
-  policyContract: 'session-repetition-preview-v1';
+  policyContract:
+    'session-repetition-preview-v1' | 'session-repetition-preview-v2';
+};
+
+export type GuidePreparationBlocker = {
+  category:
+    | 'evidence'
+    | 'configuration'
+    | 'policy'
+    | 'comparability'
+    | 'temporal'
+    | 'math'
+    | 'integration';
+  code: string;
+};
+export type GuidePreparation = {
+  stage:
+    | 'PLAN_ONLY'
+    | 'PLAN_WITH_REFERENCE'
+    | 'REPETITION_READY'
+    | 'REPETITION_DRAFT'
+    | 'LOAD_DRAFT'
+    | 'REVIEW_REQUIRED';
+  plan: RecordedTargets;
+  before: {
+    performedOn: string;
+    sessions: (GuideHistoryTask & {
+      trainingPlanId: string | null;
+      planDayId: string | null;
+      planExerciseId: string | null;
+      sessionStatus: string | null;
+    })[];
+    gapDays: number | null;
+    scope: 'SAME_PLAN_DAY' | 'FREE_SESSION' | 'OTHER_CONTEXT';
+  } | null;
+  draft: {
+    origin:
+      | 'PLAN_TARGET'
+      | 'HISTORICAL_REFERENCE'
+      | 'CALCULATED'
+      | 'PERSISTED_PROPOSAL';
+    load: string | null;
+    unit: 'KG' | 'LB' | null;
+    reps: number | null;
+    sets: number | null;
+    executionAuthorized: false;
+  } | null;
+  why: string[];
+  blockers: GuidePreparationBlocker[];
+  diagnostics?: {
+    repetition: { ready: boolean; reasons: GuidePreparationBlocker[] } | null;
+    load: { ready: boolean; reasons: GuidePreparationBlocker[] } | null;
+  };
+  executionAuthorized: false;
 };

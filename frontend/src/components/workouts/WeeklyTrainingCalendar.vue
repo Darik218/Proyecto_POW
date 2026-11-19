@@ -15,12 +15,15 @@ import {
 } from "../../services/workout-sessions.service";
 import { localTrainingDate } from "../../utils/dates";
 import {
+  calendarShortLabels as shortLabels,
   weekDates,
   shiftCivilDate,
   calendarDayState,
 } from "../../utils/weekly-calendar";
 import type { WorkoutGuide } from "../../schemas/workout-guide.schema";
 import DailyWorkoutGuide from "./DailyWorkoutGuide.vue";
+import PulsoIcon from "../ui/PulsoIcon.vue";
+import LoadingState from "../ui/LoadingState.vue";
 const auth = useAuthStore(),
   router = useRouter(),
   timeZone = ref(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
@@ -43,18 +46,7 @@ const days = computed(() => weekDates(anchor.value)),
   ];
 // Compact labels keep seven civil days readable on small screens; the button's
 // accessible name and selected-day details retain the complete state.
-const shortLabels: Record<string, string> = {
-  UNSCHEDULED: "—",
-  PLANNED: "Plan",
-  RESCHEDULED: "Movido",
-  REST: "Desc.",
-  IN_PROGRESS: "En curso",
-  COMPLETED: "Hecho",
-  OMITTED: "Omit.",
-  WITHDRAWN: "Retir.",
-  RECORDED: "Datos",
-  MULTIPLE: "Varias",
-};
+
 const activities = ref<ScheduledActivity[]>([]),
   records = ref<WorkoutSummary[]>([]),
   ongoing = ref<WorkoutSummary[]>([]),
@@ -66,6 +58,7 @@ const activities = ref<ScheduledActivity[]>([]),
   chosenId = ref(""),
   guideEpoch = ref(0),
   guide = ref<WorkoutGuide | null>(null);
+let openAfterLoad = "";
 const selectedActivities = computed(() =>
     activities.value.filter(
       (a) => a.scheduledOn.slice(0, 10) === selected.value,
@@ -78,6 +71,59 @@ const selectedActivities = computed(() =>
     records.value.filter((s) => s.performedOn?.slice(0, 10) === selected.value),
   ),
   linked = computed(() => chosen.value?.workouts ?? []);
+const scheduled = (activity: ScheduledActivity) =>
+  activity.status === "PLANNED" || activity.status === "RESCHEDULED";
+const nextActivity = computed(() => {
+  if (selected.value !== today.value || selectedActivities.value.length > 1)
+    return undefined;
+  return activities.value
+    .filter(
+      (activity) =>
+        scheduled(activity) &&
+        activity.scheduledOn.slice(0, 10) > today.value &&
+        !activity.workouts.some((workout) => workout.status !== "CANCELLED"),
+    )
+    .sort((a, b) => a.scheduledOn.localeCompare(b.scheduledOn))[0];
+});
+const focusActivity = computed(() =>
+  chosen.value && scheduled(chosen.value) ? chosen.value : nextActivity.value,
+);
+const weeklySchedule = computed(() =>
+  days.value.flatMap(dayActivities).filter(scheduled),
+);
+const completedPlanned = computed(
+  () =>
+    weeklySchedule.value.filter((activity) =>
+      activity.workouts.some((workout) => workout.status === "COMPLETED"),
+    ).length,
+);
+const chosenFinished = computed(() =>
+  linked.value.find((workout) => workout.status === "COMPLETED"),
+);
+const pastSelection = computed(
+  () =>
+    focusActivity.value &&
+    focusActivity.value.scheduledOn.slice(0, 10) < today.value,
+);
+function formattedDate(value: string) {
+  return new Intl.DateTimeFormat("es-CO", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: "UTC",
+  }).format(new Date(value + "T12:00:00Z"));
+}
+function openPreparation() {
+  const activity = focusActivity.value;
+  if (!activity) return;
+  const date = activity.scheduledOn.slice(0, 10);
+  if (!days.value.includes(date)) {
+    openAfterLoad = activity.id;
+    anchor.value = date;
+  }
+  select(date);
+  choose(activity.id);
+}
 const canBegin = computed(
   () =>
     !!chosen.value &&
@@ -117,7 +163,11 @@ async function load() {
   }
   const results = await Promise.allSettled([
     routineService.activities(
-      { from: days.value[0]!, to: days.value[6]!, timeZone: timeZone.value },
+      {
+        from: days.value[0]!,
+        to: shiftCivilDate(days.value[6]!, 7),
+        timeZone: timeZone.value,
+      },
       signal,
     ),
     workoutSessionsService.list(
@@ -139,6 +189,12 @@ async function load() {
       "No se pudo confirmar toda la programación o el historial. Consulta de nuevo antes de iniciar desde aquí.";
   loading.value = false;
   select(selected.value);
+  if (
+    openAfterLoad &&
+    selectedActivities.value.some((activity) => activity.id === openAfterLoad)
+  )
+    choose(openAfterLoad);
+  openAfterLoad = "";
 }
 function select(date: string) {
   if (busy.value) return;
@@ -299,73 +355,211 @@ onUnmounted(() => {
 </script>
 <template>
   <section
-    class="ui-panel weekly-training"
+    class="weekly-training"
     aria-labelledby="week-title"
     :aria-busy="loading"
   >
-    <header class="week-heading">
-      <div>
-        <span class="ui-eyebrow">Tu entrenamiento, a mano</span>
-        <h2 id="week-title">¿Qué toca entrenar?</h2>
-        <p>{{ days[0] }} — {{ days[6] }} · {{ timeZone }}</p>
-      </div>
-      <div class="week-controls">
-        <button
-          class="secondary-button"
-          aria-label="Semana anterior"
-          :disabled="busy"
-          @click="move(-7)"
-        >
-          ←</button
-        ><button class="text-button" @click="currentWeek" :disabled="busy">
-          Hoy</button
-        ><button
-          class="secondary-button"
-          aria-label="Semana siguiente"
-          :disabled="busy"
-          @click="move(7)"
-        >
-          →
-        </button>
-      </div>
-    </header>
-    <nav class="week-days" aria-label="Calendario semanal">
-      <button
-        v-for="(date, index) in days"
-        :key="date"
-        type="button"
-        class="week-day"
-        :class="{
-          'is-selected': selected === date,
-          'is-today': today === date,
-        }"
-        :aria-pressed="selected === date"
-        :aria-current="today === date ? 'date' : undefined"
-        :aria-label="`${names[index]} ${date}: ${dayState(date).label}`"
-        @click="select(date)"
-        :disabled="busy"
+    <div class="dashboard-training-grid">
+      <article
+        class="ui-panel training-spotlight"
+        :class="{ 'training-spotlight--photo': !loading && !error }"
+        aria-labelledby="spotlight-title"
       >
-        <span aria-hidden="true">{{ letters[index] }}</span
-        ><strong>{{ date.slice(8) }}</strong
-        ><small class="week-state-full" aria-hidden="true">{{
-          loading ? "…" : dayState(date).label
-        }}</small
-        ><small class="week-state-short" aria-hidden="true">{{
-          loading ? "…" : shortLabels[dayState(date).code]
-        }}</small
-        ><span class="day-training">{{
-          dayActivities(date)
-            .map((a) => a.title)
-            .join(" · ")
-        }}</span>
-      </button>
-    </nav>
-    <p v-if="loading" role="status">Consultando tu semana…</p>
-    <p v-if="error" role="alert">
-      {{ error }}
-      <button class="text-button" @click="load">Actualizar semana</button>
-    </p>
-    <template v-if="!loading">
+        <div class="training-spotlight__copy">
+          <p class="spotlight-label">
+            <PulsoIcon name="dumbbell" :size="18" />
+            {{
+              chosenFinished
+                ? "Entrenamiento completado"
+                : pastSelection
+                  ? "Entrenamiento anterior"
+                  : "Tu próximo entrenamiento"
+            }}
+          </p>
+          <LoadingState
+            v-if="loading"
+            label="Buscando tu programación…"
+            :rows="1"
+          />
+          <template v-else-if="error">
+            <h2 id="spotlight-title">Programación sin confirmar</h2>
+            <p role="alert">{{ error }}</p>
+            <button class="secondary-button" type="button" @click="load">
+              Actualizar semana
+            </button>
+          </template>
+          <template v-else-if="ongoing.length">
+            <h2 id="spotlight-title">
+              {{ ongoing[0]?.name || "Entrenamiento en curso" }}
+            </h2>
+            <p>Retoma tu sesión con las series ya guardadas.</p>
+            <RouterLink
+              class="primary-button"
+              :to="{
+                name: 'workout-session-detail',
+                params: { sessionId: ongoing[0]!.id },
+              }"
+              >Continuar entrenamiento <PulsoIcon name="arrow-right" :size="18"
+            /></RouterLink>
+          </template>
+          <template v-else-if="focusActivity">
+            <h2 id="spotlight-title">{{ focusActivity.title }}</h2>
+            <p class="spotlight-date">
+              {{ formattedDate(focusActivity.scheduledOn.slice(0, 10)) }}
+            </p>
+            <p
+              v-if="
+                guide &&
+                chosen?.id === focusActivity.id &&
+                guide.exercises.length
+              "
+              class="spotlight-exercises"
+            >
+              {{
+                guide.exercises
+                  .slice(0, 3)
+                  .map((exercise) => exercise.name)
+                  .join(" · ")
+              }}<span v-if="guide.exercises.length > 3">
+                · +{{ guide.exercises.length - 3 }}</span
+              >
+            </p>
+            <RouterLink
+              v-if="chosenFinished"
+              class="primary-button"
+              :to="{
+                name: 'workout-session-detail',
+                params: { sessionId: chosenFinished.id },
+              }"
+              >Ver resultados <PulsoIcon name="arrow-right" :size="18"
+            /></RouterLink>
+            <button
+              v-else-if="canBegin && chosen?.id === focusActivity.id"
+              class="primary-button"
+              type="button"
+              :disabled="busy"
+              @click="begin"
+            >
+              {{
+                busy
+                  ? "Recuperando tu sesión…"
+                  : guide?.source.performedOn ===
+                      localTrainingDate(guide?.source.timeZone || timeZone)
+                    ? "Comenzar entrenamiento"
+                    : "Registrar entrenamiento anterior"
+              }}
+              <PulsoIcon name="arrow-right" :size="18" />
+            </button>
+            <button
+              v-else-if="chosen?.id !== focusActivity.id"
+              class="primary-button"
+              type="button"
+              @click="openPreparation"
+            >
+              Preparar entrenamiento <PulsoIcon name="arrow-right" :size="18" />
+            </button>
+            <a v-else class="secondary-button" href="#selected-training"
+              >Ver ejercicios y objetivos
+              <PulsoIcon name="arrow-right" :size="18"
+            /></a>
+          </template>
+          <template v-else>
+            <h2 id="spotlight-title">
+              {{
+                chosen?.status === "REST"
+                  ? "Día de descanso"
+                  : "Organiza tu próxima sesión"
+              }}
+            </h2>
+            <p>
+              {{
+                selectedActivities.length > 1
+                  ? "Elige una de las actividades de esta fecha en el calendario."
+                  : "Crea una rutina, activa tu borrador o elige un día de tu plan flexible."
+              }}
+            </p>
+            <RouterLink class="primary-button" :to="{ name: 'home' }"
+              >Ir a Mi plan <PulsoIcon name="arrow-right" :size="18"
+            /></RouterLink>
+          </template>
+        </div>
+      </article>
+      <div class="ui-panel week-card">
+        <header class="week-heading">
+          <div>
+            <h2 id="week-title">Tu semana</h2>
+            <p>{{ days[0] }} — {{ days[6] }}</p>
+          </div>
+          <div class="week-controls">
+            <button
+              class="secondary-button"
+              aria-label="Semana anterior"
+              :disabled="busy"
+              @click="move(-7)"
+            >
+              ←</button
+            ><button class="text-button" @click="currentWeek" :disabled="busy">
+              Hoy</button
+            ><button
+              class="secondary-button"
+              aria-label="Semana siguiente"
+              :disabled="busy"
+              @click="move(7)"
+            >
+              →
+            </button>
+          </div>
+        </header>
+        <nav class="week-days" aria-label="Calendario semanal">
+          <button
+            v-for="(date, index) in days"
+            :key="date"
+            type="button"
+            class="week-day"
+            :class="{
+              'is-selected': selected === date,
+              'is-today': today === date,
+            }"
+            :aria-pressed="selected === date"
+            :aria-current="today === date ? 'date' : undefined"
+            :aria-label="`${names[index]} ${date}: ${dayState(date).label}`"
+            @click="select(date)"
+            :disabled="busy"
+          >
+            <span aria-hidden="true">{{ letters[index] }}</span
+            ><strong>{{ date.slice(8) }}</strong
+            ><small class="week-state-short" aria-hidden="true">{{
+              loading ? "…" : shortLabels[dayState(date).code]
+            }}</small
+            ><span class="day-training">{{
+              dayActivities(date)
+                .filter((activity) => activity.status !== "REST")
+                .map((a) => a.title)
+                .join(" · ")
+            }}</span>
+          </button>
+        </nav>
+        <dl v-if="!loading && !error" class="week-totals">
+          <div>
+            <dt>Programados</dt>
+            <dd>{{ weeklySchedule.length }}</dd>
+          </div>
+          <div>
+            <dt>Completados</dt>
+            <dd>{{ completedPlanned }}</dd>
+          </div>
+          <div>
+            <dt>Pendientes</dt>
+            <dd>{{ weeklySchedule.length - completedPlanned }}</dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+    <div
+      v-if="!loading && !error"
+      id="selected-training"
+      class="ui-panel week-detail"
+    >
       <h3>
         {{ selected === today ? "Hoy" : selected }}
         <span v-if="selected > localTrainingDate(chosen?.timeZone || timeZone)"
@@ -377,7 +571,7 @@ onUnmounted(() => {
         <RouterLink
           v-for="s in ongoing"
           :key="s.id"
-          class="primary-button"
+          class="secondary-button"
           :to="{ name: 'workout-session-detail', params: { sessionId: s.id } }"
           >Continuar {{ s.name || "entrenamiento" }} ·
           {{ s.performedOn?.slice(0, 10) ?? "sin fecha" }}</RouterLink
@@ -445,19 +639,17 @@ onUnmounted(() => {
           @loaded="loaded"
         />
         <button
-          v-if="canBegin"
-          class="primary-button"
+          v-if="canBegin && ongoing.length"
+          class="secondary-button"
           type="button"
-          :disabled="busy || !!error"
+          :disabled="busy"
           @click="begin"
         >
           {{
-            busy
-              ? "Recuperando tu sesión…"
-              : guide?.source.performedOn ===
-                  localTrainingDate(guide?.source.timeZone || timeZone)
-                ? "Comenzar entrenamiento"
-                : "Registrar entrenamiento anterior"
+            guide?.source.performedOn ===
+            localTrainingDate(guide?.source.timeZone || timeZone)
+              ? "Comenzar entrenamiento"
+              : "Registrar entrenamiento anterior"
           }}
         </button>
         <p
@@ -518,13 +710,10 @@ onUnmounted(() => {
           >Ver historial</RouterLink
         >
       </footer>
-    </template>
+    </div>
   </section>
 </template>
 <style scoped>
-.week-state-short {
-  display: none;
-}
 .calendar-zone {
   margin: 1rem 0;
 }
@@ -544,6 +733,95 @@ onUnmounted(() => {
   margin-bottom: 1.5rem;
   min-width: 0;
 }
+.dashboard-training-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(0, 1fr);
+  gap: var(--space-4);
+}
+.training-spotlight {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  align-items: center;
+  min-height: 250px;
+  overflow: clip;
+  background-color: var(--color-surface);
+}
+.training-spotlight--photo::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0 0 0 43%;
+  content: "";
+  background: url("/images/training-still-life.webp") center right / cover
+    no-repeat;
+  mask-image: linear-gradient(90deg, transparent, #000 52%);
+}
+.training-spotlight__copy {
+  min-width: 0;
+}
+.training-spotlight--photo .training-spotlight__copy {
+  max-width: 76%;
+}
+.spotlight-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+.spotlight-label .pulso-icon {
+  color: var(--color-primary);
+}
+.training-spotlight h2 {
+  margin: 0;
+  font-size: clamp(1.55rem, 2.9vw, 2.45rem);
+  line-height: 1.16;
+  text-wrap: pretty;
+}
+.training-spotlight p:not(.spotlight-label) {
+  margin: var(--space-2) 0 var(--space-4);
+}
+.spotlight-date {
+  color: var(--muted);
+}
+.spotlight-exercises {
+  font-size: 0.85rem;
+}
+.training-spotlight .primary-button,
+.training-spotlight .secondary-button {
+  min-height: var(--target-size);
+  text-align: center;
+}
+.week-detail {
+  margin-top: var(--space-4);
+}
+.week-detail > h3:first-child {
+  margin-top: 0;
+}
+.week-totals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.week-totals div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.week-totals dt {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.week-totals dd {
+  margin: 0;
+  font: 800 1.25rem var(--font-heading);
+  font-variant-numeric: tabular-nums;
+}
 .week-heading {
   display: flex;
   align-items: center;
@@ -552,9 +830,10 @@ onUnmounted(() => {
   flex-wrap: wrap;
 }
 .week-heading h2 {
-  margin: 0.4rem 0;
+  margin: 0;
 }
 .week-heading p {
+  margin: 0.25rem 0 0;
   font-size: 0.8rem;
   color: var(--muted);
 }
@@ -567,7 +846,7 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 0.4rem;
-  margin: 1rem 0 1.5rem;
+  margin: var(--space-4) 0 var(--space-3);
 }
 .week-day {
   display: flex;
@@ -579,7 +858,7 @@ onUnmounted(() => {
   border-radius: 12px;
   background: var(--color-surface-subtle);
   color: var(--ink);
-  min-height: 135px;
+  min-height: 98px;
   cursor: pointer;
   min-width: 0;
 }
@@ -588,19 +867,26 @@ onUnmounted(() => {
 }
 .week-day small {
   font-size: 0.65rem;
-  overflow-wrap: anywhere;
+  line-height: 1.4;
 }
 .day-training {
   font-size: 0.65rem;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
   overflow-wrap: anywhere;
 }
 .week-day.is-today {
   border-color: var(--color-primary);
 }
 .week-day.is-selected {
-  background: var(--color-primary);
-  color: var(--color-bg, #111);
-  box-shadow: 0 0 0 2px var(--color-primary);
+  background: var(--color-accent-surface);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+.week-day:hover {
+  border-color: var(--color-primary);
 }
 .week-footer,
 .activity-choices,
@@ -626,26 +912,37 @@ onUnmounted(() => {
 .actual-records h4 {
   margin: 1rem 0 0.2rem;
 }
+@media (max-width: 1050px) {
+  .dashboard-training-grid {
+    grid-template-columns: 1fr;
+  }
+}
 @media (max-width: 600px) {
-  .weekly-training {
-    padding: 0.9rem;
+  .week-card,
+  .training-spotlight,
+  .week-detail {
+    padding: var(--space-4);
+  }
+  .training-spotlight {
+    min-height: 206px;
+  }
+  .training-spotlight--photo .training-spotlight__copy {
+    max-width: 100%;
+  }
+  .training-spotlight--photo::before {
+    inset-inline-start: 49%;
+    opacity: 0.36;
   }
   .week-days {
     gap: 0.25rem;
   }
   .week-day {
     padding: 0.7rem 0.15rem;
-    min-height: 108px;
+    min-height: 77px;
   }
   .week-day small {
-    font-size: 0.75rem;
+    font-size: 0.65rem;
     line-height: 1.4;
-  }
-  .week-state-full {
-    display: none;
-  }
-  .week-state-short {
-    display: block;
   }
   .day-training {
     display: none;

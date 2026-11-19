@@ -1,5 +1,57 @@
 // Aliases point to stable variant keys. They are never inserted as duplicate exercises.
 export const exerciseAliases: Record<string, string[]> = {
+  'apertura-pecho-pec-deck': [
+    'Pec deck',
+    'Aperturas en máquina',
+    'Machine chest fly',
+  ],
+  'press-banca-smith-inclinado': [
+    'Press inclinado multipower',
+    'Incline Smith press',
+  ],
+  'apertura-pecho-polea-alta': [
+    'Cable crossover',
+    'Cruce de poleas altas',
+    'High to low cable fly',
+  ],
+  'extension-triceps-pushdown-barra': [
+    'Triceps pushdown bar',
+    'Extensión tríceps barra recta',
+  ],
+  'extension-triceps-overhead-cuerda': [
+    'Overhead cable triceps extension',
+    'Tríceps por encima de la cabeza en polea',
+  ],
+  'press-vertical-smith': [
+    'Press militar Smith',
+    'Press militar multipower',
+    'Smith shoulder press',
+  ],
+  'elevacion-lateral-polea-unilateral': [
+    'Cable lateral raise',
+    'Elevaciones laterales en polea',
+  ],
+  'press-banca-maquina-inclinada': ['Incline machine chest press'],
+  'remo-horizontal-t-bar-apoyado': [
+    'Chest supported T bar row',
+    'Remo T apoyado',
+  ],
+  'traccion-vertical-jalon-neutro-independiente': [
+    'Iso lateral pulldown',
+    'Jalón brazos independientes',
+  ],
+  'press-vertical-polea-unilateral': ['Single arm cable shoulder press'],
+  'elevacion-lateral-polea-bilateral': ['Bilateral cable lateral raise'],
+  'deltoide-posterior-polea-sentado': ['Seated reverse cable fly'],
+  'extension-triceps-overhead-barra': ['Overhead cable triceps bar'],
+  'curl-biceps-predicador-polea': ['Cable preacher curl'],
+  'sentadilla-pendular': ['Pendulum squat'],
+  'flexion-rodilla-unilateral-tumbado': ['Single leg lying leg curl'],
+  'hip-thrust-glute-bridge-smith': [
+    'Smith glute bridge',
+    'Puente glúteos multipower',
+  ],
+  'pantorrilla-prensa-unilateral': ['Single leg calf press'],
   'press-banca-barra-plano': [
     'Press banca',
     'Bench press',

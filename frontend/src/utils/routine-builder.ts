@@ -18,6 +18,7 @@ export type RoutineBlock = {
   id: string;
   name: string;
   exercises: RoutineExerciseDraft[];
+  muscleGroups?: string[];
 };
 export type RoutineDraft = {
   style: RoutineStyle;
@@ -26,6 +27,7 @@ export type RoutineDraft = {
   startsOn: string;
   blocks: RoutineBlock[];
   weekdays: string[];
+  scheduleMode?: "fixed" | "flexible";
 };
 export const routineStyles: {
   id: RoutineStyle;
@@ -86,6 +88,7 @@ export function createRoutineDraft(
           : [0, null, null, null, null, null, null];
   return {
     style,
+    scheduleMode: "fixed",
     name: "",
     durationWeeks: 4,
     startsOn: localTrainingDate(timeZone, now),
@@ -163,43 +166,78 @@ export function buildRoutineRequest(
   timeZone: string,
 ): GenerateRoutine {
   if (!draft.name.trim()) throw new Error("Escribe el nombre de tu plan.");
-  if (!draft.startsOn)
+  if (!draft.startsOn && draft.scheduleMode !== "flexible")
     throw new Error(
       "Elige la fecha inicial para guardar tu semana y sus descansos.",
     );
   if (draft.weekdays.length !== 7)
     throw new Error("Revisa los siete días de la semana.");
-  const days = draft.weekdays.flatMap((blockId, index) => {
-    if (!blockId) return [];
-    const block = draft.blocks.find((value) => value.id === blockId);
-    if (!block)
-      throw new Error(
-        "Un bloque asignado ya no está disponible. Revisa la semana.",
-      );
-    return [
-      {
-        name: block.name,
-        weekday: index + 1,
-        exercises: blockPrescriptions(block),
-      },
-    ];
-  });
+  const days =
+    draft.scheduleMode === "flexible"
+      ? draft.blocks.map((block) => ({
+          name: block.name,
+          weekday: null,
+          exercises: blockPrescriptions(block),
+        }))
+      : draft.weekdays.flatMap((blockId, index) => {
+          if (!blockId) return [];
+          const block = draft.blocks.find((value) => value.id === blockId);
+          if (!block)
+            throw new Error(
+              "Un bloque asignado ya no está disponible. Revisa la semana.",
+            );
+          return [
+            {
+              name: block.name,
+              weekday: index + 1,
+              exercises: blockPrescriptions(block),
+            },
+          ];
+        });
   if (!days.length) throw new Error("Asigna al menos un día de entrenamiento.");
   const parsed = generateRoutineSchema.safeParse({
     id,
     name: draft.name,
     durationWeeks: draft.durationWeeks,
-    startsOn: draft.startsOn || null,
+    startsOn: draft.scheduleMode === "flexible" ? null : draft.startsOn || null,
     frequency: days.length,
     timeZone,
     days,
-    restWeekdays: draft.weekdays.flatMap((value, index) =>
-      value ? [] : [index + 1],
-    ),
+    ...(draft.scheduleMode === "flexible"
+      ? {}
+      : {
+          restWeekdays: draft.weekdays.flatMap((value, index) =>
+            value ? [] : [index + 1],
+          ),
+        }),
   });
   if (!parsed.success)
     throw new Error(
       parsed.error.issues[0]?.message ?? "Revisa los datos de tu rutina.",
     );
   return parsed.data;
+}
+
+export function applyRoutineSchedule(
+  draft: RoutineDraft,
+  mode: "fixed" | "flexible",
+  selectedWeekdays: number[],
+) {
+  if (
+    mode === "fixed" &&
+    (selectedWeekdays.length !== draft.blocks.length ||
+      new Set(selectedWeekdays).size !== selectedWeekdays.length ||
+      selectedWeekdays.some(
+        (day) => !Number.isInteger(day) || day < 1 || day > 7,
+      ))
+  )
+    throw new Error("Selecciona tantos días como sesiones de entrenamiento.");
+  draft.scheduleMode = mode;
+  draft.weekdays = Array(7).fill("");
+  if (mode === "fixed")
+    [...selectedWeekdays]
+      .sort((a, b) => a - b)
+      .forEach((day, index) => {
+        draft.weekdays[day - 1] = draft.blocks[index]!.id;
+      });
 }

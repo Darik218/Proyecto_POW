@@ -30,7 +30,6 @@ const parentSections: Record<string, string> = {
   settings: "progression",
   automation: "progression",
   plans: "routine",
-  workouts: "dashboard",
   exercises: "routine",
 };
 const primarySection = computed(
@@ -70,7 +69,7 @@ watch(mobileOpen, async (value) => {
   }
 });
 watch(
-  () => route.path,
+  () => route.fullPath,
   () => {
     mobileOpen.value = false;
   },
@@ -152,19 +151,18 @@ async function signOut(allSessions = false): Promise<void> {
         class="brand sidebar-brand"
         :to="{ name: 'dashboard' }"
         aria-label="PULSO, inicio"
+        @click="mobileOpen = false"
         ><PulsoBrand
       /></RouterLink>
       <nav class="app-nav" aria-label="Navegación principal">
-        <template v-for="(item, index) in primaryNavigation" :key="item.name">
-          <span v-if="index === 0" class="app-nav__group"
-            >Tu entrenamiento</span
-          >
+        <template v-for="item in primaryNavigation" :key="item.name">
           <RouterLink
             :to="{ name: item.name }"
             class="app-nav__link"
             :class="{ 'app-nav__link--active': primarySection === item.key }"
             active-class=""
             :aria-current="primarySection === item.key ? 'page' : undefined"
+            @click="mobileOpen = false"
             ><PulsoIcon :name="item.icon" :size="19" /><span>{{
               item.label
             }}</span
@@ -229,12 +227,27 @@ async function signOut(allSessions = false): Promise<void> {
           <strong>{{ current.label }}</strong
           ><small>{{ current.section }} / PULSO</small>
         </div>
-        <span v-if="auth.status === 'authenticated'" class="session-label"
-          ><span class="session-dot" aria-hidden="true"></span>Sesión
-          actual</span
+        <RouterLink
+          v-if="auth.status === 'authenticated'"
+          class="header-profile avatar"
+          :to="{ name: 'profile' }"
+          aria-label="Abrir mi perfil"
+          >{{ initials }}</RouterLink
         >
       </header>
       <slot />
+      <nav class="app-bottom-nav" aria-label="Accesos de entrenamiento">
+        <RouterLink
+          v-for="item in primaryNavigation"
+          :key="item.name"
+          :to="{ name: item.name }"
+          :aria-current="primarySection === item.key ? 'page' : undefined"
+          active-class=""
+        >
+          <PulsoIcon :name="item.icon" :size="21" />
+          <span>{{ item.label }}</span>
+        </RouterLink>
+      </nav>
     </div>
   </div>
 </template>

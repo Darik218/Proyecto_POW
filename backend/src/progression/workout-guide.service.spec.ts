@@ -122,7 +122,7 @@ describe('on-demand workout recommendations', () => {
         load: null,
         reps: null,
         sets: null,
-        reasons: ['POLICY_PROVENANCE_REQUIRED'],
+        reasons: ['POLICY_PROVENANCE_REQUIRED', 'CONTEXTUAL_HISTORY_ONLY'],
       },
     });
   });
@@ -225,5 +225,177 @@ describe('on-demand workout recommendations', () => {
         reasons: expect.arrayContaining(['REFERENCE_OUTSIDE_PREVIEW_PERIOD']),
       },
     });
+  });
+});
+
+describe('progressive exercise preparation', () => {
+  it('provides a practical plan draft without claiming a calculation when there is no history', async () => {
+    const f = fixture();
+    f.exercise.history = [];
+    f.exercise.calculations = [];
+    expect((await read(f)).exercises[0]).toMatchObject({
+      preparation: {
+        stage: 'PLAN_ONLY',
+        plan: f.exercise.target,
+        before: null,
+        draft: {
+          origin: 'PLAN_TARGET',
+          load: '80',
+          unit: 'KG',
+          reps: 5,
+          sets: 1,
+          executionAuthorized: false,
+        },
+        executionAuthorized: false,
+      },
+    });
+  });
+  it('keeps actual no-effort history next to a useful plan draft while respecting a configured minimum', async () => {
+    const f = fixture();
+    f.exercise.calculations = [];
+    Object.assign(f.exercise, {
+      progressiveContext: {
+        ready: false,
+        reasons: ['MINIMUM_NOT_REACHED'],
+        minimumSessions: 3,
+      },
+    });
+    f.exercise.history.forEach((t) =>
+      t.sets.forEach((s) => {
+        s.rpe = null;
+      }),
+    );
+    expect((await read(f)).exercises[0]).toMatchObject({
+      preparation: {
+        stage: 'PLAN_WITH_REFERENCE',
+        before: { performedOn: '2026-01-06' },
+        draft: { origin: 'PLAN_TARGET', load: '80', reps: 5 },
+        blockers: expect.arrayContaining([
+          { category: 'evidence', code: 'MINIMUM_NOT_REACHED' },
+        ]),
+      },
+    });
+  });
+  it('separates declaration-ready repetition preparation from explicitly calculated guidance', async () => {
+    const f = fixture();
+    f.exercise.calculations = [];
+    Object.assign(f.exercise, {
+      progressiveContext: { ready: true, reasons: [], minimumSessions: 2 },
+    });
+    expect((await read(f)).exercises[0]).toMatchObject({
+      preparation: {
+        stage: 'REPETITION_READY',
+        draft: { origin: 'PLAN_TARGET' },
+        blockers: expect.arrayContaining([
+          {
+            category: 'comparability',
+            code: 'COMPARABILITY_DECLARATION_REQUIRED',
+          },
+        ]),
+      },
+    });
+    const result = await read(f);
+    expect(result.exercises[0].guidanceSuggested.origin).toBe(
+      'HISTORICAL_REFERENCE',
+    );
+  });
+  it('withholds the practical draft when records conflict or the reference is outside the preview period', async () => {
+    const f = fixture();
+    f.exercise.calculations = [];
+    Object.assign(f.exercise, {
+      progressiveContext: {
+        ready: false,
+        reasons: ['HISTORY_REPETITIONS_INCONSISTENT'],
+      },
+    });
+    expect((await read(f)).exercises[0]).toMatchObject({
+      preparation: {
+        stage: 'REVIEW_REQUIRED',
+        draft: null,
+        blockers: expect.arrayContaining([
+          { category: 'evidence', code: 'HISTORY_REPETITIONS_INCONSISTENT' },
+        ]),
+      },
+    });
+    f.snapshot.source.performedOn = '2026-09-01';
+    expect((await read(f)).exercises[0]).toMatchObject({
+      preparation: {
+        stage: 'REVIEW_REQUIRED',
+        draft: null,
+        blockers: expect.arrayContaining([
+          { category: 'temporal', code: 'REFERENCE_OUTSIDE_PREVIEW_PERIOD' },
+        ]),
+      },
+    });
+  });
+  it('reports failed load grid math separately while comparable repetition preparation remains usable', async () => {
+    const f = fixture();
+    f.c.policy!.grid.step = '1000';
+    Object.assign(f.exercise, {
+      progressiveContext: { ready: true, reasons: [] },
+      calculationContext: { ready: true, reasons: [] },
+    });
+    expect((await read(f)).exercises[0]).toMatchObject({
+      guidanceSuggested: {
+        action: 'NO_REPRESENTABLE_INCREMENT',
+        load: null,
+        reasons: expect.arrayContaining(['GRID_HAS_NO_POSITIVE_INCREMENT']),
+      },
+      preparation: {
+        stage: 'REPETITION_READY',
+        draft: { origin: 'PLAN_TARGET', load: '80' },
+        diagnostics: {
+          repetition: { ready: true, reasons: [] },
+          load: {
+            ready: false,
+            reasons: expect.arrayContaining([
+              { category: 'math', code: 'GRID_HAS_NO_POSITIVE_INCREMENT' },
+            ]),
+          },
+        },
+      },
+    });
+  });
+  it('requires review for unordered same-day records instead of presenting them as a first baseline', async () => {
+    const f = fixture();
+    f.exercise.calculations = [];
+    f.exercise.history.forEach((task) => {
+      task.performedOn = f.snapshot.source.performedOn;
+    });
+    Object.assign(f.exercise, {
+      progressiveContext: { ready: false, reasons: ['NO_ELIGIBLE_HISTORY'] },
+    });
+    expect((await read(f)).exercises[0]).toMatchObject({
+      preparation: {
+        stage: 'REVIEW_REQUIRED',
+        draft: null,
+        blockers: expect.arrayContaining([
+          { category: 'temporal', code: 'SAME_DAY_NOT_ORDERED' },
+        ]),
+      },
+    });
+  });
+  it('exposes an existing eligible load calculation as a draft without writing or authorizing execution', async () => {
+    const f = fixture();
+    Object.assign(f.exercise, {
+      progressiveContext: {
+        ready: false,
+        reasons: ['HISTORY_REPETITIONS_INCONSISTENT'],
+      },
+    });
+    const before = JSON.stringify(f.snapshot);
+    expect((await read(f)).exercises[0]).toMatchObject({
+      preparation: {
+        stage: 'LOAD_DRAFT',
+        draft: {
+          origin: 'CALCULATED',
+          load: '82.500000',
+          reps: 6,
+          sets: 1,
+          executionAuthorized: false,
+        },
+      },
+    });
+    expect(JSON.stringify(f.snapshot)).toBe(before);
   });
 });

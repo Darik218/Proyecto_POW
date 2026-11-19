@@ -29,6 +29,7 @@ import WorkoutSetForm from "./WorkoutSetForm.vue";
 import WorkoutExerciseCard from "./WorkoutExerciseCard.vue";
 import RestTimer from "./RestTimer.vue";
 import WorkoutRepetitionGuide from "./WorkoutRepetitionGuide.vue";
+import WorkoutPreparationSummary from "./WorkoutPreparationSummary.vue";
 import AddWorkoutExerciseForm from "./AddWorkoutExerciseForm.vue";
 const props = defineProps<{
   session: Workout;
@@ -83,6 +84,11 @@ const completed = (item: Workout["exercises"][number]) =>
     .length ?? 0;
 const reached = (item: Workout["exercises"][number]) =>
   !!item.targets?.targetSets && completed(item) >= item.targets.targetSets;
+const planned = computed(() =>
+  usable.value.filter((item) => item.targets?.targetSets),
+);
+const reachedCount = computed(() => planned.value.filter(reached).length);
+const currentCard = ref<HTMLElement | null>(null);
 const active = computed(
   () =>
     usable.value.find((e) => e.id === selected.value) ??
@@ -104,9 +110,7 @@ const next = computed(() => {
   );
 });
 const previousSet = computed(() =>
-  lastCompletedWorkSet(
-    active.value ? props.previousReferences[active.value.id]?.sets : undefined,
-  ),
+  lastCompletedWorkSet(activeReference.value?.sets),
 );
 const nextNumber = computed(
   () => Math.max(0, ...(active.value?.sets ?? []).map((s) => s.setNumber)) + 1,
@@ -119,9 +123,7 @@ function revealCurrent() {
   )
     return;
   if (document.activeElement?.closest(".quick-set-form")) return;
-  document
-    .getElementById("live-exercise-" + active.value.id)
-    ?.scrollIntoView({ block: "start" });
+  currentCard.value?.scrollIntoView({ block: "start" });
 }
 onMounted(() => {
   void nextTick(revealCurrent);
@@ -129,6 +131,16 @@ onMounted(() => {
 async function applyGuide(value: WorkoutGuide) {
   guide.value = value;
   await nextTick();
+  if (exerciseGuide.value?.guidanceSuggested?.load != null) {
+    const load = currentCard.value?.querySelector<HTMLInputElement>(
+      '.quick-set-form input[id$="-load"]',
+    );
+    if (load) {
+      load.focus({ preventScroll: true });
+      load.scrollIntoView({ block: "center" });
+      return;
+    }
+  }
   revealCurrent();
 }
 const guide = ref<WorkoutGuide | null>(null),
@@ -143,6 +155,20 @@ const guide = ref<WorkoutGuide | null>(null),
 const exerciseGuide = computed(() =>
   guide.value?.exercises.find((e) => e.id === active.value?.id),
 );
+const activeReference = computed<PreviousWorkoutReference | undefined>(() => {
+  if (!guide.value)
+    return active.value ? props.previousReferences[active.value.id] : undefined;
+  if (exerciseGuide.value?.preparation?.stage === "REVIEW_REQUIRED")
+    return undefined;
+  const reference = exerciseGuide.value?.lastReference;
+  // Several records on one civil date have no verified order. Display them in
+  // the guide but do not silently choose one for the editable recording draft.
+  if (!reference || reference.sessions.length !== 1) return undefined;
+  return {
+    sessionLabel: reference.performedOn,
+    sets: reference.sessions[0]!.sets,
+  };
+});
 const context = computed(() => exerciseGuide.value?.calculationContext);
 const missingLoadClaims = computed(() =>
   workoutComparability.missing(
@@ -162,6 +188,18 @@ const draft = computed<WorkoutSetDraft | undefined>(() => {
   const item = active.value,
     g = exerciseGuide.value,
     s = g?.guidanceSuggested;
+  if (g?.preparation) {
+    const prepared = g.preparation.draft;
+    if (g.preparation.stage === "REVIEW_REQUIRED" || !prepared)
+      return undefined;
+    return {
+      load: prepared.load,
+      unit: prepared.unit,
+      repetitions: prepared.reps,
+      origin: prepared.origin,
+      prepared: true,
+    };
+  }
   if (s?.load !== null && s?.load !== undefined && s.unit && s.reps)
     return {
       load: s.load,
@@ -201,6 +239,22 @@ function switchTo(id: string) {
     heading?.focus({ preventScroll: true });
     heading?.scrollIntoView({ block: "start" });
   });
+}
+async function openExerciseChange(item: Workout["exercises"][number]) {
+  changing.value = item;
+  await nextTick();
+  const editor = currentCard.value?.querySelector<HTMLElement>(
+    "#live-replacement-editor",
+  );
+  editor?.focus({ preventScroll: true });
+  editor?.scrollIntoView({ block: "start" });
+}
+async function closeExerciseChange() {
+  changing.value = null;
+  await nextTick();
+  currentCard.value
+    ?.querySelector<HTMLButtonElement>(".live-change-exercise")
+    ?.focus();
 }
 async function changeExercise(input: AddWorkoutExercise) {
   const source = changing.value;
@@ -400,8 +454,23 @@ onUnmounted(() => {
 <template>
   <section class="workout-live" aria-label="Entrenamiento en directo">
     <header class="live-toolbar">
-      <span>{{ session.completedSetCount ?? 0 }} series guardadas</span>
-      <div>
+      <div class="live-session-progress">
+        <span
+          ><strong>{{ session.completedSetCount ?? 0 }}</strong> series
+          completadas</span
+        >
+        <span v-if="planned.length"
+          >{{ reachedCount }}/{{ planned.length }} objetivos</span
+        >
+        <progress
+          v-if="planned.length"
+          class="workout-series-progress"
+          :max="planned.length"
+          :value="reachedCount"
+          aria-label="Objetivos de series alcanzados"
+        />
+      </div>
+      <div class="live-toolbar-actions">
         <button class="text-button" :disabled="busy" @click="emit('add')">
           Añadir ejercicio</button
         ><button
@@ -426,7 +495,7 @@ onUnmounted(() => {
         :disabled="busy || calculating || Boolean(changing)"
         @click="switchTo(item.id)"
       >
-        <span>{{ index + 1 }}</span
+        <span class="live-tab-position">{{ index + 1 }}</span
         ><span class="live-tab-title">{{ item.exercise.name }}</span>
         <small
           >{{ completed(item)
@@ -438,23 +507,33 @@ onUnmounted(() => {
     </nav>
     <template v-if="active">
       <article
+        ref="currentCard"
         class="live-current"
         :aria-labelledby="'live-exercise-' + active.id"
       >
-        <p class="live-position">
-          Ejercicio {{ position }} de {{ usable.length }}
+        <header>
+          <p class="live-position">
+            Ejercicio {{ position }} de {{ usable.length }}
+          </p>
+          <h2 :id="'live-exercise-' + active.id" tabindex="-1">
+            {{ active.exercise.name }}
+          </h2>
+        </header>
+        <div v-if="active.targets?.targetSets" class="live-exercise-progress">
+          <span
+            >{{ completed(active) }} de {{ active.targets.targetSets }} series
+            de trabajo</span
+          >
+          <progress
+            class="workout-series-progress"
+            :max="active.targets.targetSets"
+            :value="Math.min(completed(active), active.targets.targetSets)"
+            aria-label="Series de trabajo del ejercicio"
+          />
+        </div>
+        <p v-else class="live-exercise-progress">
+          {{ completed(active) }} series de trabajo completadas
         </p>
-        <h2 :id="'live-exercise-' + active.id" tabindex="-1">
-          {{ active.exercise.name }}
-        </h2>
-        <button
-          class="text-button live-change-exercise"
-          type="button"
-          :disabled="busy || calculating"
-          @click="changing = active"
-        >
-          Cambiar ejercicio
-        </button>
         <p v-if="active.replacesWorkoutExerciseId" class="field-hint">
           Sustituye a
           {{
@@ -465,6 +544,8 @@ onUnmounted(() => {
         </p>
         <AddWorkoutExerciseForm
           v-if="changing"
+          id="live-replacement-editor"
+          tabindex="-1"
           :key="session.id + changing.id"
           :replacement-source="{
             id: changing.id,
@@ -475,135 +556,52 @@ onUnmounted(() => {
           :expected-version="session.version"
           :busy="busy"
           :save="changeExercise"
-          @cancel="changing = null"
+          @cancel="closeExerciseChange"
         />
         <div v-show="!changing">
-          <p
-            class="live-target"
-            v-if="
-              active.targets &&
-              (active.targets.targetSets ||
-                active.targets.targetRepsMin ||
-                active.targets.targetRepsMax ||
-                active.targets.targetLoad !== null)
-            "
-          >
-            {{ active.targets.targetSets ?? "Series libres"
-            }}{{ active.targets.targetSets ? " series" : "" }} ·
-            {{ active.targets.targetRepsMin ?? "—"
-            }}{{
-              active.targets.targetRepsMax !== active.targets.targetRepsMin
-                ? "–" + (active.targets.targetRepsMax ?? "—")
-                : ""
-            }}
-            repeticiones
-            <span v-if="active.targets.targetLoad !== null"
-              >· objetivo {{ active.targets.targetLoad }}
-              {{
-                active.targets.targetLoadUnit ?? "(unidad no registrada)"
-              }}</span
+          <div class="live-context" v-if="active.targets || previousSet">
+            <p
+              class="live-target"
+              v-if="
+                active.targets &&
+                (active.targets.targetRepsMin ||
+                  active.targets.targetRepsMax ||
+                  active.targets.targetLoad !== null)
+              "
             >
-          </p>
-          <p v-if="previousSet" class="live-previous">
-            Anterior:
-            <strong
-              >{{ previousSet.load ?? "—" }}
-              {{ previousSet.loadUnit ?? "(unidad no registrada)" }} ×
-              {{ previousSet.repetitions ?? "—" }}</strong
-            >
-          </p>
+              <strong>Objetivo</strong> ·
+              <span v-if="active.targets.targetRepsMin !== null"
+                >{{ active.targets.targetRepsMin
+                }}{{
+                  active.targets.targetRepsMax !== active.targets.targetRepsMin
+                    ? "–" + (active.targets.targetRepsMax ?? "—")
+                    : ""
+                }}
+                reps</span
+              >
+              <span v-if="active.targets.targetLoad !== null"
+                >{{ active.targets.targetRepsMin !== null ? " · " : ""
+                }}{{ active.targets.targetLoad }}
+                {{
+                  active.targets.targetLoadUnit ?? "(unidad no registrada)"
+                }}</span
+              >
+            </p>
+            <p v-if="previousSet" class="live-previous">
+              Anterior:
+              <strong
+                >{{ previousSet.load ?? "—" }}
+                {{ previousSet.loadUnit ?? "(unidad no registrada)" }} ×
+                {{ previousSet.repetitions ?? "—" }}</strong
+              >
+            </p>
+          </div>
           <p
-            v-if="
-              exerciseGuide?.guidanceSuggested?.load !== null &&
-              exerciseGuide?.guidanceSuggested?.load !== undefined
-            "
-            class="live-guidance"
+            v-if="exerciseGuide?.preparation?.stage === 'REVIEW_REQUIRED'"
+            class="field-hint"
           >
-            <strong
-              >{{
-                exerciseGuide.guidanceSuggested.origin === "CALCULATED"
-                  ? "Propuesta calculada"
-                  : "Propuesta verificada"
-              }}:</strong
-            >
-            {{
-              recordableLoad(exerciseGuide.guidanceSuggested.load) ??
-              exerciseGuide.guidanceSuggested.load
-            }}
-            {{ exerciseGuide.guidanceSuggested.unit }} ×
-            {{ exerciseGuide.guidanceSuggested.reps }}. Editable.
+            Revisa la referencia antes de reutilizarla.
           </p>
-          <p
-            v-if="exerciseGuide?.guidanceSuggested?.origin === 'CALCULATED'"
-            class="field-hint live-repetition-reason"
-          >
-            {{ exerciseGuide.guidanceSuggested.reason }}
-          </p>
-          <p
-            v-if="
-              exerciseGuide?.guidance.state === 'FIRST_BASELINE' &&
-              !guideBusy &&
-              exerciseGuide?.guidanceSuggested?.load == null
-            "
-            class="field-hint live-baseline"
-          >
-            <strong>Referencia inicial.</strong> Registra tus propios valores o
-            usa el objetivo del plan. Todavía no se calcula una mejora.
-          </p>
-          <p
-            v-else-if="
-              exerciseGuide?.guidanceSuggested?.origin ===
-              'HISTORICAL_REFERENCE'
-            "
-            class="field-hint live-reference-state"
-          >
-            <strong>Referencia anterior, sin recomendación nueva.</strong>
-            {{ exerciseGuide.guidanceSuggested.reason }}
-          </p>
-          <p
-            v-else-if="
-              !guideBusy && exerciseGuide?.guidanceSuggested?.load == null
-            "
-            class="field-hint live-insufficient"
-          >
-            <strong>Información insuficiente para una propuesta.</strong> Puedes
-            registrar tus propios valores sin esfuerzo obligatorio.
-          </p>
-
-          <p v-if="guideBusy" role="status" class="field-hint">
-            Consultando tu referencia…
-          </p>
-          <p v-if="guideError" role="alert" class="form-error">
-            {{ guideError }}
-            <button
-              class="text-button"
-              type="button"
-              :disabled="calculating"
-              @click="loadGuide"
-            >
-              Actualizar orientación
-            </button>
-          </p>
-          <button
-            v-if="context?.ready && !exerciseGuide?.repetitionContext?.ready"
-            class="text-button live-compute-short"
-            type="button"
-            :disabled="busy || calculating"
-            @click="openCalculation"
-          >
-            Obtener una propuesta calculada
-          </button>
-          <WorkoutRepetitionGuide
-            v-if="
-              exerciseGuide?.repetitionContext &&
-              exerciseGuide.guidanceSuggested?.load == null
-            "
-            :query="{ sessionId: session.id }"
-            :exercise-id="active.exercise.id"
-            :context="exerciseGuide.repetitionContext"
-            :disabled="busy || calculating"
-            @calculated="applyGuide"
-          />
           <KeepAlive :max="10"
             ><WorkoutSetForm
               v-if="!reached(active) || extra"
@@ -612,7 +610,7 @@ onUnmounted(() => {
               :busy="busy"
               :next-number="nextNumber"
               :current-sets="active.sets"
-              :previous-reference="previousReferences[active.id]"
+              :previous-reference="activeReference"
               :draft="draft"
               :save="
                 (input, id) =>
@@ -634,20 +632,172 @@ onUnmounted(() => {
               Añadir otra serie
             </button>
           </div>
-          <button
-            v-if="!reached(active) && next"
-            class="text-button"
-            :disabled="busy"
-            @click="switchTo(next!.id)"
+          <div class="live-secondary-actions">
+            <button
+              v-if="!reached(active) && next"
+              class="text-button live-skip"
+              type="button"
+              :disabled="busy"
+              @click="switchTo(next!.id)"
+            >
+              Pasar al siguiente ejercicio
+            </button>
+            <button
+              class="text-button live-change-exercise"
+              type="button"
+              :disabled="busy || calculating"
+              @click="openExerciseChange(active)"
+            >
+              Cambiar ejercicio
+            </button>
+          </div>
+          <details
+            v-if="exerciseGuide?.preparation"
+            class="live-preparation"
+            :open="
+              ['REVIEW_REQUIRED', 'REPETITION_DRAFT', 'LOAD_DRAFT'].includes(
+                exerciseGuide.preparation.stage,
+              )
+            "
           >
-            Pasar al siguiente ejercicio
+            <summary>Referencia y orientación</summary>
+            <WorkoutPreparationSummary :exercise="exerciseGuide" />
+          </details>
+          <div v-else class="live-context">
+            <p
+              v-if="exerciseGuide?.lastReference?.scope === 'FREE_SESSION'"
+              class="field-hint"
+            >
+              Referencia de entrenamiento libre; no se vincula al plan.
+            </p>
+            <p
+              v-if="
+                exerciseGuide?.lastReference?.sessions.some(
+                  (previous) => previous.sessionStatus === 'IN_PROGRESS',
+                )
+              "
+              class="field-hint"
+            >
+              Sesión parcial: referencia contextual, sin acreditar un
+              entrenamiento completo para progresar.
+            </p>
+            <p
+              v-if="
+                exerciseGuide?.guidanceSuggested?.load !== null &&
+                exerciseGuide?.guidanceSuggested?.load !== undefined
+              "
+              class="live-guidance"
+            >
+              <strong
+                >{{
+                  exerciseGuide.guidanceSuggested.origin === "CALCULATED"
+                    ? "Propuesta calculada"
+                    : "Propuesta verificada"
+                }}:</strong
+              >
+              {{
+                recordableLoad(exerciseGuide.guidanceSuggested.load) ??
+                exerciseGuide.guidanceSuggested.load
+              }}
+              {{ exerciseGuide.guidanceSuggested.unit }} ×
+              {{ exerciseGuide.guidanceSuggested.reps }}. Editable.
+            </p>
+            <p
+              v-if="exerciseGuide?.guidanceSuggested?.origin === 'CALCULATED'"
+              class="field-hint live-repetition-reason"
+            >
+              {{ exerciseGuide.guidanceSuggested.reason }}
+            </p>
+            <p
+              v-if="
+                exerciseGuide?.guidance.state === 'FIRST_BASELINE' &&
+                !guideBusy &&
+                exerciseGuide?.guidanceSuggested?.load == null
+              "
+              class="field-hint live-baseline"
+            >
+              <strong>Referencia inicial.</strong> Registra tus propios valores
+              o usa el objetivo del plan. Todavía no se calcula una mejora.
+            </p>
+            <p
+              v-else-if="
+                exerciseGuide?.guidanceSuggested?.origin ===
+                'HISTORICAL_REFERENCE'
+              "
+              class="field-hint live-reference-state"
+            >
+              <strong>Referencia anterior, sin recomendación nueva.</strong>
+              {{ exerciseGuide.guidanceSuggested.reason }}
+            </p>
+            <p
+              v-else-if="
+                !guideBusy && exerciseGuide?.guidanceSuggested?.load == null
+              "
+              class="field-hint live-insufficient"
+            >
+              <strong>Información insuficiente para una propuesta.</strong>
+              Puedes registrar tus propios valores sin esfuerzo obligatorio.
+            </p>
+          </div>
+          <p v-if="guideBusy" role="status" class="field-hint">
+            Consultando tu referencia…
+          </p>
+          <p v-if="guideError" role="alert" class="form-error">
+            {{ guideError }}
+            <button
+              class="text-button"
+              type="button"
+              :disabled="calculating"
+              @click="loadGuide"
+            >
+              Actualizar orientación
+            </button>
+          </p>
+          <button
+            v-if="
+              context?.ready &&
+              !(
+                exerciseGuide?.progressiveContext ??
+                exerciseGuide?.repetitionContext
+              )?.ready &&
+              exerciseGuide?.preparation?.stage !== 'REVIEW_REQUIRED'
+            "
+            class="text-button live-compute-short"
+            type="button"
+            :disabled="busy || calculating"
+            @click="openCalculation"
+          >
+            Obtener una propuesta calculada
           </button>
-          <details v-if="exerciseGuide?.guidanceSuggested" class="live-why">
+          <WorkoutRepetitionGuide
+            v-if="
+              (exerciseGuide?.progressiveContext ??
+                exerciseGuide?.repetitionContext) &&
+              exerciseGuide?.preparation?.stage !== 'REVIEW_REQUIRED' &&
+              (exerciseGuide?.preparation
+                ? exerciseGuide.preparation.stage === 'REPETITION_READY'
+                : exerciseGuide?.guidanceSuggested?.load == null)
+            "
+            :query="{ sessionId: session.id }"
+            :exercise-id="active.exercise.id"
+            :context="
+              (exerciseGuide?.progressiveContext ??
+                exerciseGuide?.repetitionContext)!
+            "
+            :disabled="busy || calculating"
+            @calculated="applyGuide"
+          />
+          <details
+            v-if="
+              !exerciseGuide?.preparation && exerciseGuide?.guidanceSuggested
+            "
+            class="live-why"
+          >
             <summary>Por qué esta orientación</summary>
             <p>{{ exerciseGuide.guidanceSuggested.reason }}</p>
           </details>
           <details
-            v-if="context"
+            v-if="context && (!exerciseGuide?.preparation || context.ready)"
             :id="'live-calc-' + active.id"
             class="live-calculation"
           >
@@ -895,24 +1045,21 @@ onUnmounted(() => {
 </template>
 <style scoped>
 .live-compute-short {
-  min-height: 36px !important;
+  min-height: 44px;
   padding: 0.3rem 0;
 }
 .live-why,
-.live-calculation {
-  scroll-margin-top: 90px;
-}
-.quick-set-form input {
-  scroll-margin-block: 100px;
+.live-preparation,
+.live-calculation,
+#live-replacement-editor,
+.live-current {
+  scroll-margin-top: 5.625rem;
 }
 .live-why {
   font-size: 0.85rem;
 }
-.live-why summary {
-  min-height: 36px;
-}
 .live-tab-title {
-  max-width: 150px;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -922,23 +1069,14 @@ onUnmounted(() => {
 }
 .live-previous {
   font-size: 0.9rem;
-  margin: 0.5rem 0;
-}
-.live-exercise-nav {
-  padding-bottom: 0.5rem;
+  margin: 0;
 }
 .live-current .live-guidance {
-  padding: 0.5rem 0;
+  margin: 0;
   font-size: 0.9rem;
 }
 .live-current h2 {
-  margin-bottom: 0.65rem;
-}
-.live-position {
-  margin-bottom: 0.4rem;
-}
-.live-current h2 {
-  scroll-margin-top: 90px;
+  scroll-margin-top: 7rem;
 }
 .live-overview-table {
   overflow-x: auto;
@@ -956,7 +1094,8 @@ onUnmounted(() => {
   overflow-wrap: anywhere;
 }
 .workout-live {
-  max-width: 760px;
+  max-width: 53rem;
+  min-width: 0;
   margin-inline: auto;
 }
 .live-toolbar {
@@ -964,93 +1103,164 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.75rem;
   font-size: 0.85rem;
-  color: var(--muted);
+  color: var(--color-text-secondary);
 }
-.live-toolbar > div {
+.live-session-progress {
   display: flex;
-  gap: 0.5rem;
+  flex: 1 1 18rem;
   flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.8rem;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+.live-session-progress strong {
+  color: var(--color-text-primary);
+}
+.live-session-progress progress {
+  margin: 0;
+}
+.live-toolbar-actions {
+  display: flex;
+  gap: 0.25rem 0.9rem;
+  flex-wrap: wrap;
+}
+.live-toolbar-actions button,
+.live-change-exercise,
+.live-skip {
+  min-height: 44px;
 }
 .live-exercise-nav {
   display: flex;
-  overflow: auto;
-  gap: 0.6rem;
-  padding: 0.3rem 0.1rem 1rem;
+  overflow-x: auto;
+  gap: 0.5rem;
+  padding: 0.25rem 0.25rem 0.5rem;
   margin-bottom: 0.5rem;
 }
 .live-exercise-nav button {
   flex: 0 0 auto;
-  max-width: 240px;
+  max-width: min(15rem, 88%);
   display: flex;
   align-items: center;
-  gap: 0.65rem;
-  padding: 0.8rem;
-  border-radius: 12px;
+  gap: 0.55rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 0.65rem;
   border: 1px solid var(--line);
   background: var(--color-surface);
   color: var(--ink);
+  font: inherit;
+  font-size: 0.85rem;
   text-align: left;
-  min-height: 48px;
+  min-height: 44px;
   overflow-wrap: anywhere;
 }
 .live-exercise-nav button[aria-pressed="true"] {
-  border-color: var(--color-primary);
-  background: #31e6c510;
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary) 58%,
+    var(--color-border)
+  );
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
 }
 .live-exercise-nav small {
   white-space: nowrap;
-  color: var(--muted);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
 }
-.live-exercise-nav button > span {
+.live-tab-position {
   color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
 }
 .live-current {
-  padding: clamp(1rem, 3vw, 1.75rem);
+  min-width: 0;
+  padding: clamp(0.8rem, 3vw, 1.65rem);
   background: var(--color-surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
+  overflow-wrap: anywhere;
 }
 .live-position {
-  margin: 0 0 0.6rem;
-  color: var(--muted);
-  font-size: 0.85rem;
+  margin: 0 0 0.3rem;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
 }
 .live-current h2 {
-  font-size: clamp(1.65rem, 4vw, 2.2rem);
-  line-height: 1.2;
-  margin: 0 0 1rem;
+  font-size: clamp(1.45rem, 4vw, 2.15rem);
+  line-height: 1.15;
+  margin: 0;
   overflow-wrap: anywhere;
+}
+.live-exercise-progress {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.65rem 0 0.55rem;
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+.live-context {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.5rem 0;
+}
+.live-context > p {
+  margin: 0;
 }
 .live-target {
   font-size: 0.9rem;
-  color: var(--muted);
-  line-height: 1.6;
+  color: var(--color-text-secondary);
+  line-height: 1.45;
+  margin: 0;
 }
 .live-guidance {
-  padding: 0.9rem 0;
-  margin: 0.6rem 0;
-  border-top: 1px solid var(--line);
-  line-height: 1.6;
-  font-size: 0.9rem;
+  line-height: 1.45;
 }
 .live-dominant {
   display: grid;
-  gap: 0.7rem;
+  gap: 0.45rem;
   margin-top: 1rem;
+}
+.live-dominant p {
+  margin: 0 0 0.25rem;
+  color: var(--color-text-secondary);
 }
 .live-dominant > .primary-button {
   min-height: 54px;
   font-size: 1.05rem;
 }
+.live-dominant > .text-button {
+  min-height: 44px;
+}
+.live-secondary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 1rem;
+}
 .live-saved {
+  margin: 0.6rem 0;
   color: var(--color-primary);
+  animation: live-saved-in 150ms ease-out;
+}
+@keyframes live-saved-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.2rem);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-saved {
+    animation: none;
+  }
 }
 .live-review,
+.live-preparation,
 .live-calculation {
-  padding: 1rem 0;
+  padding: 0.25rem 0;
   border-bottom: 1px solid var(--line);
 }
 summary {
@@ -1072,20 +1282,5 @@ summary {
 .live-calculation select {
   min-height: 48px;
   max-width: 100%;
-}
-@media (max-width: 600px) {
-  .live-toolbar > span {
-    display: none;
-  }
-  .live-toolbar {
-    justify-content: flex-end;
-  }
-  .live-current {
-    padding: 1rem;
-  }
-  .live-exercise-nav button {
-    max-width: 210px;
-    font-size: 0.85rem;
-  }
 }
 </style>

@@ -36,6 +36,62 @@ const task = (
   ],
 });
 describe('read-only daily guidance policy', () => {
+  it('preserves partial-session provenance without qualifying its sets for progression', () => {
+    const partial = {
+      ...task('partial', '2026-01-05'),
+      sessionStatus: 'IN_PROGRESS',
+    };
+    const result = referenceGuidance([partial], '2026-01-12', false);
+    expect(result.lastReference?.sessions[0]).toMatchObject({
+      sessionStatus: 'IN_PROGRESS',
+    });
+    expect(result.guidance.reasons).toContain('PARTIAL_SESSION_REFERENCE');
+  });
+  it('prefers earlier evidence from the same day and plan over a newer free result without associating the free result', () => {
+    const planned = {
+      ...task('planned', '2026-01-05'),
+      planDayId: 'legs',
+      trainingPlanId: 'plan',
+      planExerciseId: 'p',
+    };
+    const free = {
+      ...task('free', '2026-01-06'),
+      planDayId: null,
+      trainingPlanId: null,
+      planExerciseId: null,
+    };
+    const source = { planDayId: 'legs', trainingPlanId: 'plan' };
+    const result = referenceGuidance(
+      [free, planned],
+      '2026-01-12',
+      false,
+      source,
+    );
+    expect(result.lastReference).toMatchObject({
+      performedOn: '2026-01-05',
+      scope: 'SAME_PLAN_DAY',
+      sessions: [{ sessionId: 'planned', planDayId: 'legs' }],
+    });
+    const fallback = referenceGuidance([free], '2026-01-12', false, source);
+    expect(fallback.lastReference).toMatchObject({
+      scope: 'FREE_SESSION',
+      sessions: [{ sessionId: 'free', planDayId: null, trainingPlanId: null }],
+    });
+    expect(fallback.guidance.reasons).toContain('CONTEXTUAL_HISTORY_ONLY');
+    expect(free.planDayId).toBeNull();
+  });
+  it('keeps a single completed no-effort result as contextual history and excludes later sporting dates', () => {
+    const result = referenceGuidance(
+      [task('earlier', '2026-01-05'), task('later', '2026-01-13')],
+      '2026-01-12',
+      false,
+    );
+    expect(result.lastReference?.sessions.map((s) => s.sessionId)).toEqual([
+      'earlier',
+    ]);
+    expect(result.guidance.state).toBe('REFERENCE_AVAILABLE');
+    expect(result.guidance.reasons).toContain('CONTEXTUAL_HISTORY_ONLY');
+  });
   it('preserves the numeric original RPE snapshot independently from current targets', () => {
     expect(originalGuideTargets({ targets: { targetRpe: 8 } })?.targetRpe).toBe(
       '8',

@@ -4,8 +4,14 @@ type SetRecord = z.infer<typeof referenceSetSchema>;
 
 export type WorkoutSetReference = Pick<
   SetRecord,
-  "setNumber" | "status" | "kind" | "load" | "loadUnit" | "repetitions" | "rpe"
->;
+  "setNumber" | "load" | "loadUnit" | "repetitions"
+> & {
+  // Historical guides preserve legacy classifications. The guards below only
+  // reuse explicitly completed work sets, including when given unknown values.
+  status: string | null;
+  kind: string | null;
+  rpe: number | string | null;
+};
 
 export type PreviousWorkoutReference = {
   sessionLabel: string;

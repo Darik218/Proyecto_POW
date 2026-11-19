@@ -97,7 +97,7 @@ test("la navegación agrupada conserva rutina, historial, perfil y acceso al cat
     assert.equal(
       (layoutHtml.match(/<a\b[^>]*class="[^"]*\bapp-nav__link\b/g) || [])
         .length,
-      4,
+      5,
     );
     assert.doesNotMatch(
       layoutHtml.match(/<nav[^>]*>[\s\S]*?<\/nav>/)?.[0] ?? "",

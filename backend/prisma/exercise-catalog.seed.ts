@@ -1,3 +1,4 @@
+import { ux6Exercises } from './exercise-catalog-ux6.seed';
 import type {
   ExerciseBodyPosition,
   ExerciseDifficulty,
@@ -569,6 +570,7 @@ function buildExercise(family: Family, variant: Variant): ExerciseSeed {
   };
 }
 
-export const exercises: ExerciseSeed[] = families.flatMap((family) =>
-  family.variants.map((variant) => buildExercise(family, variant)),
-);
+export const exercises: ExerciseSeed[] = [
+  ...families.flatMap((family) => family.variants.map((variant) => buildExercise(family, variant))),
+  ...ux6Exercises,
+];

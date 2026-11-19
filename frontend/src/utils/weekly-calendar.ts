@@ -46,3 +46,16 @@ export function calendarDayState(
   if (sessions.length) return { code: "RECORDED", label: "Con registros" };
   return { code: "UNSCHEDULED", label: "Sin programación" };
 }
+
+export const calendarShortLabels: Record<string, string> = {
+  UNSCHEDULED: "—",
+  PLANNED: "Plan",
+  RESCHEDULED: "Movido",
+  REST: "Desc.",
+  IN_PROGRESS: "En curso",
+  COMPLETED: "Hecho",
+  OMITTED: "Omit.",
+  WITHDRAWN: "Retir.",
+  RECORDED: "Datos",
+  MULTIPLE: "Varias",
+};

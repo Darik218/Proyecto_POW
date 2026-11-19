@@ -8,27 +8,29 @@ import pg from 'pg';
 import { randomBytes } from 'node:crypto';
 
 const run = promisify(execFile);
-const pattern = process.argv.includes('--guide')
-  ? '^workout-guide\\.e2e-spec\\.ts$'
-  : process.argv.includes('--automatic')
-    ? '^automatic-progression(-migration|-http)?\\.e2e-spec\\.ts$'
-    : process.argv.includes('--settings')
-      ? '^progression-settings(-migration|-http)?\\.e2e-spec\\.ts$'
-      : process.argv.includes('--acceptance')
-        ? '^automation-consent-acceptance(-migration|-http)?\\.e2e-spec\\.ts$'
-        : process.argv.includes('--api')
-          ? '^(workout-guide|automatic-progression(-migration|-http)?|progression-settings(-migration|-http)?|revalidation-migration|progression(-migration|-http)?|performance|recommendation(-review|-application)?(-migration)?|automation-consent(-migration|-http|-acceptance(-migration|-http)?)?)\\.e2e-spec\\.ts$'
-          : process.argv.includes('--consents')
-            ? '^(progression(-migration)?|performance|recommendation(-review|-application)?(-migration)?|automation-consent(-migration)?)\\.e2e-spec\\.ts$'
-            : process.argv.includes('--applications')
-              ? '^(progression(-migration)?|performance|recommendation(-review|-application)?(-migration)?)\\.e2e-spec\\.ts$'
-              : process.argv.includes('--reviews')
-                ? '^(progression(-migration)?|performance|recommendation(-review)?(-migration)?)\\.e2e-spec\\.ts$'
-                : process.argv.includes('--recommendations')
-                  ? '^(progression(-migration)?|performance|recommendation(-migration)?)\\.e2e-spec\\.ts$'
-                  : process.argv.includes('--performance')
-                    ? '^(progression(-migration)?|performance)\\.e2e-spec\\.ts$'
-                    : '^progression(-migration)?\\.e2e-spec\\.ts$';
+const pattern = process.argv.includes('--progress')
+  ? '^workout-progress\\.e2e-spec\\.ts$'
+  : process.argv.includes('--guide')
+    ? '^workout-guide\\.e2e-spec\\.ts$'
+    : process.argv.includes('--automatic')
+      ? '^automatic-progression(-migration|-http)?\\.e2e-spec\\.ts$'
+      : process.argv.includes('--settings')
+        ? '^progression-settings(-migration|-http)?\\.e2e-spec\\.ts$'
+        : process.argv.includes('--acceptance')
+          ? '^automation-consent-acceptance(-migration|-http)?\\.e2e-spec\\.ts$'
+          : process.argv.includes('--api')
+            ? '^(workout-progress|workout-guide|automatic-progression(-migration|-http)?|progression-settings(-migration|-http)?|revalidation-migration|progression(-migration|-http)?|performance|recommendation(-review|-application)?(-migration)?|automation-consent(-migration|-http|-acceptance(-migration|-http)?)?)\\.e2e-spec\\.ts$'
+            : process.argv.includes('--consents')
+              ? '^(progression(-migration)?|performance|recommendation(-review|-application)?(-migration)?|automation-consent(-migration)?)\\.e2e-spec\\.ts$'
+              : process.argv.includes('--applications')
+                ? '^(progression(-migration)?|performance|recommendation(-review|-application)?(-migration)?)\\.e2e-spec\\.ts$'
+                : process.argv.includes('--reviews')
+                  ? '^(progression(-migration)?|performance|recommendation(-review)?(-migration)?)\\.e2e-spec\\.ts$'
+                  : process.argv.includes('--recommendations')
+                    ? '^(progression(-migration)?|performance|recommendation(-migration)?)\\.e2e-spec\\.ts$'
+                    : process.argv.includes('--performance')
+                      ? '^(progression(-migration)?|performance)\\.e2e-spec\\.ts$'
+                      : '^progression(-migration)?\\.e2e-spec\\.ts$';
 const bin = process.env.PULSO_POSTGRES_BIN ?? '/usr/lib/postgresql/18/bin';
 const root = await mkdtemp(join(tmpdir(), 'pulso-prog1b-'));
 const data = join(root, 'data'),

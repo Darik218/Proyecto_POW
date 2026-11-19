@@ -297,7 +297,14 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
             take: 101,
             include: {
               session: {
-                select: { id: true, performedOn: true, timeZone: true },
+                select: {
+                  id: true,
+                  status: true,
+                  performedOn: true,
+                  timeZone: true,
+                  trainingPlanId: true,
+                  planDayId: true,
+                },
               },
               sets: {
                 orderBy: { setNumber: 'asc' },
@@ -323,8 +330,12 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
           exercise.history = history.slice(0, 100).map((t) => ({
             taskId: t.id,
             sessionId: t.session.id,
+            sessionStatus: t.session.status,
             performedOn: date(t.session.performedOn),
             timeZone: t.session.timeZone,
+            trainingPlanId: t.session.trainingPlanId,
+            planDayId: t.session.planDayId,
+            planExerciseId: t.planExerciseId,
             sets: t.sets.map((s) => ({
               setNumber: s.setNumber,
               load: s.load?.toFixed(3) ?? null,
@@ -486,6 +497,19 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
               isOmitted: exercise.isOmitted,
             },
           );
+          exercise.progressiveContext = prepareRepetitionContext(
+            analysis,
+            source,
+            cutoff,
+            exercise.target,
+            sourceEvidence.get(exercise.id) ?? {
+              occurrenceVersion,
+              originalExerciseId: exercise.exerciseId,
+              replacesWorkoutExerciseId: null,
+              isOmitted: exercise.isOmitted,
+            },
+            'session-repetition-preview-v2',
+          );
           if (
             status !== 'TRAINABLE' ||
             exercise.isOmitted ||
@@ -499,15 +523,22 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
             exercise.repetitionContext.reasons.push(
               'INCOMPLETE_WORKOUT_CONTEXT',
             );
+            exercise.progressiveContext.ready = false;
+            exercise.progressiveContext.reasons.push(
+              'INCOMPLETE_WORKOUT_CONTEXT',
+            );
           }
           if (
             preview?.exerciseId === exercise.exerciseId &&
-            preview.policyContract === 'session-repetition-preview-v1'
+            (preview.policyContract === 'session-repetition-preview-v1' ||
+              preview.policyContract === 'session-repetition-preview-v2')
           ) {
             exercise.repetitionSuggestion = repetitionPreview(
               analysis,
               source,
-              exercise.repetitionContext,
+              preview.policyContract === 'session-repetition-preview-v2'
+                ? exercise.progressiveContext
+                : exercise.repetitionContext,
               preview,
             );
             continue;
@@ -532,7 +563,7 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
           ];
           if (
             preview?.exerciseId === exercise.exerciseId &&
-            preview.policyContract !== 'session-repetition-preview-v1'
+            'gridStep' in preview
           ) {
             const command = validateRecommendationCommand(
               buildGuidePreview(

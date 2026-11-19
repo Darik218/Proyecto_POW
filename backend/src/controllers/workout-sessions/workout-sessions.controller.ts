@@ -1,3 +1,6 @@
+import { WorkoutProgressService } from '../../workout-sessions/workout-progress.service';
+import { WorkoutProgressPresenter } from '../../views/workout-sessions/workout-progress.presenter';
+import { WorkoutProgressQueryDto } from '../../workout-sessions/dto/workout-progress.dto';
 import {
   WorkoutInsightsQueryDto,
   WorkoutExerciseReferenceQueryDto,
@@ -49,6 +52,8 @@ export class WorkoutSessionsController {
     private readonly sessions: WorkoutSessionsService,
     private readonly presenter: WorkoutSessionsPresenter,
     private readonly insightPresenter: WorkoutInsightsPresenter,
+    private readonly progress: WorkoutProgressService,
+    private readonly progressPresenter: WorkoutProgressPresenter,
   ) {}
   @Get()
   async list(
@@ -102,6 +107,16 @@ export class WorkoutSessionsController {
   ) {
     return this.insightPresenter.insights(
       await this.sessions.insights(identity, id, query),
+    );
+  }
+  @Get('progress')
+  @Header('Cache-Control', 'no-store')
+  async progressOverview(
+    @CurrentAuth() identity: AuthenticatedIdentity,
+    @Query() query: WorkoutProgressQueryDto,
+  ) {
+    return this.progressPresenter.present(
+      await this.progress.read(identity, query),
     );
   }
   @Get(':sessionId')

@@ -9,6 +9,7 @@ import { PrismaService } from '../src/database/prisma.service';
 import { seedCatalog } from '../prisma/seed-catalog';
 import { exercises } from '../prisma/exercise-catalog.seed';
 import { exerciseAliases } from '../prisma/exercise-aliases.seed';
+import { ux6Exercises } from '../prisma/exercise-catalog-ux6.seed';
 import { Prisma } from '../src/generated/prisma/client';
 import { exerciseSearchQuery } from '../src/exercises/exercise-search.query';
 const isolated = process.env.UX_TEST_DATABASE_URL ? describe : describe.skip;
@@ -76,6 +77,7 @@ isolated('Intelligent exercise search with isolated PostgreSQL', () => {
       ),
     ).toBe(true);
     const expansion = new Set([
+      ...ux6Exercises.map((row) => row.catalogKey),
       'press-banca-floor-press-barra',
       'press-banca-floor-press-mancuernas',
       'press-banca-unilateral-polea-de-pie',
@@ -128,7 +130,7 @@ isolated('Intelligent exercise search with isolated PostgreSQL', () => {
       ).expect(201)
     ).body;
     const first = await seedCatalog(prisma);
-    expect(first.inserted).toBe(20);
+    expect(first.inserted).toBe(20 + ux6Exercises.length);
     expect(
       await prisma.exercise.findMany({
         where: { id: { in: originalIds.map((row) => row.id) } },
@@ -243,6 +245,12 @@ isolated('Intelligent exercise search with isolated PostgreSQL', () => {
     ['jalon', 'Jalón'],
     ['remo mancu', 'Remo'],
     ['RDL', 'Peso muerto rumano'],
+    ['pec deck', 'pec deck'],
+    ['press inclinado multipower', 'Smith'],
+    ['cable crossover', 'Cruce de poleas'],
+    ['press militar smith', 'hombros'],
+    ['pendulum squat', 'pendular'],
+    ['cable preacher curl', 'predicador'],
   ])(
     'finds %s by names, aliases, terms or moderate spelling errors',
     async (search, expected) => {

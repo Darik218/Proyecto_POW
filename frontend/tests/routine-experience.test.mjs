@@ -336,6 +336,81 @@ test("day starts only its own prescriptions, retains an uncertain intent and pre
   assert.equal(router.currentRoute.value.params.sessionId, created.id);
 });
 
+test("calendar links preserve the requested occurrence and its zone when Vue reuses the day view", async (t) => {
+  const { default: Component } = await server.ssrLoadModule(
+    "/src/views/RoutineDayView.vue",
+  );
+  const { api: client } = await server.ssrLoadModule("/src/services/api.ts");
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      {
+        path: "/day/:planId/:weekId/:dayId",
+        name: "routine-day",
+        component: Component,
+      },
+    ],
+  });
+  const second = "50000000-0000-4000-8000-000000000002";
+  const requests = [];
+  let writes = 0;
+  client.defaults.adapter = async (config) => {
+    if (config.url.endsWith("/planning"))
+      return response(config, {
+        ...plan,
+        version: 0,
+        weeks: [{ ...week, days: [day], pendingExercises: [] }],
+      });
+    if (config.url === "/routine/activities") {
+      requests.push(config.params);
+      if (
+        config.params.timeZone !== "America/Lima" ||
+        config.params.from !== "2026-10-28"
+      )
+        return response(config, []);
+      return response(config, [
+        {
+          id: second,
+          planWeekId: week.id,
+          planDayId: day.id,
+          originalPlanDayId: day.id,
+          originalOn: "2026-10-28T00:00:00Z",
+          scheduledOn: "2026-10-28T00:00:00Z",
+          timeZone: "America/Lima",
+          title: "Legs",
+          status: "PLANNED",
+          version: 0,
+          workouts: [],
+        },
+      ]);
+    }
+    if (config.method === "post") writes++;
+    return response(config, { items: [], total: 0, limit: 20, offset: 0 });
+  };
+  t.after(() => {
+    client.defaults.adapter = undefined;
+  });
+  const path = `/day/${plan.id}/${week.id}/${day.id}`;
+  await router.push(
+    path + `?date=2026-10-21&timeZone=America/Lima&activityId=${id}`,
+  );
+  const state = mount(Component, {}, t, router);
+  await tick();
+  await state.begin();
+  assert.equal(
+    writes,
+    0,
+    "missing explicit occurrence must not create an unlinked workout",
+  );
+  await router.push(
+    path + `?date=2026-10-28&timeZone=America/Lima&activityId=${second}`,
+  );
+  await tick();
+  assert.equal(state.date, "2026-10-28");
+  assert.equal(requests.at(-1).timeZone, "America/Lima");
+  assert.equal(state.selectedActivity.id, second);
+});
+
 test("an undated plan can be renamed without inventing a start date", async (t) => {
   const Component = (
     await server.ssrLoadModule("/src/components/training-plans/PlanForm.vue")
@@ -404,7 +479,7 @@ test("routine wizard discards an old session draft and ignores its late creation
   assert.equal(state.busy, false);
 });
 
-test("routine block selects a newly created private exercise inline and cancellation preserves its draft", async (t) => {
+test("routine block receives shared picker selections without changing other sessions or prescriptions", async (t) => {
   const Component = (
     await server.ssrLoadModule(
       "/src/components/training-plans/RoutineBuilder.vue",
@@ -439,20 +514,14 @@ test("routine block selects a newly created private exercise inline and cancella
   ];
   const state = mount(Component, { blocks }, t);
   await tick();
-  state.creating = true;
-  state.cancelPrivateExercise();
-  assert.equal(state.creating, false);
-  assert.deepEqual(blocks[0].exercises, [original]);
-  state.creating = true;
-  await state.created({ id, name: "Ejercicio privado nuevo" });
-  assert.equal(state.creating, false);
+  state.selectExercise({ id, name: "Ejercicio privado nuevo" });
   assert.equal(blocks[0].exercises.length, 2);
   assert.equal(blocks[0].exercises[1].exerciseId, id);
   assert.equal(blocks[0].exercises[1].targetLoad, "");
   assert.equal(blocks[0].exercises[1].targetSets, "");
   assert.deepEqual(blocks[0].exercises[0], original);
   assert.deepEqual(blocks[1].exercises, []);
-  await state.created({ id, name: "Ejercicio privado nuevo" });
-  assert.equal(blocks[0].exercises.length, 2);
-  assert.ok(calls.filter((url) => url === "/exercises/visible").length >= 2);
+  state.selectExercise({ id, name: "Ejercicio privado nuevo" });
+  assert.deepEqual(blocks[0].exercises, [original]);
+  assert.equal(calls.length, 0);
 });

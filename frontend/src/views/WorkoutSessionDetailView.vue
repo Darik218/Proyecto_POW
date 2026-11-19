@@ -45,18 +45,36 @@ const {
   addExercise,
   dispose,
 } = actions;
-const backTo = computed(() =>
-  session.value?.trainingPlan && session.value.planWeek && session.value.planDay
-    ? {
-        name: "routine-day",
-        params: {
-          planId: session.value.trainingPlan.id,
-          weekId: session.value.planWeek.id,
-          dayId: session.value.planDay.id,
-        },
-      }
-    : { name: "home" },
-);
+const backTo = computed(() => {
+  const workout = session.value;
+  if (!workout?.trainingPlan || !workout.planWeek || !workout.planDay)
+    return { name: "home" };
+  const source = workout.sourceSnapshot;
+  const schedule = source?.schedule;
+  const sameActivity =
+    source?.kind === "PLAN_DAY" &&
+    source.plan?.id === workout.trainingPlan.id &&
+    source.week?.id === workout.planWeek.id &&
+    source.day?.id === workout.planDay.id &&
+    schedule?.id === workout.scheduledActivityId;
+  return {
+    name: "routine-day",
+    params: {
+      planId: workout.trainingPlan.id,
+      weekId: workout.planWeek.id,
+      dayId: workout.planDay.id,
+    },
+    ...(sameActivity && schedule
+      ? {
+          query: {
+            date: schedule.scheduledOn,
+            activityId: schedule.id,
+            timeZone: schedule.timeZone,
+          },
+        }
+      : {}),
+  };
+});
 const auth = useAuthStore(),
   previousReferences = ref<Record<string, PreviousWorkoutReference>>({}),
   referenceError = ref("");
@@ -152,6 +170,17 @@ async function openAdding() {
 }
 const adding = ref(false);
 const confirming = ref(false);
+const completionTitle = ref<HTMLElement | null>(null);
+watch(
+  () => session.value?.status,
+  (status, previousStatus) => {
+    if (status === "COMPLETED" && previousStatus === "IN_PROGRESS") {
+      completionTitle.value?.focus({ preventScroll: true });
+      completionTitle.value?.scrollIntoView({ block: "start" });
+    }
+  },
+  { flush: "post" },
+);
 const editing = ref(false);
 const associating = ref(false);
 const exporting = ref(false);
@@ -311,6 +340,38 @@ onUnmounted(() => {
         @finish="finishWorkout"
         @add="openAdding"
       />
+      <section
+        v-if="session.status === 'COMPLETED'"
+        class="completion-summary ui-panel"
+        aria-labelledby="completion-title"
+      >
+        <div>
+          <h2 id="completion-title" ref="completionTitle" tabindex="-1">
+            Entrenamiento guardado
+          </h2>
+          <dl class="workout-logged-summary">
+            <div>
+              <dt>Series con resultados</dt>
+              <dd>{{ session.actualSetCount ?? 0 }}</dd>
+            </div>
+            <div>
+              <dt>Series completadas</dt>
+              <dd>{{ session.completedSetCount ?? 0 }}</dd>
+            </div>
+          </dl>
+          <p v-if="!session.actualSetCount" class="field-hint">
+            Esta sesión se cerró sin resultados.
+          </p>
+        </div>
+        <div class="completion-actions">
+          <RouterLink class="primary-button" :to="{ name: 'progression' }"
+            >Ver mi progreso</RouterLink
+          >
+          <RouterLink class="back-link" :to="{ name: 'workout-history' }"
+            >Ver historial →</RouterLink
+          >
+        </div>
+      </section>
       <details class="session-context" :open="session.status === 'PLANNED'">
         <summary>
           Datos de la sesión · {{ workoutStatusLabel(session.status) }}
@@ -407,26 +468,6 @@ onUnmounted(() => {
       >
         {{ notice }}
       </p>
-      <section
-        v-if="session.status === 'COMPLETED'"
-        class="completion-summary ui-panel"
-        aria-label="Resumen del entrenamiento"
-      >
-        <div>
-          <p class="field-hint">Entrenamiento guardado</p>
-          <h2>Tu sesión ya forma parte de tu progreso</h2>
-          <p>
-            {{ session.actualSetCount ?? 0 }} series con resultados ·
-            {{ session.completedSetCount ?? 0 }} completadas.
-          </p>
-          <p v-if="!session.actualSetCount" class="field-hint">
-            Esta sesión se cerró sin resultados; no se calcula una mejora.
-          </p>
-        </div>
-        <RouterLink class="primary-button" :to="{ name: 'progression' }"
-          >Ver mi progreso</RouterLink
-        >
-      </section>
       <p v-if="session.status === 'PLANNED'" class="plan-policy">
         Revisa los ejercicios y ajusta sus objetivos. No se registrarán
         resultados hasta empezar.
@@ -683,24 +724,40 @@ onUnmounted(() => {
 
 <style scoped>
 .completion-summary {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 1rem;
   margin: 1rem 0;
+  overflow-wrap: anywhere;
 }
 .completion-summary h2 {
-  font-size: 1.2rem;
-  margin: 0.25rem 0;
+  font-size: clamp(1.3rem, 4vw, 1.7rem);
+  margin: 0 0 1rem;
+  scroll-margin-top: 6rem;
+}
+.completion-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+}
+.completion-actions :is(.primary-button, .back-link) {
+  margin: 0;
+  min-height: 44px;
+  align-content: center;
 }
 @media (max-width: 640px) {
   .completion-summary {
-    align-items: stretch;
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .completion-actions .primary-button {
+    width: 100%;
   }
 }
 .workout-live-page :deep(.ui-page-header) {
-  margin-bottom: 0.5rem;
+  max-width: 53rem;
+  margin: 0 auto 0.75rem;
 }
 .workout-live-page :deep(.ui-page-header h1) {
   font-size: 1.55rem;

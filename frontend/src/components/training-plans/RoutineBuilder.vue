@@ -1,81 +1,56 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, useId, watch } from "vue";
-import { useExercisesCatalog } from "../../composables/useExercisesCatalog";
-import {
-  exercisesService,
-  exerciseEnums,
-  exerciseEnumLabel,
-  type MuscleGroup,
-  type ListExercisesQuery,
-} from "../../services/exercises.service";
+import { computed, ref, useId, watch } from "vue";
 import {
   selectRoutineExercise,
   type RoutineBlock,
 } from "../../utils/routine-builder";
-import PersonalExerciseForm from "./PersonalExerciseForm.vue";
+import ExercisePicker from "./ExercisePicker.vue";
+import {
+  copyTemplateDay,
+  summarizeTemplateBlocks,
+} from "../../utils/routine-templates";
 
 const blocks = defineModel<RoutineBlock[]>("blocks", { required: true });
-defineProps<{ disabled?: boolean }>();
+const activeId = defineModel<string>("activeBlockId", { default: "" });
+const props = withDefaults(
+  defineProps<{
+    disabled?: boolean;
+    allowBlockChanges?: boolean;
+    review?: boolean;
+  }>(),
+  { allowBlockChanges: true },
+);
 const uid = useId();
-const activeId = ref(blocks.value[0]?.id ?? "");
+const copySourceId = ref("");
+const copyFeedback = ref("");
+watch(activeId, () => {
+  copySourceId.value = "";
+  copyFeedback.value = "";
+});
+function copyDay() {
+  if (props.disabled || !activeBlock.value) return;
+  const source = blocks.value.find((block) => block.id === copySourceId.value);
+  if (!source || source.id === activeBlock.value.id) return;
+  copyTemplateDay(source, activeBlock.value);
+  copyFeedback.value = `Sesión copiada desde ${source.name}. Puedes editarla de forma independiente.`;
+}
+watch(
+  () => blocks.value.map((block) => block.id),
+  (ids) => {
+    if (!ids.includes(activeId.value)) activeId.value = ids[0] ?? "";
+  },
+  { immediate: true },
+);
 const activeBlock = computed(() =>
   blocks.value.find((block) => block.id === activeId.value),
 );
-const search = ref(""),
-  group = ref(""),
-  equipment = ref<ListExercisesQuery["equipmentType"]>();
-const groups = ref<MuscleGroup[]>([]);
-const creating = ref(false);
-const catalog = useExercisesCatalog();
-const { exercises, loading, errorMessage, offset, total, pageSize } = catalog;
-let timer: ReturnType<typeof setTimeout> | undefined;
-let disposed = false;
-function request() {
-  return catalog.load(
-    {
-      selection: "ALL",
-      ...(search.value.trim() ? { search: search.value.trim() } : {}),
-      ...(group.value ? { primaryMuscleGroupKey: group.value } : {}),
-      ...(equipment.value ? { equipmentType: equipment.value } : {}),
-    },
-    "visible",
-  );
-}
-watch([search, group, equipment], () => {
-  catalog.invalidate();
-  clearTimeout(timer);
-  timer = setTimeout(request, 250);
-});
-onMounted(() => {
-  void request();
-  void exercisesService
-    .listMuscleGroups()
-    .then((value) => {
-      if (!disposed) groups.value = value;
-    })
-    .catch(() => {
-      /* The unfiltered catalog and search remain available. */
-    });
-});
-onUnmounted(() => {
-  disposed = true;
-  clearTimeout(timer);
-  catalog.dispose();
-});
-function cancelPrivateExercise() {
-  creating.value = false;
-}
-async function created(exercise: { id: string; name: string }) {
-  const block = activeBlock.value;
-  if (disposed || !block) return;
-  if (!block.exercises.some((value) => value.exerciseId === exercise.id))
-    selectRoutineExercise(block, exercise);
-  creating.value = false;
-  await catalog.refresh();
-}
-function preventPrivateSubmit(event: KeyboardEvent) {
-  if ((event.target as HTMLElement).matches("input:not([type=checkbox])"))
-    event.preventDefault();
+const activeSetCount = computed(() =>
+  activeBlock.value
+    ? summarizeTemplateBlocks([activeBlock.value], []).setCount
+    : 0,
+);
+function selectExercise(exercise: { id: string; name: string }) {
+  if (activeBlock.value) selectRoutineExercise(activeBlock.value, exercise);
 }
 function addBlock() {
   if (blocks.value.length >= 7) return;
@@ -100,8 +75,15 @@ function move(index: number, delta: number) {
 }
 </script>
 <template>
-  <section class="builder" aria-label="Configurar bloques de entrenamiento">
-    <p class="field-hint">
+  <section
+    class="builder"
+    :class="{ 'builder-review': review }"
+    :aria-labelledby="uid + '-builder'"
+  >
+    <h3 :id="uid + '-builder'">
+      {{ review ? "Edita tus sesiones" : "Ejercicios y objetivos" }}
+    </h3>
+    <p v-if="!review" class="field-hint">
       Configura cada bloque una vez. Después podrás usarlo en varios días; cada
       copia será independiente.
     </p>
@@ -122,6 +104,7 @@ function move(index: number, delta: number) {
       <button
         type="button"
         class="text-button"
+        v-if="allowBlockChanges"
         :disabled="disabled || blocks.length >= 7"
         @click="addBlock"
       >
@@ -143,7 +126,7 @@ function move(index: number, delta: number) {
           />
         </div>
         <button
-          v-if="blocks.length > 1"
+          v-if="allowBlockChanges && blocks.length > 1"
           type="button"
           class="text-button"
           :disabled="disabled"
@@ -152,159 +135,52 @@ function move(index: number, delta: number) {
           Quitar bloque
         </button>
       </div>
-      <div class="builder-columns">
-        <section
-          class="builder-catalog"
-          aria-label="Seleccionar ejercicios del catálogo"
-        >
-          <div class="catalog-heading">
-            <h3>Elige tus ejercicios</h3>
-            <button
-              type="button"
-              class="text-button"
-              :disabled="disabled"
-              :aria-expanded="creating"
-              :aria-controls="uid + '-private'"
-              @click="creating = !creating"
-            >
-              {{ creating ? "Volver al catálogo" : "Crear ejercicio privado" }}
-            </button>
-          </div>
-          <div
-            v-if="creating"
-            :id="uid + '-private'"
-            @keydown.enter="preventPrivateSubmit"
+      <div v-if="blocks.length > 1" class="copy-day-controls">
+        <label :for="uid + '-copy-day'"
+          >Copiar desde otra sesión
+          <select
+            :id="uid + '-copy-day'"
+            v-model="copySourceId"
+            class="form-control"
+            :disabled="disabled"
           >
-            <PersonalExerciseForm
-              @created="created"
-              @cancel="cancelPrivateExercise"
-            />
-          </div>
-          <template v-else>
-            <label class="field-label" :for="uid + '-search'"
-              >Buscar en el catálogo y mis ejercicios</label
+            <option value="">Elige una sesión</option>
+            <option
+              v-for="source in blocks.filter((block) => block.id !== activeId)"
+              :key="source.id"
+              :value="source.id"
             >
-            <input
-              :id="uid + '-search'"
-              v-model="search"
-              class="form-control"
-              type="search"
-              maxlength="100"
-              placeholder="Nombre o alias…"
-              :disabled="disabled"
-              @keydown.enter.prevent="request()"
-            />
-            <div class="catalog-filters">
-              <div>
-                <label :for="uid + '-muscle'">Músculo</label
-                ><select
-                  :id="uid + '-muscle'"
-                  v-model="group"
-                  class="form-control"
-                  :disabled="disabled"
-                >
-                  <option value="">Todos</option>
-                  <option
-                    v-for="muscle in groups"
-                    :key="muscle.key"
-                    :value="muscle.key"
-                  >
-                    {{ muscle.name }}
-                  </option>
-                </select>
-              </div>
-              <div>
-                <label :for="uid + '-equipment'">Equipo</label
-                ><select
-                  :id="uid + '-equipment'"
-                  v-model="equipment"
-                  class="form-control"
-                  :disabled="disabled"
-                >
-                  <option :value="undefined">Todos</option>
-                  <option
-                    v-for="value in exerciseEnums.equipmentType"
-                    :key="value"
-                    :value="value"
-                  >
-                    {{ exerciseEnumLabel(value) }}
-                  </option>
-                </select>
-              </div>
-            </div>
-            <p v-if="loading" role="status">Cargando ejercicios…</p>
-            <div v-else-if="errorMessage" role="alert">
-              <p class="form-error">{{ errorMessage }}</p>
-              <button
-                type="button"
-                class="text-button"
-                @click="catalog.retry()"
-              >
-                Reintentar catálogo
-              </button>
-            </div>
-            <template v-else>
-              <p v-if="!exercises.length" class="field-hint">
-                No hay ejercicios con estos filtros. Prueba otro nombre o
-                equipo.
-              </p>
-              <div class="catalog-options">
-                <label
-                  v-for="exercise in exercises"
-                  :key="exercise.id"
-                  class="catalog-option"
-                >
-                  <input
-                    type="checkbox"
-                    :checked="
-                      activeBlock.exercises.some(
-                        (item) => item.exerciseId === exercise.id,
-                      )
-                    "
-                    :disabled="disabled"
-                    @change="selectRoutineExercise(activeBlock, exercise)"
-                  />
-                  <span
-                    ><strong>{{ exercise.name }}</strong
-                    ><small
-                      >{{ exercise.primaryMuscleGroup.name }} ·
-                      {{ exercise.equipment
-                      }}{{
-                        exercise.origin === "PERSONAL" ? " · Propio" : ""
-                      }}</small
-                    ></span
-                  >
-                </label>
-              </div>
-              <div v-if="total > pageSize" class="catalog-pagination">
-                <button
-                  type="button"
-                  class="text-button"
-                  :disabled="disabled || offset === 0"
-                  @click="catalog.previousPage()"
-                >
-                  Anterior</button
-                ><span
-                  >{{ offset + 1 }}–{{ Math.min(offset + pageSize, total) }} de
-                  {{ total }}</span
-                ><button
-                  type="button"
-                  class="text-button"
-                  :disabled="disabled || offset + pageSize >= total"
-                  @click="catalog.nextPage()"
-                >
-                  Siguiente
-                </button>
-              </div>
-            </template>
-          </template>
-        </section>
+              {{ source.name }}
+            </option>
+          </select>
+        </label>
+        <button
+          type="button"
+          class="text-button"
+          :disabled="disabled || !copySourceId"
+          @click="copyDay"
+        >
+          Copiar sesión
+        </button>
+        <p class="field-hint">
+          Reemplaza los ejercicios de esta sesión y conserva el orden, las
+          series, las repeticiones y las cargas de la elegida. Cada copia se
+          edita por separado.
+        </p>
+        <p v-if="copyFeedback" role="status" class="field-hint">
+          {{ copyFeedback }}
+        </p>
+      </div>
+      <div class="builder-columns">
         <section
           class="builder-targets"
           aria-label="Objetivos de los ejercicios seleccionados"
         >
-          <h3>{{ activeBlock.exercises.length }} ejercicios seleccionados</h3>
-          <p class="field-hint">
+          <h4>
+            {{ activeBlock.exercises.length }} ejercicios ·
+            {{ activeSetCount }} series
+          </h4>
+          <p v-if="!review && activeBlock.exercises.length" class="field-hint">
             Indica tus series y repeticiones. La carga es opcional; podrás
             definirla al entrenar.
           </p>
@@ -400,11 +276,51 @@ function move(index: number, delta: number) {
             </div>
           </fieldset>
         </section>
+        <section
+          class="builder-catalog"
+          aria-label="Añadir ejercicios del catálogo"
+        >
+          <h4>Añadir ejercicios</h4>
+          <ExercisePicker
+            :key="activeBlock.id"
+            model-value=""
+            :disabled="disabled"
+            :selected-ids="
+              activeBlock.exercises.map((value) => value.exerciseId)
+            "
+            :context-muscle-groups="activeBlock.muscleGroups"
+            @selected="selectExercise"
+          />
+        </section>
       </div>
     </template>
   </section>
 </template>
 <style scoped>
+.builder {
+  min-width: 0;
+  margin-block-start: var(--space-6);
+}
+.builder > h3 {
+  font-size: 1.25rem;
+  margin-block: 0 var(--space-2);
+}
+.copy-day-controls {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: end;
+  margin: 1rem 0;
+}
+.copy-day-controls > label {
+  flex: 1;
+  min-width: min(12rem, 100%);
+  font-size: 0.8rem;
+}
+.copy-day-controls > p {
+  flex-basis: 100%;
+  margin: 0;
+}
 .catalog-heading {
   display: flex;
   align-items: start;
@@ -429,12 +345,16 @@ function move(index: number, delta: number) {
   color: var(--color-text-primary);
   padding: 0.65rem 0.9rem;
   border-radius: var(--radius-control);
-  min-height: 44px;
+  min-height: var(--target-size, 48px);
+  overflow-wrap: anywhere;
+  transition:
+    border-color var(--duration-fast),
+    background-color var(--duration-fast);
 }
 .block-tab.selected {
   border-color: var(--color-primary);
   color: var(--color-primary);
-  background: var(--color-surface-elevated);
+  background: var(--color-accent-surface);
 }
 .block-tab span {
   font-size: 0.8rem;
@@ -448,15 +368,22 @@ function move(index: number, delta: number) {
 }
 .block-heading > div {
   flex: 1;
+  min-width: 0;
 }
 .builder-columns {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 1.5rem;
 }
-.builder-columns h3 {
+.builder-columns h4 {
   font-size: 1rem;
   margin: 0 0 0.75rem;
+}
+.builder-columns > section {
+  min-width: 0;
+}
+.builder-review .builder-columns {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
 }
 .catalog-filters,
 .load-grid {
@@ -518,7 +445,8 @@ function move(index: number, delta: number) {
   min-width: 0;
   padding: 1rem;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-subtle);
   margin: 1rem 0;
 }
 .exercise-targets legend {
@@ -541,7 +469,11 @@ function move(index: number, delta: number) {
 }
 .exercise-actions .text-button {
   font-size: 0.75rem;
-  min-height: 44px;
+  min-height: var(--target-size, 48px);
+  padding-inline: 0.5rem;
+}
+.builder :is(.text-button, .form-control) {
+  min-height: var(--target-size, 48px);
 }
 .form-control {
   width: 100%;
@@ -552,7 +484,8 @@ function move(index: number, delta: number) {
   outline-offset: 3px;
 }
 @media (max-width: 720px) {
-  .builder-columns {
+  .builder-columns,
+  .builder-review .builder-columns {
     grid-template-columns: minmax(0, 1fr);
   }
   .catalog-options {
@@ -568,6 +501,14 @@ function move(index: number, delta: number) {
   }
   .exercise-targets {
     padding: 0.75rem;
+  }
+  .exercise-actions {
+    flex-wrap: wrap;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .block-tab {
+    transition: none;
   }
 }
 </style>

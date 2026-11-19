@@ -19,6 +19,7 @@ import {
   type CreateWorkout,
 } from "../services/workout-sessions.service";
 import { localTrainingDate } from "../utils/dates";
+import { workoutGuideService } from "../services/workout-guide.service";
 import {
   trainingPlanErrorMessage,
   weekdayLabel,
@@ -65,6 +66,37 @@ const calendar = ref<ScheduledActivity[]>([]),
   activityId = ref(
     typeof route.query.activityId === "string" ? route.query.activityId : "",
   );
+const requestedActivityId = computed(() =>
+  typeof route.query.activityId === "string" ? route.query.activityId : "",
+);
+const requestedZone = computed(() => {
+  if (typeof route.query.timeZone !== "string") return undefined;
+  try {
+    new Intl.DateTimeFormat("es-CO", { timeZone: route.query.timeZone });
+    return route.query.timeZone;
+  } catch {
+    return undefined;
+  }
+});
+const calendarZone = ref(requestedZone.value ?? timeZone);
+watch(
+  () => [
+    route.params.planId,
+    route.params.weekId,
+    route.params.dayId,
+    route.query.date,
+    route.query.activityId,
+    route.query.timeZone,
+  ],
+  () => {
+    date.value =
+      typeof route.query.date === "string"
+        ? route.query.date
+        : localTrainingDate(timeZone);
+    activityId.value = requestedActivityId.value;
+  },
+  { flush: "sync" },
+);
 const availableActivities = computed(() =>
   calendar.value.filter(
     (a) =>
@@ -77,7 +109,12 @@ const selectedActivity = computed(() =>
   availableActivities.value.find((a) => a.id === activityId.value),
 );
 const selectedZone = computed(
-  () => selectedActivity.value?.timeZone ?? timeZone,
+  () => selectedActivity.value?.timeZone ?? calendarZone.value,
+);
+const requestedActivityMissing = computed(
+  () =>
+    !!requestedActivityId.value &&
+    selectedActivity.value?.id !== requestedActivityId.value,
 );
 let calendarRevision = 0,
   calendarController: AbortController | undefined;
@@ -89,21 +126,54 @@ async function loadCalendar() {
   const current = ++calendarRevision;
   calendarController?.abort();
   calendarController = new AbortController();
+  const signal = calendarController.signal;
+  const requested = requestedActivityId.value;
+  const lookup = { weekId: weekId.value, from: date.value, to: date.value };
   try {
-    const result = await routineService.activities(
-      { weekId: weekId.value, from: date.value, to: date.value, timeZone },
-      calendarController.signal,
+    let zone = requestedZone.value ?? timeZone;
+    let result = await routineService.activities(
+      { ...lookup, timeZone: zone },
+      signal,
     );
+    if (
+      requested &&
+      !requestedZone.value &&
+      !result.some((activity) => activity.id === requested) &&
+      !signal.aborted
+    ) {
+      const { source } = await workoutGuideService.get(
+        { activityId: requested },
+        signal,
+      );
+      if (
+        source.activityId === requested &&
+        source.planWeekId === lookup.weekId &&
+        source.planDayId === dayId.value &&
+        source.performedOn === lookup.from &&
+        source.timeZone &&
+        source.timeZone !== zone
+      ) {
+        zone = source.timeZone;
+        result = await routineService.activities(
+          { ...lookup, timeZone: zone },
+          signal,
+        );
+      }
+    }
     if (current === calendarRevision) {
+      calendarZone.value = zone;
       calendar.value = result;
-      if (!availableActivities.value.some((a) => a.id === activityId.value))
+      if (requested) activityId.value = requested;
+      else if (
+        !availableActivities.value.some((a) => a.id === activityId.value)
+      )
         activityId.value =
           availableActivities.value.length === 1
             ? availableActivities.value[0]!.id
             : "";
     }
   } catch (cause) {
-    if (current === calendarRevision && !calendarController.signal.aborted) {
+    if (current === calendarRevision && !signal.aborted) {
       calendar.value = [];
       calendarError.value = trainingPlanErrorMessage(
         cause,
@@ -114,7 +184,11 @@ async function loadCalendar() {
     if (current === calendarRevision) calendarLoading.value = false;
   }
 }
-watch([date, dayId], () => void loadCalendar(), { immediate: true });
+watch(
+  [date, dayId, weekId, requestedActivityId, requestedZone],
+  () => void loadCalendar(),
+  { immediate: true },
+);
 const trainable = computed(
   () =>
     !!day.value &&
@@ -130,8 +204,11 @@ const revision = (values: object) => ({
 let intent:
   { key: string; input: CreateWorkout; sessionId?: string } | undefined;
 const resumable = computed(() =>
-  history.sessions.value.filter((s) =>
-    ["PLANNED", "IN_PROGRESS"].includes(s.status),
+  history.sessions.value.filter(
+    (s) =>
+      ["PLANNED", "IN_PROGRESS"].includes(s.status) &&
+      (!requestedActivityId.value ||
+        s.scheduledActivityId === requestedActivityId.value),
   ),
 );
 watch(
@@ -152,6 +229,7 @@ async function begin() {
     busy.value ||
     calendarLoading.value ||
     calendarError.value ||
+    requestedActivityMissing.value ||
     !day.value ||
     !trainable.value ||
     date.value > localTrainingDate(selectedZone.value)
@@ -341,7 +419,11 @@ onUnmounted(() => {
       >
         <div class="plan-panel-heading">
           <h2>Entrenar este día</h2>
-          <span class="plan-status">Registro independiente</span>
+          <span class="plan-status">{{
+            requestedActivityId || selectedActivity
+              ? "Sesión programada"
+              : "Registro del plan"
+          }}</span>
         </div>
         <p v-if="calendarLoading" role="status">Comprobando la programación…</p>
         <p v-if="calendarError" class="form-error" role="alert">
@@ -349,6 +431,14 @@ onUnmounted(() => {
           <button class="text-button" :disabled="busy" @click="loadCalendar">
             Reintentar
           </button>
+        </p>
+        <p
+          v-else-if="!calendarLoading && requestedActivityMissing"
+          class="form-error"
+          role="alert"
+        >
+          La programación del enlace no está disponible para esta fecha. Abre el
+          calendario para elegir la sesión actual.
         </p>
         <RouterLink
           v-for="session in resumable"
@@ -360,27 +450,31 @@ onUnmounted(() => {
           }"
           >Continuar {{ session.performedOn?.slice(0, 10) }} →</RouterLink
         ><label for="routine-execution-date" class="field-label"
-          >Fecha del entrenamiento ({{ timeZone }})</label
+          >Fecha del entrenamiento ({{ selectedZone }})</label
         ><input
           id="routine-execution-date"
           v-model="date"
           class="form-control"
           type="date"
-          :disabled="busy"
+          :disabled="busy || !!requestedActivityId"
         />
         <p class="field-hint">
           {{
-            date === localTrainingDate(timeZone)
-              ? "Inicia una sesión real con los ejercicios de este día."
-              : "Registrarás un entrenamiento de otra fecha, sin iniciar un cronómetro actual."
+            date > localTrainingDate(selectedZone)
+              ? "Consulta los objetivos antes de que llegue el día."
+              : date === localTrainingDate(selectedZone)
+                ? "Inicia una sesión real con los ejercicios de este día."
+                : "Registrarás un entrenamiento de otra fecha, sin iniciar un cronómetro actual."
           }}
           Los ajustes y resultados no cambian el plan.
         </p>
-        <label v-if="availableActivities.length > 1" for="day-occurrence"
+        <label
+          v-if="availableActivities.length > 1 && !requestedActivityId"
+          for="day-occurrence"
           >Hay varias programaciones para esta fecha. Elige la que corresponde o
           entrena sin vincularla.</label
         ><select
-          v-if="availableActivities.length > 1"
+          v-if="availableActivities.length > 1 && !requestedActivityId"
           id="day-occurrence"
           v-model="activityId"
           class="form-control"
@@ -400,6 +494,7 @@ onUnmounted(() => {
             !date ||
             calendarLoading ||
             !!calendarError ||
+            requestedActivityMissing ||
             date > localTrainingDate(selectedZone)
           "
           @click="begin"
@@ -422,7 +517,12 @@ onUnmounted(() => {
           entrenamientos futuros.
         </p>
         <DailyWorkoutGuide
-          v-if="day"
+          v-if="
+            day &&
+            !calendarLoading &&
+            !calendarError &&
+            !requestedActivityMissing
+          "
           :key="
             day.id +
             ':' +
@@ -433,7 +533,7 @@ onUnmounted(() => {
           :query="
             selectedActivity
               ? { activityId: selectedActivity.id }
-              : { planDayId: dayId, performedOn: date, timeZone }
+              : { planDayId: dayId, performedOn: date, timeZone: selectedZone }
           "
           compact
         />

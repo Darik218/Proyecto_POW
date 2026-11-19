@@ -240,8 +240,10 @@ watch(
         </div>
       </div>
       <div v-if="hasResults" class="quick-set-fields">
-        <div>
-          <label class="field-label" :for="id + '-load'">Carga utilizada</label
+        <div class="set-load">
+          <label class="field-label" :for="id + '-load'">{{
+            inline ? "Carga" : "Carga utilizada"
+          }}</label
           ><input
             :id="id + '-load'"
             v-model="form.load"
@@ -251,21 +253,29 @@ watch(
             required
           />
         </div>
-        <div>
-          <label class="field-label" :for="id + '-unit'">Unidad real</label
+        <div class="set-unit">
+          <label class="field-label" :for="id + '-unit'">{{
+            inline ? "Unidad" : "Unidad real"
+          }}</label
           ><select
             :id="id + '-unit'"
             v-model="form.loadUnit"
             class="form-control"
           >
-            <option value="">Unidad conocida</option>
+            <option
+              value=""
+              :aria-label="inline ? 'Elige la unidad' : undefined"
+            >
+              {{ inline ? "—" : "Unidad conocida" }}
+            </option>
             <option value="KG">kg</option>
             <option value="LB">lb</option>
           </select>
         </div>
-        <div>
-          <label class="field-label" :for="id + '-reps'"
-            >Repeticiones realizadas</label
+        <div class="set-repetitions">
+          <label class="field-label" :for="id + '-reps'">{{
+            inline ? "Repeticiones" : "Repeticiones realizadas"
+          }}</label
           ><input
             :id="id + '-reps'"
             v-model="form.repetitions"
@@ -449,26 +459,48 @@ watch(
   margin-top: 0.75rem;
 }
 .quick-set-form--inline {
-  padding: 0;
-  border: 0;
-  background: transparent;
+  padding: clamp(0.75rem, 3vw, 1.25rem);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background: var(--color-background);
   box-shadow: none;
 }
-.quick-set-form--inline .quick-set-fields {
-  grid-template-columns: minmax(0, 1.2fr) minmax(5rem, 0.7fr) minmax(0, 1.2fr);
+.quick-set-form--inline .training-section-legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
-.quick-set-form--inline .quick-set-fields > div:nth-child(1) input,
-.quick-set-form--inline .quick-set-fields > div:nth-child(3) input {
-  font-size: 1.7rem;
-  font-weight: 700;
-  min-height: 64px;
+.quick-set-form--inline .quick-set-fields {
+  grid-template-columns: minmax(0, 1fr) minmax(4.2rem, 0.58fr) minmax(0, 1fr);
+  align-items: end;
+  gap: 0.4rem 0.65rem;
+}
+.quick-set-form--inline .quick-set-fields > div > .field-label {
+  margin-top: 0;
+  font-size: clamp(0.74rem, 2.4vw, 0.86rem);
+}
+.quick-set-form--inline .quick-set-fields > div > .form-control {
+  min-width: 0;
+  width: 100%;
+  min-height: 54px;
+  font-variant-numeric: tabular-nums;
+}
+.quick-set-form--inline :is(.set-load, .set-repetitions) input {
+  font-size: clamp(1.125rem, 5vw, 1.5rem);
+  font-weight: 650;
+}
+.quick-set-form--inline .set-unit select {
+  font-size: 1rem;
+}
+.quick-set-form--inline :is(input, select, textarea) {
+  scroll-margin-block: 6rem;
 }
 .quick-set-form--inline > .plan-actions {
-  position: sticky;
-  bottom: 0;
-  background: var(--color-surface);
-  padding: 0.75rem 0 calc(0.75rem + env(safe-area-inset-bottom));
-  z-index: 2;
+  margin: 0.6rem 0 0;
 }
 .quick-set-form--inline > .plan-actions > .primary-button {
   width: 100%;
@@ -477,6 +509,16 @@ watch(
 }
 .quick-set-form--inline .quick-set-options {
   font-size: 0.85rem;
+  margin-block: 0.25rem 0;
+  border-top: 1px solid var(--color-border);
+}
+.quick-set-form--inline .set-effort {
+  margin: 0;
+  font-size: 0.85rem;
+}
+.inline-draft-note {
+  margin: 0 0 0.4rem;
+  line-height: 1.45;
 }
 
 .quick-set-form {
@@ -484,6 +526,9 @@ watch(
 }
 .quick-set-form h4 {
   margin: 0;
+}
+.quick-set-form--inline h4 {
+  margin-bottom: 0.6rem;
 }
 .quick-set-form fieldset {
   min-width: 0;
@@ -547,6 +592,34 @@ watch(
   }
   .quick-set-references {
     display: grid;
+  }
+}
+@media (max-width: 900px) {
+  .quick-set-form--inline > .plan-actions {
+    position: sticky;
+    z-index: 2;
+    bottom: calc(
+      var(--bottom-nav-height, 0px) + env(safe-area-inset-bottom, 0px) + 0.35rem
+    );
+    background: var(--color-background);
+  }
+}
+@media (max-width: 360px) {
+  .quick-set-form--inline .quick-set-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(3.3rem, 0.62fr) minmax(0, 1fr);
+    column-gap: 0.38rem;
+  }
+  .quick-set-form--inline .quick-set-fields > div > .form-control {
+    padding-inline: 0.38rem;
+  }
+  .quick-set-form--inline :is(.set-load, .set-repetitions) input {
+    font-size: 1rem;
+  }
+  .quick-set-form--inline .set-repetitions input[type="number"] {
+    appearance: textfield;
+  }
+  .quick-set-form--inline .set-repetitions input::-webkit-inner-spin-button {
+    appearance: none;
   }
 }
 </style>

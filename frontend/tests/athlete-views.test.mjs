@@ -95,7 +95,7 @@ test("renderiza navegación privada, perfil y estado inicial de medidas", async 
     assert.equal(
       (layoutHtml.match(/<a\b[^>]*class="[^"]*\bapp-nav__link\b/g) || [])
         .length,
-      4,
+      5,
     );
     assert.doesNotMatch(
       layoutHtml.match(/<nav[^>]*>[\s\S]*?<\/nav>/)?.[0] ?? "",

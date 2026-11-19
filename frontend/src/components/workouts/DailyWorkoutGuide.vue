@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onUnmounted } from "vue";
+import { computed, ref, watch, onUnmounted } from "vue";
 import { useAuthStore } from "../../stores/auth.store";
 import { workoutGuideService } from "../../services/workout-guide.service";
 import type {
@@ -8,13 +8,25 @@ import type {
 } from "../../schemas/workout-guide.schema";
 import { workoutErrorMessage } from "../../services/workout-sessions.service";
 import WorkoutRepetitionGuide from "./WorkoutRepetitionGuide.vue";
+import WorkoutPreparationSummary from "./WorkoutPreparationSummary.vue";
 import { recordableLoad } from "../../utils/workout-set-draft";
-const props = defineProps<{ query: WorkoutGuideQuery; compact?: boolean }>();
+const props = defineProps<{
+  query: WorkoutGuideQuery;
+  compact?: boolean;
+  exerciseId?: string;
+}>();
 const emit = defineEmits<{ loaded: [value: WorkoutGuide] }>();
 const auth = useAuthStore(),
   guide = ref<WorkoutGuide | null>(null),
   error = ref(""),
   loading = ref(false);
+const visibleExercises = computed(
+  () =>
+    guide.value?.exercises.filter(
+      (exercise) =>
+        !props.exerciseId || exercise.exerciseId === props.exerciseId,
+    ) ?? [],
+);
 let revision = 0,
   controller: AbortController | undefined;
 async function load() {
@@ -104,108 +116,145 @@ onUnmounted(() => {
         Todavía no hay ejercicios previstos para este entrenamiento.
       </p>
       <article
-        v-for="exercise in guide.exercises"
+        v-for="exercise in visibleExercises"
         :key="exercise.id"
         class="guide-exercise"
       >
         <h4>
           {{ exercise.name }} <span v-if="exercise.isOmitted">· Omitido</span>
         </h4>
-        <p>
-          <strong>{{
-            guide.source.kind === "SESSION"
-              ? "Objetivo de esta sesión:"
-              : "Objetivo previsto actualmente:"
-          }}</strong>
-          {{ exercise.target.targetSets ?? "Sin definir" }} series ·
-          {{ exercise.target.targetRepsMin ?? "—" }}–{{
-            exercise.target.targetRepsMax ?? "—"
-          }}
-          repeticiones<span v-if="exercise.target.targetLoad !== null">
-            · {{ exercise.target.targetLoad }}
-            {{
-              exercise.target.targetLoadUnit ?? "(unidad sin registrar)"
-            }}</span
-          >
-        </p>
-        <details v-if="exercise.originalTarget">
-          <summary>Objetivo original conservado</summary>
+        <WorkoutPreparationSummary
+          v-if="exercise.preparation"
+          :exercise="exercise"
+        />
+        <template v-if="!exercise.preparation">
           <p>
-            {{ exercise.originalTarget.targetSets ?? "—" }} series ·
-            {{ exercise.originalTarget.targetRepsMin ?? "—" }}–{{
-              exercise.originalTarget.targetRepsMax ?? "—"
+            <strong>{{
+              guide.source.kind === "SESSION"
+                ? "Objetivo de esta sesión:"
+                : "Objetivo previsto actualmente:"
+            }}</strong>
+            {{ exercise.target.targetSets ?? "Sin definir" }} series ·
+            {{ exercise.target.targetRepsMin ?? "—" }}–{{
+              exercise.target.targetRepsMax ?? "—"
             }}
-            repeticiones ·
-            {{ exercise.originalTarget.targetLoad ?? "Sin carga definida" }}
-            {{ exercise.originalTarget.targetLoadUnit ?? "" }}
-          </p>
-        </details>
-        <div v-if="exercise.lastReference">
-          <p>
-            <strong
-              >Último registro anterior:
-              {{ exercise.lastReference.performedOn }}</strong
+            repeticiones<span v-if="exercise.target.targetLoad !== null">
+              · {{ exercise.target.targetLoad }}
+              {{
+                exercise.target.targetLoadUnit ?? "(unidad sin registrar)"
+              }}</span
             >
           </p>
-          <p
-            v-if="exercise.lastReference.sessions.length > 1"
-            class="field-hint"
-          >
-            Hay varias sesiones en esa fecha; se muestran sin suponer cuál fue
-            primero.
-          </p>
-          <div
-            v-for="previous in exercise.lastReference.sessions"
-            :key="previous.taskId"
-          >
-            <ul>
-              <li v-for="set in previous.sets" :key="set.setNumber">
-                Serie {{ set.setNumber }}:
-                {{ set.load ?? "Carga no registrada" }}
-                {{ set.loadUnit ?? "(unidad desconocida)" }} ×
-                {{ set.repetitions ?? "—" }} repeticiones<span
-                  v-if="set.rpe !== null"
-                >
-                  · Esfuerzo {{ set.rpe }}/10</span
-                ><span v-if="set.status !== 'COMPLETED'">
-                  · Registro {{ set.status ?? "sin clasificación" }}</span
-                >
-              </li>
-            </ul>
-            <RouterLink
-              :to="{
-                name: 'workout-session-detail',
-                params: { sessionId: previous.sessionId },
-              }"
-              >Ver resultados anteriores</RouterLink
+          <details v-if="exercise.originalTarget">
+            <summary>Objetivo original conservado</summary>
+            <p>
+              {{ exercise.originalTarget.targetSets ?? "—" }} series ·
+              {{ exercise.originalTarget.targetRepsMin ?? "—" }}–{{
+                exercise.originalTarget.targetRepsMax ?? "—"
+              }}
+              repeticiones ·
+              {{ exercise.originalTarget.targetLoad ?? "Sin carga definida" }}
+              {{ exercise.originalTarget.targetLoadUnit ?? "" }}
+            </p>
+          </details>
+          <div v-if="exercise.lastReference">
+            <p class="field-hint">
+              {{
+                exercise.lastReference.scope === "SAME_PLAN_DAY"
+                  ? "Referencia del mismo día y plan."
+                  : exercise.lastReference.scope === "FREE_SESSION"
+                    ? "Referencia de entrenamiento libre; conserva su origen libre."
+                    : "Referencia del mismo ejercicio en otro contexto."
+              }}
+              La variante, el equipo y la forma de anotar el peso deben ser
+              comparables antes de calcular una mejora.
+            </p>
+            <p>
+              <strong
+                >Último registro anterior:
+                {{ exercise.lastReference.performedOn }}</strong
+              >
+            </p>
+            <p
+              v-if="exercise.lastReference.sessions.length > 1"
+              class="field-hint"
             >
+              Hay varias sesiones en esa fecha; se muestran sin suponer cuál fue
+              primero.
+            </p>
+            <div
+              v-for="previous in exercise.lastReference.sessions"
+              :key="previous.taskId"
+            >
+              <p class="field-hint">
+                {{
+                  previous.sessionStatus === "IN_PROGRESS"
+                    ? "Sesión parcial: estas series son contexto y no acreditan un entrenamiento completo para progresar."
+                    : previous.sessionStatus === "COMPLETED"
+                      ? "Sesión completada."
+                      : "Estado de la sesión anterior no verificado."
+                }}
+              </p>
+              <ul>
+                <li v-for="set in previous.sets" :key="set.setNumber">
+                  Serie {{ set.setNumber }}:
+                  {{ set.load ?? "Carga no registrada" }}
+                  {{ set.loadUnit ?? "(unidad desconocida)" }} ×
+                  {{ set.repetitions ?? "—" }} repeticiones<span
+                    v-if="set.rpe !== null"
+                  >
+                    · Esfuerzo {{ set.rpe }}/10</span
+                  ><span v-if="set.status !== 'COMPLETED'">
+                    · Registro {{ set.status ?? "sin clasificación" }}</span
+                  >
+                </li>
+              </ul>
+              <RouterLink
+                :to="{
+                  name: 'workout-session-detail',
+                  params: { sessionId: previous.sessionId },
+                }"
+                >Ver resultados anteriores</RouterLink
+              >
+            </div>
           </div>
-        </div>
-        <p>{{ exercise.guidance.message }}</p>
-        <p v-if="exercise.guidanceSuggested?.origin === 'CALCULATED'">
-          <strong>Nueva orientación calculada:</strong>
-          {{ exercise.guidanceSuggested.reason
-          }}<span v-if="exercise.guidanceSuggested.load !== null">
-            {{
-              recordableLoad(exercise.guidanceSuggested.load) ??
-              exercise.guidanceSuggested.load
-            }}
-            {{ exercise.guidanceSuggested.unit }} ×
-            {{ exercise.guidanceSuggested.reps }} repeticiones.</span
+          <p>{{ exercise.guidance.message }}</p>
+          <p
+            v-if="exercise.guidanceSuggested?.origin === 'HISTORICAL_REFERENCE'"
           >
-          No cambia el plan.
-        </p>
+            {{ exercise.guidanceSuggested.reason }}
+          </p>
+          <p v-if="exercise.guidanceSuggested?.origin === 'CALCULATED'">
+            <strong>Nueva orientación calculada:</strong>
+            {{ exercise.guidanceSuggested.reason
+            }}<span v-if="exercise.guidanceSuggested.load !== null">
+              {{
+                recordableLoad(exercise.guidanceSuggested.load) ??
+                exercise.guidanceSuggested.load
+              }}
+              {{ exercise.guidanceSuggested.unit }} ×
+              {{ exercise.guidanceSuggested.reps }} repeticiones.</span
+            >
+            No cambia el plan.
+          </p>
+        </template>
         <WorkoutRepetitionGuide
           v-if="
-            exercise.repetitionContext &&
-            exercise.guidanceSuggested?.load == null
+            (exercise.progressiveContext ?? exercise.repetitionContext) &&
+            exercise.preparation?.stage !== 'REVIEW_REQUIRED' &&
+            (exercise.preparation
+              ? exercise.preparation.stage === 'REPETITION_READY'
+              : exercise.guidanceSuggested?.load == null)
           "
           :query="query"
           :exercise-id="exercise.exerciseId"
-          :context="exercise.repetitionContext"
+          :context="
+            (exercise.progressiveContext ?? exercise.repetitionContext)!
+          "
           @calculated="calculated"
         />
-        <div v-if="exercise.proposal" class="guide-proposal">
+        <details v-if="exercise.proposal" class="guide-proposal">
+          <summary>Propuesta guardada</summary>
           <p v-if="exercise.proposal.status === 'CURRENT'">
             <strong>Propuesta matemática vigente:</strong>
             {{ exercise.proposal.recommendedLoad }}
@@ -230,7 +279,7 @@ onUnmounted(() => {
           <RouterLink :to="exercise.proposal.href"
             >Consultar propuesta y explicación</RouterLink
           >
-        </div>
+        </details>
       </article>
       <details>
         <summary>¿Qué significa esfuerzo y fuerza estimada?</summary>

@@ -75,6 +75,7 @@ export const navigation = [
 export const primaryNavigation = [
   "dashboard",
   "home",
+  "workout-sessions",
   "progression",
   "profile",
 ].map((name) => navigation.find((item) => item.name === name)!);

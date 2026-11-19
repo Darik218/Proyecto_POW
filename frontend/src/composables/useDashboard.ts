@@ -10,10 +10,12 @@ import { progressionService } from "../services/progression.service";
 export function useDashboard() {
   const auth = useAuthStore(),
     recent = shallowRef<WorkoutSummary[]>([]),
+    latestCompleted = shallowRef<WorkoutSummary | null>(null),
     total = ref<number | null>(null),
     completed = ref<number | null>(null),
     pending = ref<number | null>(null),
     activePlans = ref<number | null>(null),
+    draftPlans = ref<number | null>(null),
     loading = ref(false),
     errors = ref<string[]>([]);
   let generation = 0,
@@ -23,10 +25,12 @@ export function useDashboard() {
     `${auth.user?.id ?? ""}:${auth.getSessionContextId() ?? ""}:${auth.getSessionGeneration()}`;
   function clear() {
     recent.value = [];
+    latestCompleted.value = null;
     total.value = null;
     completed.value = null;
     pending.value = null;
     activePlans.value = null;
+    draftPlans.value = null;
     errors.value = [];
   }
   async function load() {
@@ -50,8 +54,10 @@ export function useDashboard() {
       total.value = sessions.value.total;
     } else
       errors.value.push("No se pudo consultar el historial de entrenamientos.");
-    if (finished.status === "fulfilled") completed.value = finished.value.total;
-    else
+    if (finished.status === "fulfilled") {
+      completed.value = finished.value.total;
+      latestCompleted.value = finished.value.items[0] ?? null;
+    } else
       errors.value.push(
         "No se pudo consultar el total de sesiones finalizadas.",
       );
@@ -60,11 +66,12 @@ export function useDashboard() {
       errors.value.push(
         "No se pudieron consultar las recomendaciones pendientes.",
       );
-    if (plans.status === "fulfilled")
+    if (plans.status === "fulfilled") {
       activePlans.value = plans.value.filter(
         (p) => p.status === "ACTIVE",
       ).length;
-    else errors.value.push("No se pudieron consultar los planes activos.");
+      draftPlans.value = plans.value.filter((p) => p.status === "DRAFT").length;
+    } else errors.value.push("No se pudieron consultar los planes activos.");
     loading.value = false;
   }
   onMounted(() => {
@@ -89,10 +96,12 @@ export function useDashboard() {
   });
   return {
     recent,
+    latestCompleted,
     total,
     completed,
     pending,
     activePlans,
+    draftPlans,
     loading,
     errors,
     load,

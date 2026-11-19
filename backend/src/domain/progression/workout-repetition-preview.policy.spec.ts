@@ -316,3 +316,121 @@ describe('optional plan-bound repetition preview without subjective effort', () 
     );
   });
 });
+
+describe('versioned comparable prescription evidence', () => {
+  const prepareV2 = (f: ReturnType<typeof fixture>, cutoff = '2026-01-14') =>
+    (
+      prepareRepetitionContext as (
+        ...args: unknown[]
+      ) => ReturnType<typeof prepareRepetitionContext>
+    )(
+      f.c,
+      f.source,
+      cutoff,
+      f.c.target.targets,
+      undefined,
+      'session-repetition-preview-v2',
+    );
+  const previewV2 = (f: ReturnType<typeof fixture>, cutoff?: string) => {
+    const prepared = prepareV2(f, cutoff);
+    return repetitionPreview(f.c, f.source, prepared, {
+      source: { planDayId: 'day' },
+      exerciseId: 'exercise',
+      contextKey: prepared.contextKey!,
+      declaration: {
+        sameVariant: true,
+        sameEquipment: true,
+        sameLoadConvention: true,
+      },
+      policyContract: 'session-repetition-preview-v2',
+    } as never);
+  };
+  it('uses captured comparable evidence across generated week prescription IDs without rewriting historical identities or relaxing v1', () => {
+    const f = fixture();
+    f.c.history.tasks.forEach((t, index) => {
+      t.planExerciseId = 'prior-week-' + index;
+    });
+    const before = JSON.stringify(f.c);
+    expect(prepareV2(f)).toMatchObject({
+      ready: true,
+      policyContract: 'session-repetition-preview-v2',
+    });
+    expect(previewV2(f)).toMatchObject({
+      origin: 'CALCULATED',
+      reps: 9,
+      load: '80.000000',
+      executionAuthorized: false,
+    });
+    expect(f.prepared()).toMatchObject({
+      ready: false,
+      reasons: expect.arrayContaining(['NO_ELIGIBLE_HISTORY']),
+    });
+    expect(JSON.stringify(f.c)).toBe(before);
+  });
+  it.each([
+    ['minimum', 'MINIMUM_NOT_REACHED'],
+    ['targets', 'HISTORICAL_TARGETS_DIFFER'],
+    ['partial', 'SESSION_NOT_COMPLETED'],
+    ['free', 'PRESCRIPTION_HISTORY_REQUIRED'],
+    ['mixed', 'HISTORY_REPETITIONS_INCONSISTENT'],
+    ['old', 'REFERENCE_OUTSIDE_PREVIEW_PERIOD'],
+    ['zone', 'TIME_ZONE_MISMATCH'],
+    ['substitution', 'SUBSTITUTION_NOT_COMPARABLE'],
+    ['original', 'SUBSTITUTION_NOT_COMPARABLE'],
+    ['unknown-target', 'HISTORICAL_TARGETS_DIFFER'],
+  ])(
+    'exposes the actual %s blocker before declarations and withholds a numeric draft',
+    (mode, reason) => {
+      const f = fixture();
+      f.c.history.tasks.forEach((t) => {
+        t.planExerciseId = 'prior-week';
+      });
+      if (mode === 'minimum') {
+        f.c.history.tasks.shift();
+        f.c.history.sets.shift();
+      }
+      if (mode === 'targets')
+        f.c.history.tasks[1].adjustedTargets.targetRepsMax = 12;
+      if (mode === 'partial')
+        f.c.history.tasks[1].sessionStatus = 'IN_PROGRESS';
+      if (mode === 'free') f.c.history.tasks[1].planExerciseId = null;
+      if (mode === 'mixed') f.c.history.sets[1].repetitions = 9;
+      if (mode === 'old') f.source.performedOn = '2026-03-15';
+      if (mode === 'zone') f.c.history.tasks[1].timeZone = 'America/Bogota';
+      if (mode === 'substitution')
+        f.c.history.tasks[1].replacesWorkoutExerciseId = 'replaced';
+      if (mode === 'original')
+        f.c.history.tasks[1].originalExerciseId = 'other-exercise';
+      if (mode === 'unknown-target')
+        f.c.history.tasks[1].adjustedTargets.targetSets = null;
+      expect(prepareV2(f)).toMatchObject({
+        ready: false,
+        reasons: expect.arrayContaining([reason]),
+      });
+      expect(previewV2(f)).toMatchObject({ load: null, reps: null });
+    },
+  );
+  it('rejects ambiguous same-date references even when only one successful session is required', () => {
+    const f = fixture();
+    f.c.settings = [];
+    f.c.history.tasks.forEach((t) => {
+      t.planExerciseId = 'previous';
+      t.performedOn = '2026-01-06';
+    });
+    expect(prepareV2(f)).toMatchObject({
+      ready: false,
+      reasons: expect.arrayContaining(['INTRADAY_ORDER_UNKNOWN']),
+    });
+  });
+  it('excludes records beyond read cutoff and preserves their identities in the fingerprint', () => {
+    const f = fixture();
+    f.c.settings = [];
+    f.c.history.tasks.forEach((t) => {
+      t.planExerciseId = 'prior-week';
+    });
+    f.c.history.sets[1].repetitions = 9;
+    expect(previewV2(f, '2026-01-05')).toMatchObject({ reps: 9 });
+    expect(prepareV2(f, '2026-01-05').tasks.map((t) => t.id)).toEqual(['a']);
+    expect(previewV2(f, '2026-01-06')).toMatchObject({ reps: 10 });
+  });
+});

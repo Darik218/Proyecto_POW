@@ -41,6 +41,134 @@ export const workoutGuideQuerySchema = z
     (q) => !q.planDayId || !!(q.performedOn && q.timeZone),
     "Indica fecha y zona horaria",
   );
+const repetitionContext = z
+  .object({
+    contextKey: z.string().nullable(),
+    comparisonKey: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable()
+      .optional(),
+    ready: z.boolean(),
+    reasons: z.array(z.string()),
+    minimumSessions: z.number().int().positive(),
+    minimumSource: z.enum(["PERSISTED_SETTING", "PLAN_BOUND_INITIAL_POLICY"]),
+    baselineSource: z
+      .enum(["PRESCRIPTION", "RECORDED_HISTORY"])
+      .nullable()
+      .optional(),
+    tasks: z.array(
+      z.object({
+        id,
+        sessionId: id,
+        performedOn: z.iso.date().nullable(),
+        timeZone: z.string().nullable(),
+      }),
+    ),
+    policyContract: z.literal("session-repetition-preview-v1"),
+    executionAuthorized: z.literal(false),
+  })
+  .nullable()
+  .optional();
+const progressiveContext = z
+  .object({
+    contextKey: z.string().nullable(),
+    comparisonKey: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable()
+      .optional(),
+    ready: z.boolean(),
+    reasons: z.array(z.string()),
+    minimumSessions: z.number().int().positive(),
+    minimumSource: z.enum(["PERSISTED_SETTING", "PLAN_BOUND_INITIAL_POLICY"]),
+    baselineSource: z
+      .enum(["PRESCRIPTION", "RECORDED_HISTORY"])
+      .nullable()
+      .optional(),
+    tasks: z.array(
+      z.object({
+        id,
+        sessionId: id,
+        performedOn: z.iso.date().nullable(),
+        timeZone: z.string().nullable(),
+      }),
+    ),
+    policyContract: z.literal("session-repetition-preview-v2"),
+    executionAuthorized: z.literal(false),
+  })
+  .nullable()
+  .optional();
+const reference = z
+  .object({
+    performedOn: z.iso.date(),
+    scope: z
+      .enum(["SAME_PLAN_DAY", "FREE_SESSION", "OTHER_CONTEXT"])
+      .optional(),
+    gapDays: z.number().int().nullable(),
+    sessions: z.array(
+      z.object({
+        sessionId: id,
+        sessionStatus: z.string().nullable().optional(),
+        taskId: id,
+        performedOn: z.iso.date().nullable(),
+        timeZone: z.string().nullable(),
+        trainingPlanId: id.nullable().optional(),
+        planDayId: id.nullable().optional(),
+        planExerciseId: id.nullable().optional(),
+        sets: z.array(set),
+      }),
+    ),
+  })
+  .nullable();
+const diagnosticReason = z.object({
+  category: z.enum([
+    "evidence",
+    "configuration",
+    "policy",
+    "comparability",
+    "temporal",
+    "math",
+    "integration",
+  ]),
+  code: z.string(),
+});
+const methodDiagnostic = z
+  .object({ ready: z.boolean(), reasons: z.array(diagnosticReason) })
+  .nullable();
+const preparation = z.object({
+  stage: z.enum([
+    "PLAN_ONLY",
+    "PLAN_WITH_REFERENCE",
+    "REPETITION_READY",
+    "REPETITION_DRAFT",
+    "LOAD_DRAFT",
+    "REVIEW_REQUIRED",
+  ]),
+  plan: target,
+  before: reference,
+  draft: z
+    .object({
+      origin: z.enum([
+        "PLAN_TARGET",
+        "HISTORICAL_REFERENCE",
+        "CALCULATED",
+        "PERSISTED_PROPOSAL",
+      ]),
+      load: decimal,
+      unit,
+      reps: z.number().int().nullable(),
+      sets: z.number().int().nullable(),
+      executionAuthorized: z.literal(false),
+    })
+    .nullable(),
+  why: z.array(z.string()),
+  blockers: z.array(diagnosticReason),
+  diagnostics: z
+    .object({ repetition: methodDiagnostic, load: methodDiagnostic })
+    .optional(),
+  executionAuthorized: z.literal(false),
+});
 export const workoutGuideSchema = z.object({
   schemaVersion: z.literal("workout-guide-v1"),
   historyCutoffOn: z.iso.date().nullable(),
@@ -68,21 +196,7 @@ export const workoutGuideSchema = z.object({
       isOmitted: z.boolean(),
       target,
       originalTarget: target.nullable(),
-      lastReference: z
-        .object({
-          performedOn: z.iso.date(),
-          gapDays: z.number().int().nullable(),
-          sessions: z.array(
-            z.object({
-              sessionId: id,
-              taskId: id,
-              performedOn: z.iso.date().nullable(),
-              timeZone: z.string().nullable(),
-              sets: z.array(set),
-            }),
-          ),
-        })
-        .nullable(),
+      lastReference: reference,
       guidance: z.object({
         state: z.enum([
           "FIRST_BASELINE",
@@ -149,38 +263,9 @@ export const workoutGuideSchema = z.object({
         })
         .nullable()
         .optional(),
-      repetitionContext: z
-        .object({
-          contextKey: z.string().nullable(),
-          comparisonKey: z
-            .string()
-            .regex(/^[a-f0-9]{64}$/)
-            .nullable()
-            .optional(),
-          ready: z.boolean(),
-          reasons: z.array(z.string()),
-          minimumSessions: z.number().int().positive(),
-          minimumSource: z.enum([
-            "PERSISTED_SETTING",
-            "PLAN_BOUND_INITIAL_POLICY",
-          ]),
-          baselineSource: z
-            .enum(["PRESCRIPTION", "RECORDED_HISTORY"])
-            .nullable()
-            .optional(),
-          tasks: z.array(
-            z.object({
-              id,
-              sessionId: id,
-              performedOn: z.iso.date().nullable(),
-              timeZone: z.string().nullable(),
-            }),
-          ),
-          policyContract: z.literal("session-repetition-preview-v1"),
-          executionAuthorized: z.literal(false),
-        })
-        .nullable()
-        .optional(),
+      repetitionContext: repetitionContext,
+      progressiveContext: progressiveContext,
+      preparation: preparation.optional(),
       proposal: z
         .object({
           id,
@@ -231,7 +316,10 @@ export const workoutRepetitionPreviewInputSchema = z
         sameLoadConvention: z.literal(true),
       })
       .strict(),
-    policyContract: z.literal("session-repetition-preview-v1"),
+    policyContract: z.enum([
+      "session-repetition-preview-v1",
+      "session-repetition-preview-v2",
+    ]),
   })
   .strict();
 export type WorkoutRepetitionPreviewInput = z.infer<

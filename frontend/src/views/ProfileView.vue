@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from "vue";
 import { useAuthStore } from "../stores/auth.store";
 import PulsoIcon from "../components/ui/PulsoIcon.vue";
+import LoadingState from "../components/ui/LoadingState.vue";
+import PageHeader from "../components/ui/PageHeader.vue";
 import { RouterLink } from "vue-router";
 import {
   athleteErrorMessage,
@@ -95,17 +97,12 @@ onMounted(() => void loadProfile());
 
 <template>
   <section class="page-view">
-    <div class="page-heading">
-      <RouterLink class="back-link" :to="{ name: 'measurements' }"
-        >Medidas corporales →</RouterLink
-      >
-      <h1>Mi perfil</h1>
-      <p class="intro">
-        Mantén actualizados tus datos personales y la unidad que prefieres usar.
-      </p>
-    </div>
+    <PageHeader
+      title="Mi perfil"
+      description="Datos del atleta, unidades y preferencias."
+    />
 
-    <p v-if="loading" class="state-message" role="status">Cargando perfil…</p>
+    <LoadingState v-if="loading" label="Cargando perfil…" :rows="2" />
     <div
       v-else-if="loadError"
       class="state-card state-card--error"
@@ -184,22 +181,37 @@ onMounted(() => void loadProfile());
           </button>
         </form>
 
-        <aside class="details-card" aria-labelledby="profile-details-title">
-          <h2 id="profile-details-title">Información del perfil</h2>
-          <dl class="details-list">
-            <div>
-              <dt>Identificador de atleta</dt>
-              <dd class="profile-id">{{ profile.id }}</dd>
-            </div>
-            <div>
-              <dt>Creado</dt>
-              <dd>{{ formatTimestamp(profile.createdAt) }}</dd>
-            </div>
-            <div>
-              <dt>Última actualización</dt>
-              <dd>{{ formatTimestamp(profile.updatedAt) }}</dd>
-            </div>
-          </dl>
+        <aside
+          class="details-card profile-preferences"
+          aria-labelledby="profile-details-title"
+        >
+          <h2 id="profile-details-title">Preferencias de entrenamiento</h2>
+          <RouterLink :to="{ name: 'measurements' }"
+            ><PulsoIcon name="scale" /><span>Medidas corporales</span
+            ><PulsoIcon name="chevron-right" :size="16"
+          /></RouterLink>
+          <RouterLink :to="{ name: 'progression-settings' }"
+            ><PulsoIcon name="settings" /><span
+              >Configuración de progresión</span
+            ><PulsoIcon name="chevron-right" :size="16"
+          /></RouterLink>
+          <details>
+            <summary>Información de la cuenta</summary>
+            <dl class="details-list">
+              <div>
+                <dt>Identificador de atleta</dt>
+                <dd class="profile-id">{{ profile.id }}</dd>
+              </div>
+              <div>
+                <dt>Creado</dt>
+                <dd>{{ formatTimestamp(profile.createdAt) }}</dd>
+              </div>
+              <div>
+                <dt>Última actualización</dt>
+                <dd>{{ formatTimestamp(profile.updatedAt) }}</dd>
+              </div>
+            </dl>
+          </details>
         </aside>
       </div>
     </template>
@@ -207,3 +219,24 @@ onMounted(() => void loadProfile());
 </template>
 
 <style scoped src="../components/account/account.css"></style>
+<style scoped>
+.profile-preferences a {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--target-size);
+  border-top: 1px solid var(--line);
+  text-decoration: none;
+}
+.profile-preferences a span {
+  flex: 1;
+}
+.profile-preferences details {
+  margin-top: var(--space-4);
+}
+.profile-preferences summary {
+  min-height: var(--target-size);
+  align-content: center;
+  cursor: pointer;
+}
+</style>

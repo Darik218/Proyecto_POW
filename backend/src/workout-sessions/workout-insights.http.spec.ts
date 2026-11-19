@@ -12,6 +12,10 @@ import { AuthService } from '../auth/services/auth.service';
 import { PrismaService } from '../database/prisma.service';
 import { ATHLETES_REPOSITORY } from '../athletes/athletes.repository';
 import { WORKOUT_SESSIONS_REPOSITORY } from './workout-sessions.repository';
+import {
+  WORKOUT_PROGRESS_REPOSITORY,
+  WorkoutProgressError,
+} from './workout-progress.repository';
 import { WorkoutSessionsModule } from './workout-sessions.module';
 import { WorkoutSession } from '../models/workout-sessions/workout-session.model';
 import { insightFixture } from '../../test/fixtures/workout-insights.fixture';
@@ -83,6 +87,27 @@ describe('Workout insights registered HTTP path without sockets', () => {
           return { id: id === accountId ? athleteId : 'other-athlete' };
         },
       })
+      .overrideProvider(WORKOUT_PROGRESS_REPOSITORY)
+      .useValue({
+        read(userId: string, _sessionId: string, _window: { period: string }) {
+          if (userId !== accountId)
+            throw new WorkoutProgressError('AUTHENTICATION_REQUIRED');
+          return {
+            sessions: [{ id: sessionId, performedOn: '2026-11-12' }],
+            exercises: [],
+            selectedExerciseId: null,
+            history: null,
+            undatedSessions: 0,
+            truncated: {
+              sessions: false,
+              exercises: false,
+              tasks: false,
+              sets: false,
+              estimates: false,
+            },
+          };
+        },
+      })
       .overrideProvider(WORKOUT_SESSIONS_REPOSITORY)
       .useValue({
         get(owner: string, id: string) {
@@ -109,6 +134,51 @@ describe('Workout insights registered HTTP path without sockets', () => {
   });
   afterAll(async () => {
     await app?.close();
+  });
+  it('serves the guarded static progress route and rejects unsupported periods, unknown fields and foreign actors', async () => {
+    expect((await get(app, '/workout-sessions/progress')).status).toBe(401);
+    expect(
+      (await get(app, '/workout-sessions/progress?period=365', 'owner')).status,
+    ).toBe(400);
+    expect(
+      (await get(app, '/workout-sessions/progress?athleteId=foreign', 'owner'))
+        .status,
+    ).toBe(400);
+    expect(
+      (await get(app, '/workout-sessions/progress?exerciseId=invalid', 'owner'))
+        .status,
+    ).toBe(400);
+    expect((await get(app, '/workout-sessions/progress', 'other')).status).toBe(
+      401,
+    );
+    expect(
+      (await get(app, '/workout-sessions/progress?timeZone=Not/AZone', 'owner'))
+        .status,
+    ).toBe(400);
+    expect(
+      (
+        await get(
+          app,
+          '/workout-sessions/progress?timeZone=America%2FBogota',
+          'owner',
+        )
+      ).body.timeZone,
+    ).toBe('America/Bogota');
+    const response = await get(
+      app,
+      '/workout-sessions/progress?period=all',
+      'owner',
+    );
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      period: 'all',
+      completedSessions: 1,
+      frequency: [{ week: '2026-11-09', sessions: 1 }],
+      series: [],
+    });
+    expect(JSON.stringify(response.body)).not.toMatch(
+      /athleteId|userId|sessionId/,
+    );
   });
   it('requires the existing access guard and hides foreign sessions', async () => {
     expect(

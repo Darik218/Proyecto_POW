@@ -55,12 +55,28 @@ for (const name of [
         { workoutInsightsService } = await server.ssrLoadModule(
           "/src/services/workout-insights.service.ts",
         );
+      const { workoutProgressService } = await server.ssrLoadModule(
+        "/src/services/workout-progress.service.ts",
+      );
       const original = [
           workoutSessionsService.list,
           workoutSessionsService.suggestions,
           workoutInsightsService.get,
+          workoutProgressService.get,
         ],
         pending = [];
+      workoutProgressService.get = () =>
+        new Promise((r) =>
+          pending.push(() =>
+            r({
+              exercises: [{ name: "private-old" }],
+              frequency: [],
+              series: [],
+              estimates: [],
+              metadata: { truncated: {} },
+            }),
+          ),
+        );
       workoutSessionsService.list = () =>
         new Promise((r) =>
           pending.push(() => r({ items: [{ id: "private-old" }], total: 1 })),
@@ -84,6 +100,7 @@ for (const name of [
           workoutSessionsService.list,
           workoutSessionsService.suggestions,
           workoutInsightsService.get,
+          workoutProgressService.get,
         ] = original;
       });
       const { default: Component } = await server.ssrLoadModule(
@@ -115,7 +132,7 @@ for (const name of [
         assert.deepEqual(state.suggestions, []);
       } else if (name.endsWith("WorkoutInsightsPanel"))
         assert.equal(state.result, null);
-      else assert.deepEqual(state.sessions, []);
+      else assert.equal(state.result, null);
     },
   );
 test("insights contract preserves decimal strings and separates descriptive from official evidence", async () => {

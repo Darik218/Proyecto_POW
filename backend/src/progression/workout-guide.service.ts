@@ -17,6 +17,7 @@ import {
   guideSuggestion,
   guidePreviewPeriodReasons,
 } from '../domain/progression/workout-guide.policy';
+import { prepareExerciseGuidance } from '../domain/progression/workout-guide-preparation.policy';
 import { inspectReview } from '../domain/progression/recommendation-review.policy';
 import { deriveRecommendation } from './recommendation.service';
 @Injectable()
@@ -48,6 +49,7 @@ export class WorkoutGuideService {
           exercise.history,
           snapshot.source.performedOn,
           exercise.historyTruncated,
+          snapshot.source,
         );
         const proposals = exercise.candidates.map((candidate) => {
           let current = null;
@@ -127,6 +129,13 @@ export class WorkoutGuideService {
           exercise.configurationReasons ?? ['POLICY_PROVENANCE_REQUIRED'],
           exercise.target,
         );
+        if (reference.lastReference) {
+          suggestion.reasons = [
+            ...new Set([...suggestion.reasons, 'CONTEXTUAL_HISTORY_ONLY']),
+          ];
+          suggestion.reason =
+            'Estos son tus resultados anteriores de este ejercicio, incluso con una sola sesión y sin registrar esfuerzo. Sirven de referencia editable; calcular una mejora requiere registros y comparabilidad verificados para la política elegida.';
+        }
         for (const calculation of exercise.calculations ?? []) {
           const blocked = guideCalculationReasons(
             exercise,
@@ -186,7 +195,8 @@ export class WorkoutGuideService {
               ?.command?.policy?.version ?? null,
           );
         if (
-          explicit?.policyContract === 'session-repetition-preview-v1' &&
+          (explicit?.policyContract === 'session-repetition-preview-v1' ||
+            explicit?.policyContract === 'session-repetition-preview-v2') &&
           explicit.exerciseId === exercise.exerciseId &&
           exercise.repetitionSuggestion
         )
@@ -223,6 +233,13 @@ export class WorkoutGuideService {
           guidanceSuggested: suggestion,
           calculationContext: exercise.calculationContext ?? null,
           repetitionContext: exercise.repetitionContext ?? null,
+          progressiveContext: exercise.progressiveContext ?? null,
+          preparation: prepareExerciseGuidance(
+            exercise,
+            snapshot,
+            reference,
+            suggestion,
+          ),
         };
       }),
     };

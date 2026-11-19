@@ -15,6 +15,7 @@ import { normalizeTargets } from './prescription-assessment.policy';
 import { guidePreviewPeriodReasons } from './workout-guide.policy';
 import { guideComparisonKey } from './workout-guide-comparison.policy';
 export const REPETITION_PREVIEW_VERSION = 'session-repetition-preview-v1';
+export const PROGRESSIVE_PREVIEW_VERSION = 'session-repetition-preview-v2';
 // Optional, bounded next-session practice target; never a strength estimate.
 // Only the count/repetition portion is applicable. No load meaning, kg conversion,
 // equipment increment, RIR mapping, fatigue or official recommendation is inferred.
@@ -22,6 +23,7 @@ function repetitionLoadBaseline(
   context: RecommendationContext,
   source: WorkoutGuideSource,
   target: RecordedTargets | null,
+  taskIds?: readonly string[],
 ) {
   if (!target) return null;
   let load = target.targetLoad,
@@ -34,7 +36,9 @@ function repetitionLoadBaseline(
     const latest = context.history.tasks
       .filter(
         (t) =>
-          t.planExerciseId === context.target.prescriptionId &&
+          (taskIds
+            ? taskIds.includes(t.id)
+            : t.planExerciseId === context.target.prescriptionId) &&
           t.performedOn &&
           source.performedOn &&
           t.performedOn < source.performedOn,
@@ -63,6 +67,7 @@ export function prepareRepetitionContext(
   cutoff: string,
   sourceTargets: RecordedTargets | null = context.target.targets,
   comparisonSource?: GuideComparisonSourceEvidence,
+  contract: GuideRepetitionContext['policyContract'] = REPETITION_PREVIEW_VERSION,
 ): GuideRepetitionContext {
   const resolved = resolveEffectiveSettings(
     context.settings,
@@ -72,6 +77,15 @@ export function prepareRepetitionContext(
     undefined,
   );
   const selected = resolved.selected;
+  const progressive = contract === PROGRESSIVE_PREVIEW_VERSION;
+  const applicable = context.history.tasks.filter((task) =>
+    progressive
+      ? !!task.performedOn &&
+        !!source.performedOn &&
+        task.performedOn < source.performedOn &&
+        task.performedOn <= cutoff
+      : task.planExerciseId === context.target.prescriptionId,
+  );
   const reasons: string[] = [];
   if (resolved.reasons.includes('AMBIGUOUS_SETTING_SCOPE'))
     reasons.push('AMBIGUOUS_SETTING_SCOPE');
@@ -84,7 +98,12 @@ export function prepareRepetitionContext(
   const parsed = normalizeTargets(sourceTargets),
     t = parsed.targets;
   reasons.push(...parsed.reasons);
-  const baseline = repetitionLoadBaseline(context, source, t);
+  const baseline = repetitionLoadBaseline(
+    context,
+    source,
+    t,
+    progressive ? applicable.map((task) => task.id) : undefined,
+  );
   if (!baseline) reasons.push('KNOWN_LOAD_BASELINE_REQUIRED');
   if (context.target.kind !== 'PRESCRIPTION' || !context.target.prescriptionId)
     reasons.push('PRESCRIPTION_REQUIRED');
@@ -99,7 +118,7 @@ export function prepareRepetitionContext(
   if (
     !context.history.tasks.some(
       (t) =>
-        t.planExerciseId === context.target.prescriptionId &&
+        (progressive || t.planExerciseId === context.target.prescriptionId) &&
         t.performedOn &&
         source.performedOn &&
         t.performedOn < source.performedOn &&
@@ -114,10 +133,10 @@ export function prepareRepetitionContext(
     reasons.push('SESSION_NOT_TRAINABLE');
   if (Object.values(context.history.truncated).some(Boolean))
     reasons.push('READ_LIMIT_REACHED');
-  const tasks = context.history.tasks
+  const tasks = applicable
     .filter(
       (t) =>
-        t.planExerciseId === context.target.prescriptionId &&
+        (progressive || t.planExerciseId === context.target.prescriptionId) &&
         t.performedOn &&
         source.performedOn &&
         t.performedOn < source.performedOn,
@@ -128,7 +147,8 @@ export function prepareRepetitionContext(
         a.id.localeCompare(b.id),
     )
     .slice(0, selected?.minSuccessfulSessions ?? 1);
-  return {
+  const prepared: GuideRepetitionContext = {
+    ...(progressive ? { historyCutoffOn: cutoff } : {}),
     comparisonKey: guideComparisonKey(
       context,
       source,
@@ -138,11 +158,12 @@ export function prepareRepetitionContext(
       comparisonSource,
     ),
     contextKey: recommendationIdentity({
-      schemaVersion: REPETITION_PREVIEW_VERSION,
+      schemaVersion: contract,
       source,
       cutoff,
       context,
       sourceTargets,
+      ...(progressive ? { comparisonSource } : {}),
     }),
     ready: !reasons.length,
     reasons: [...new Set(reasons)],
@@ -155,9 +176,28 @@ export function prepareRepetitionContext(
       performedOn: t.performedOn,
       timeZone: t.timeZone,
     })),
-    policyContract: REPETITION_PREVIEW_VERSION,
+    policyContract: contract,
     executionAuthorized: false,
   };
+  if (progressive) {
+    if (comparisonSource?.isOmitted) prepared.reasons.push('EXERCISE_OMITTED');
+    if (
+      comparisonSource?.replacesWorkoutExerciseId ||
+      (comparisonSource?.originalExerciseId &&
+        comparisonSource.originalExerciseId !== context.history.exerciseId)
+    )
+      prepared.reasons.push('SUBSTITUTION_NOT_COMPARABLE');
+    // Validate evidence using the very same numeric policy before requesting any
+    // owner declaration. This never exposes a calculated target or declares
+    // physical comparability on the owner's behalf.
+    prepared.ready = !prepared.reasons.length;
+    const assessed = evaluateRepetitionEvidence(context, source, prepared);
+    if (assessed.origin !== 'CALCULATED')
+      prepared.reasons.push(...assessed.reasons);
+    prepared.reasons = [...new Set(prepared.reasons)];
+    prepared.ready = !prepared.reasons.length;
+  }
+  return prepared;
 }
 export function repetitionPreview(
   context: RecommendationContext,
@@ -166,7 +206,7 @@ export function repetitionPreview(
   input: WorkoutGuideRepetitionPreviewInput,
 ): GuideSuggestion {
   if (
-    input.policyContract !== REPETITION_PREVIEW_VERSION ||
+    input.policyContract !== prepared.policyContract ||
     input.contextKey !== prepared.contextKey ||
     input.exerciseId !== context.history.exerciseId ||
     input.declaration?.sameVariant !== true ||
@@ -174,6 +214,14 @@ export function repetitionPreview(
     input.declaration?.sameLoadConvention !== true
   )
     throw new RecommendationError('INVALID_COMMAND');
+  return evaluateRepetitionEvidence(context, source, prepared);
+}
+function evaluateRepetitionEvidence(
+  context: RecommendationContext,
+  source: WorkoutGuideSource,
+  prepared: GuideRepetitionContext,
+): GuideSuggestion {
+  const progressive = prepared.policyContract === PROGRESSIVE_PREVIEW_VERSION;
   const target = context.target.targets!,
     reasons = [...prepared.reasons];
   const no = (
@@ -191,12 +239,17 @@ export function repetitionPreview(
     reason:
       'Los registros no permiten avanzar repeticiones de forma comparable. Usa el objetivo del plan o ajusta tu sesión manualmente.',
     reasons: [...new Set(why)],
-    policyVersion: REPETITION_PREVIEW_VERSION,
+    policyVersion: prepared.policyContract,
     executionAuthorized: false,
   });
   if (!prepared.ready) return no(reasons, 'CONFIGURATION_REQUIRED');
-  const relevant = context.history.tasks.filter(
-    (t) => t.planExerciseId === context.target.prescriptionId,
+  const relevant = context.history.tasks.filter((t) =>
+    progressive
+      ? !!t.performedOn &&
+        !!source.performedOn &&
+        t.performedOn < source.performedOn &&
+        t.performedOn <= prepared.historyCutoffOn!
+      : t.planExerciseId === context.target.prescriptionId,
   );
   if (!relevant.length) return no(['NO_ELIGIBLE_HISTORY']);
   if (
@@ -226,7 +279,12 @@ export function repetitionPreview(
     return no(['DUPLICATE_SESSION_REFERENCE']);
   const values: number[] = [];
   let effort = false;
-  const baseline = repetitionLoadBaseline(context, source, target);
+  const baseline = repetitionLoadBaseline(
+    context,
+    source,
+    target,
+    progressive ? prepared.tasks.map((task) => task.id) : undefined,
+  );
   if (!baseline) return no(['KNOWN_LOAD_BASELINE_REQUIRED']);
   const targetLoad = readDecimal(baseline.load);
   for (const task of slice) {
@@ -235,6 +293,14 @@ export function repetitionPreview(
       task.exerciseId !== context.history.exerciseId
     )
       return no(['SOURCE_OWNERSHIP_MISMATCH']);
+    if (progressive && !task.planExerciseId)
+      return no(['PRESCRIPTION_HISTORY_REQUIRED']);
+    if (
+      progressive &&
+      task.originalExerciseId &&
+      task.originalExerciseId !== task.exerciseId
+    )
+      return no(['SUBSTITUTION_NOT_COMPARABLE']);
     if (task.sessionStatus !== 'COMPLETED' || task.isOmitted)
       return no(['SESSION_NOT_COMPLETED']);
     if (task.replacesWorkoutExerciseId)
@@ -318,7 +384,7 @@ export function repetitionPreview(
         ? ['LOAD_FROM_RECORDED_HISTORY']
         : []),
     ],
-    policyVersion: REPETITION_PREVIEW_VERSION,
+    policyVersion: prepared.policyContract,
     executionAuthorized: false,
   };
 }

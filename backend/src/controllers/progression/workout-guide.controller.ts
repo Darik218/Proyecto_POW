@@ -82,8 +82,9 @@ class WorkoutGuideRepetitionPreviewDto {
   @ValidateNested()
   @Type(() => RepetitionDeclarationDto)
   declaration: RepetitionDeclarationDto;
-  @IsIn(['session-repetition-preview-v1'])
-  policyContract: 'session-repetition-preview-v1';
+  @IsIn(['session-repetition-preview-v1', 'session-repetition-preview-v2'])
+  policyContract:
+    'session-repetition-preview-v1' | 'session-repetition-preview-v2';
 }
 @Controller('progression')
 @UseGuards(AccessTokenGuard)

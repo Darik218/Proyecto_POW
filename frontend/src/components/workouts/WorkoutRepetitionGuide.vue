@@ -14,7 +14,10 @@ import type {
 const props = defineProps<{
   query: WorkoutGuideQuery;
   exerciseId: string;
-  context: NonNullable<WorkoutGuide["exercises"][number]["repetitionContext"]>;
+  context: NonNullable<
+    | WorkoutGuide["exercises"][number]["repetitionContext"]
+    | WorkoutGuide["exercises"][number]["progressiveContext"]
+  >;
   disabled?: boolean;
 }>();
 const emit = defineEmits<{ calculated: [value: WorkoutGuide] }>();
@@ -105,14 +108,19 @@ async function calculate(explicit = true) {
           sameEquipment: true,
           sameLoadConvention: true,
         },
-        policyContract: "session-repetition-preview-v1",
+        policyContract: props.context.policyContract,
       },
       signal,
     );
     if (n === revision && !signal.aborted) {
-      const returned = result.exercises.find(
+      const exercise = result.exercises.find(
         (item) => item.exerciseId === props.exerciseId,
-      )?.repetitionContext?.comparisonKey;
+      );
+      const returned = (
+        props.context.policyContract === "session-repetition-preview-v2"
+          ? exercise?.progressiveContext
+          : exercise?.repetitionContext
+      )?.comparisonKey;
       if (comparisonKey && returned === comparisonKey) {
         workoutComparability.record(requestedScope, comparisonKey, {
           sameVariant: true,

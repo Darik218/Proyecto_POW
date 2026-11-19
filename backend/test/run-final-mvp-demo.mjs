@@ -14,6 +14,7 @@ import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import pg from 'pg';
 const verify = process.argv.includes('--verify');
+const renderProduction = process.argv.includes('--render-production');
 const run = promisify(execFile),
   bin = process.env.PULSO_POSTGRES_BIN ?? '/usr/lib/postgresql/18/bin';
 const root = await mkdtemp(join(tmpdir(), 'pulso-final-mvp-demo-')),
@@ -123,68 +124,176 @@ try {
   console.log(
     `Verified private cluster ${root}; database ${database}; localhost port ${dbPort}. No development writes or seeds.`,
   );
-  const origin = `http://127.0.0.1:${vitePort}`,
+  const origin = `http://127.0.0.1:${renderProduction ? apiPort : vitePort}`,
     secret = randomBytes(32).toString('hex');
   const env = {
     ...process.env,
     DATABASE_URL: url,
-    NODE_ENV: 'test',
+    NODE_ENV: renderProduction ? 'production' : 'test',
     AUTH_ACCESS_TOKEN_SECRET: secret,
     AUTH_REFRESH_TOKEN_PEPPER: randomBytes(32).toString('hex'),
-    CORS_ORIGINS: origin,
-    AUTH_COOKIE_SECURE: 'false',
+    CORS_ORIGINS: renderProduction ? '' : origin,
+    ...(renderProduction
+      ? { RENDER: 'true', RENDER_EXTERNAL_URL: origin }
+      : {}),
+    AUTH_COOKIE_SECURE: renderProduction ? 'true' : 'false',
     PORT: String(apiPort),
     PULSO_AUTOMATION_ENABLED:
-      process.env.PULSO_AUTOMATION_ENABLED === 'true' ? 'true' : 'false',
+      !renderProduction && process.env.PULSO_AUTOMATION_ENABLED === 'true'
+        ? 'true'
+        : 'false',
   };
   const prisma = resolve('node_modules/prisma/build/index.js');
-  for (const args of [
-    ['migrate', 'deploy'],
-    ['migrate', 'status'],
-    [
-      'migrate',
-      'diff',
-      '--from-config-datasource',
-      '--to-schema',
-      'prisma/schema.prisma',
-      '--exit-code',
-    ],
-  ])
-    await run(process.execPath, [prisma, ...args], {
+  if (renderProduction) {
+    await launch('bash', ['../scripts/deploy/render-start.sh'], env, 'render');
+    await ready(origin + '/api/v1');
+    const expected = [
+      ['/', 200, 'text/html'],
+      ['/app/progression', 200, 'text/html'],
+      ['/login', 200, 'text/html'],
+      ['/api/v1/missing', 404, 'application/json'],
+      ['/api/missing', 404],
+      ['/assets/missing.js', 404],
+    ];
+    for (const [path, status, contentType] of expected) {
+      const response = await fetch(origin + path, {
+        headers: { Accept: 'text/html' },
+      });
+      if (
+        response.status !== status ||
+        (contentType &&
+          !response.headers.get('content-type')?.startsWith(contentType))
+      )
+        throw Error(
+          `Unexpected production response for ${path}: ${response.status} ${response.headers.get('content-type')}`,
+        );
+    }
+    const html = await (await fetch(origin + '/')).text();
+    const asset = html.match(/src="(\/assets\/[^"]+\.js)"/)?.[1];
+    if (!asset || !(await fetch(origin + asset)).ok)
+      throw Error('Production Vite asset unavailable');
+    const credentials = {
+      email: `render-smoke-${randomBytes(8).toString('hex')}@example.com`,
+      password: randomBytes(20).toString('hex'),
+    };
+    const auth = (route, headers, body) =>
+      fetch(origin + '/api/v1/auth/' + route, {
+        method: 'POST',
+        headers: {
+          Origin: origin,
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+        body: body && JSON.stringify(body),
+      });
+    const registered = await auth('register', {}, credentials);
+    const login = await auth('login', {}, credentials);
+    const cookies = login.headers.getSetCookie();
+    const cookie = cookies.map((value) => value.split(';')[0]).join('; ');
+    const csrf = cookies
+      .find((value) => value.startsWith('pow_csrf='))
+      ?.split(';')[0]
+      .slice('pow_csrf='.length);
+    const refreshCookie = cookies.find((value) =>
+      value.startsWith('pow_refresh='),
+    );
+    if (
+      registered.status !== 201 ||
+      login.status !== 200 ||
+      login.headers.get('access-control-allow-origin') !== origin ||
+      !csrf ||
+      !refreshCookie ||
+      !/; HttpOnly(?:;|$)/i.test(refreshCookie) ||
+      cookies.some((value) => !/; Secure(?:;|$)/i.test(value)) ||
+      (await auth('refresh', { Cookie: cookie })).status !== 403 ||
+      (await auth('refresh', { Cookie: cookie, 'X-CSRF-Token': csrf }))
+        .status !== 200 ||
+      (
+        await auth(
+          'login',
+          { Origin: 'https://untrusted.invalid' },
+          credentials,
+        )
+      ).status !== 403
+    )
+      throw Error('Production authentication, cookie, or origin check failed');
+    console.log(
+      'Production register, login, Secure cookies, refresh, CSRF and CORS verified.',
+    );
+    for (const args of [
+      ['validate'],
+      ['migrate', 'status'],
+      ['migrate', 'deploy'],
+      [
+        'migrate',
+        'diff',
+        '--from-config-datasource',
+        '--to-schema',
+        'prisma/schema.prisma',
+        '--exit-code',
+      ],
+    ]) {
+      const result = await run(process.execPath, [prisma, ...args], { env });
+      process.stdout.write(result.stdout);
+    }
+    const repeat = await run(process.execPath, ['dist-seed/prisma/seed.js'], {
+      env,
+    });
+    if (!repeat.stdout.includes('0 newly inserted'))
+      throw Error('Catalog seed was not idempotent');
+    process.stdout.write(repeat.stdout);
+    console.log(
+      'Production SPA, Vite assets, API 404, schema and catalog verified.',
+    );
+  } else {
+    for (const args of [
+      ['migrate', 'deploy'],
+      ['migrate', 'status'],
+      [
+        'migrate',
+        'diff',
+        '--from-config-datasource',
+        '--to-schema',
+        'prisma/schema.prisma',
+        '--exit-code',
+      ],
+    ])
+      await run(process.execPath, [prisma, ...args], {
+        env,
+        timeout: 60000,
+        maxBuffer: 2 ** 21,
+      });
+    await run('npm', ['run', 'build'], {
       env,
       timeout: 60000,
       maxBuffer: 2 ** 21,
     });
-  await run('npm', ['run', 'build'], {
-    env,
-    timeout: 60000,
-    maxBuffer: 2 ** 21,
-  });
-  await launch(process.execPath, ['dist/main.js'], env, 'api');
-  await ready(`http://127.0.0.1:${apiPort}/api/v1`);
-  const temporaryViteConfig = join(root, 'vite.config.mjs');
-  await writeFile(
-    temporaryViteConfig,
-    `import original from ${JSON.stringify(resolve('../frontend/vite.config.ts'))};export default async env=>({...await original(env),cacheDir:${JSON.stringify(join(root, 'vite-cache'))}});`,
-    { mode: 0o600 },
-  );
-  await launch(
-    process.execPath,
-    [
-      'node_modules/vite/bin/vite.js',
-      '--host',
-      '127.0.0.1',
-      '--port',
-      String(vitePort),
-      '--strictPort',
-      '--config',
+    await launch(process.execPath, ['dist/main.js'], env, 'api');
+    await ready(`http://127.0.0.1:${apiPort}/api/v1`);
+    const temporaryViteConfig = join(root, 'vite.config.mjs');
+    await writeFile(
       temporaryViteConfig,
-    ],
-    { ...env, VITE_DEV_API_PROXY_TARGET: `http://127.0.0.1:${apiPort}` },
-    'vite',
-    resolve('../frontend'),
-  );
-  await ready(origin);
+      `import original from ${JSON.stringify(resolve('../frontend/vite.config.ts'))};export default async env=>({...await original(env),cacheDir:${JSON.stringify(join(root, 'vite-cache'))}});`,
+      { mode: 0o600 },
+    );
+    await launch(
+      process.execPath,
+      [
+        'node_modules/vite/bin/vite.js',
+        '--host',
+        '127.0.0.1',
+        '--port',
+        String(vitePort),
+        '--strictPort',
+        '--config',
+        temporaryViteConfig,
+      ],
+      { ...env, VITE_DEV_API_PROXY_TARGET: `http://127.0.0.1:${apiPort}` },
+      'vite',
+      resolve('../frontend'),
+    );
+    await ready(origin);
+  }
   const config = {
     origin,
     databaseUrl: url,

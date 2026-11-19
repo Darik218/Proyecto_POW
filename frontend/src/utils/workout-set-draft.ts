@@ -10,6 +10,7 @@ export type WorkoutSetDraft = {
   repetitions: number | null;
   origin: string;
   reason?: string;
+  prepared?: boolean;
 };
 /** Lossless formatting only. Never round official values to fit the recording contract. */
 export function recordableLoad(value: string | null) {
@@ -28,6 +29,22 @@ export function initialSetDraft(
   const today = actualValuesToCopy(lastCompletedWorkSet(current));
   if (today) return { ...today, origin: "CURRENT_RESULTS" };
   const load = recordableLoad(draft?.load ?? null);
+  if (draft?.prepared) {
+    const repetitions =
+      Number.isSafeInteger(draft.repetitions) &&
+      draft.repetitions! > 0 &&
+      draft.repetitions! <= 10000
+        ? String(draft.repetitions)
+        : "";
+    if (load !== null || repetitions)
+      return {
+        load: load ?? "",
+        loadUnit: load !== null ? (draft.unit ?? "") : "",
+        repetitions,
+        origin: draft.origin,
+      };
+    return null;
+  }
   if (
     draft?.origin !== "PLAN_TARGET" &&
     load !== null &&

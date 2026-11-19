@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, useId, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, useId, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { useExercisesCatalog } from "../../composables/useExercisesCatalog";
 import {
@@ -18,9 +18,14 @@ const auth = useAuthStore();
 const props = defineProps<{
   modelValue: string;
   disabled?: boolean;
-  initialSelection?: "FEATURED" | "RECENT";
+  initialSelection?: "FEATURED" | "RECENT" | "ALL";
+  contextMuscleGroups?: string[];
+  selectedIds?: string[];
 }>();
-const emit = defineEmits<{ "update:modelValue": [value: string] }>();
+const emit = defineEmits<{
+  "update:modelValue": [value: string];
+  selected: [exercise: Exercise];
+}>();
 const id = useId(),
   search = ref(""),
   selectedScope = ref<ExerciseScope>("visible"),
@@ -28,7 +33,7 @@ const id = useId(),
   selection = ref<"ALL" | "FEATURED" | "RECENT" | "FREQUENT">(
     props.initialSelection ?? "FEATURED",
   ),
-  group = ref(""),
+  group = ref(props.contextMuscleGroups?.[0] ?? ""),
   equipment = ref<ListExercisesQuery["equipmentType"]>(),
   groups = ref<MuscleGroup[]>([]),
   groupsError = ref(""),
@@ -53,7 +58,25 @@ const tabs = [
   { key: "FEATURED", label: "Destacados" },
   { key: "ALL", label: "Todos" },
 ] as const;
+const contextGroups = computed(() =>
+  groups.value.filter((item) => props.contextMuscleGroups?.includes(item.key)),
+);
+watch(
+  () => props.contextMuscleGroups,
+  (value) => {
+    group.value = value?.[0] ?? "";
+  },
+);
+function preventImplicitSubmit(event: KeyboardEvent) {
+  if (
+    (event.target as HTMLElement).matches(
+      "input:not([type=checkbox]):not([type=radio])",
+    )
+  )
+    event.preventDefault();
+}
 function select(exercise: Exercise) {
+  emit("selected", exercise);
   emit("update:modelValue", exercise.id);
   selectedName.value = exercise.name;
 }
@@ -105,6 +128,7 @@ function created(exercise: Exercise) {
   search.value = exercise.name;
   emit("update:modelValue", exercise.id);
   selectedName.value = exercise.name;
+  emit("selected", exercise);
 }
 watch(
   () =>
@@ -134,7 +158,11 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <fieldset class="exercise-picker" :disabled="disabled">
+  <fieldset
+    class="exercise-picker"
+    :disabled="disabled"
+    @keydown.enter="preventImplicitSubmit"
+  >
     <legend>Añadir ejercicio</legend>
     <label class="field-label" :for="id + '-search'"
       >Busca por nombre, alias o abreviatura</label
@@ -145,7 +173,28 @@ onUnmounted(() => {
       type="search"
       maxlength="100"
       placeholder="Press banca, RDL, remo mancu…"
+      @keydown.enter.prevent="request()"
     />
+    <div
+      v-if="contextMuscleGroups?.length"
+      class="routine-tabs"
+      aria-label="Para este día"
+    >
+      <span>Para este día:</span>
+      <button
+        v-for="item in contextGroups"
+        :key="item.key"
+        type="button"
+        class="text-button"
+        :aria-pressed="group === item.key"
+        @click="group = item.key"
+      >
+        {{ item.name }}
+      </button>
+      <p v-if="!contextGroups.length" class="field-hint">
+        Los filtros de este día se basan en los grupos musculares del catálogo.
+      </p>
+    </div>
     <div v-if="!search.trim()" class="routine-tabs">
       <button
         v-for="tab in tabs"
@@ -199,7 +248,9 @@ onUnmounted(() => {
         </button>
       </p>
     </details>
-    <p v-if="selectedName" role="status">Seleccionado: {{ selectedName }}</p>
+    <p v-if="selectedName && !selectedIds" role="status">
+      Seleccionado: {{ selectedName }}
+    </p>
     <p v-if="loading" class="state-message" role="status">
       Cargando ejercicios…
     </p>
@@ -237,10 +288,14 @@ onUnmounted(() => {
         <li v-for="exercise in exercises" :key="exercise.id">
           <label
             ><input
-              type="radio"
+              :type="selectedIds ? 'checkbox' : 'radio'"
               :name="id + '-exercise'"
               :value="exercise.id"
-              :checked="modelValue === exercise.id"
+              :checked="
+                selectedIds
+                  ? selectedIds.includes(exercise.id)
+                  : modelValue === exercise.id
+              "
               @change="select(exercise)"
             /><span
               ><strong>{{ exercise.name }}</strong

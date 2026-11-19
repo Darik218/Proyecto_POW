@@ -8,6 +8,7 @@ import { createRouter, createMemoryHistory } from "vue-router";
 import {
   workoutGuideSchema,
   workoutGuideQuerySchema,
+  workoutRepetitionPreviewInputSchema,
 } from "../src/schemas/workout-guide.schema.ts";
 import { summary, response } from "./workout-sessions.fixtures.mjs";
 const id = "10000000-0000-4000-8000-000000000001",
@@ -109,7 +110,7 @@ const renderer = createRenderer({
   nextSibling: () => null,
 });
 const tick = () => new Promise((resolve) => setImmediate(resolve));
-async function setup(t, name, adapter) {
+async function setup(t, name, adapter, props = {}) {
   const { api } = await server.ssrLoadModule("/src/services/api.ts");
   api.defaults.adapter = adapter;
   t.after(() => {
@@ -141,7 +142,9 @@ async function setup(t, name, adapter) {
   ).default;
   const app = renderer.createApp(
     { ...Component, render: () => null },
-    name === "DailyWorkoutGuide" ? { query: { activityId: id } } : {},
+    name === "DailyWorkoutGuide"
+      ? { query: { activityId: id }, ...props }
+      : props,
   );
   app.provide(Symbol.for("v-scx"), { modules: new Set() });
   app.use(pinia);
@@ -152,6 +155,88 @@ async function setup(t, name, adapter) {
   await nextTick();
   return { state: instance.$.setupState, auth, router };
 }
+test("guide provenance stays contextual and the active draft follows the guide's selected session instead of unrelated newer history", async (t) => {
+  const value = sample();
+  value.exercises[0].lastReference = {
+    performedOn: "2026-11-14",
+    gapDays: 1,
+    scope: "SAME_PLAN_DAY",
+    sessions: [
+      {
+        sessionId: other,
+        sessionStatus: "IN_PROGRESS",
+        taskId: other,
+        performedOn: "2026-11-14",
+        timeZone: "UTC",
+        trainingPlanId: id,
+        planDayId: id,
+        planExerciseId: id,
+        sets: [
+          {
+            setNumber: 1,
+            load: "40.000",
+            loadUnit: "KG",
+            repetitions: 8,
+            rpe: null,
+            status: "COMPLETED",
+            kind: "WORK",
+            isCompleted: true,
+          },
+        ],
+      },
+    ],
+  };
+  const parsed = workoutGuideSchema.parse(value);
+  assert.equal(parsed.exercises[0].lastReference.scope, "SAME_PLAN_DAY");
+  assert.equal(parsed.exercises[0].lastReference.sessions[0].planDayId, id);
+  assert.equal(
+    parsed.exercises[0].lastReference.sessions[0].sessionStatus,
+    "IN_PROGRESS",
+  );
+  const { state } = await setup(
+    t,
+    "WorkoutLivePanel",
+    async (config) => response(config, value),
+    {
+      session: {
+        ...summary,
+        id,
+        status: "IN_PROGRESS",
+        exercises: [
+          {
+            id,
+            exercise: { id, name: "Legs" },
+            targets: target,
+            orderInSession: 1,
+            sets: [],
+            isOmitted: false,
+          },
+        ],
+      },
+      busy: false,
+      actions: {},
+      previousReferences: {
+        [id]: {
+          sessionLabel: "Unrelated newer session",
+          sets: [
+            {
+              setNumber: 1,
+              load: "99.000",
+              loadUnit: "KG",
+              repetitions: 5,
+              rpe: null,
+              status: "COMPLETED",
+              kind: "WORK",
+            },
+          ],
+        },
+      },
+    },
+  );
+  assert.equal(state.previousSet.load, "40.000");
+  assert.equal(state.activeReference.sets[0].repetitions, 8);
+  assert.equal(state.activeReference.sets[0].rpe, null);
+});
 test("calendar selection is stable and double start uses one activity-bound intention", async (t) => {
   let writes = 0,
     finish;
@@ -335,5 +420,298 @@ test("guide can display ambiguous legacy results without changing signs, units o
   assert.equal(
     parsed.exercises[0].lastReference.sessions[0].sets[0].status,
     null,
+  );
+});
+
+const preparation = (stage = "PLAN_WITH_REFERENCE") => ({
+  stage,
+  plan: target,
+  before: null,
+  draft:
+    stage === "REVIEW_REQUIRED"
+      ? null
+      : {
+          origin: "PLAN_TARGET",
+          load: "42.125",
+          unit: "LB",
+          reps: 8,
+          sets: 3,
+          executionAuthorized: false,
+        },
+  why: ["PLAN_TARGET_AVAILABLE"],
+  blockers:
+    stage === "REVIEW_REQUIRED"
+      ? [{ category: "temporal", code: "STALE_REFERENCE" }]
+      : [],
+  executionAuthorized: false,
+});
+const progressive = {
+  contextKey: "a".repeat(64),
+  comparisonKey: "b".repeat(64),
+  ready: true,
+  reasons: [],
+  minimumSessions: 1,
+  minimumSource: "PLAN_BOUND_INITIAL_POLICY",
+  baselineSource: "PRESCRIPTION",
+  tasks: [],
+  policyContract: "session-repetition-preview-v2",
+  executionAuthorized: false,
+};
+test("PROG7 preserves server preparation and the versioned progressive contract without permitting execution", () => {
+  const value = sample();
+  Object.assign(value.exercises[0], {
+    preparation: preparation(),
+    progressiveContext: progressive,
+  });
+  const parsed = workoutGuideSchema.parse(value).exercises[0];
+  assert.equal(parsed.preparation?.draft.reps, 8);
+  assert.equal(
+    parsed.progressiveContext?.policyContract,
+    "session-repetition-preview-v2",
+  );
+  assert.equal(
+    workoutRepetitionPreviewInputSchema.safeParse({
+      source: { activityId: id },
+      exerciseId: id,
+      contextKey: progressive.contextKey,
+      declaration: {
+        sameVariant: true,
+        sameEquipment: true,
+        sameLoadConvention: true,
+      },
+      policyContract: "session-repetition-preview-v2",
+    }).success,
+    true,
+  );
+  value.exercises[0].preparation.executionAuthorized = true;
+  assert.equal(workoutGuideSchema.safeParse(value).success, false);
+});
+const liveProps = () => ({
+  session: {
+    ...summary,
+    id,
+    status: "IN_PROGRESS",
+    exercises: [
+      {
+        id,
+        exercise: { id, name: "Press" },
+        targets: target,
+        orderInSession: 1,
+        sets: [],
+        isOmitted: false,
+      },
+    ],
+  },
+  busy: false,
+  actions: {},
+  previousReferences: {},
+});
+test("PROG7 live draft follows the server preparation rather than the plan maximum", async (t) => {
+  const value = sample();
+  value.exercises[0].preparation = preparation();
+  const { state } = await setup(
+    t,
+    "WorkoutLivePanel",
+    async (config) => response(config, value),
+    liveProps(),
+  );
+  assert.equal(state.draft?.repetitions, 8);
+  assert.equal(state.draft?.load, "42.125");
+  assert.equal(state.draft?.origin, "PLAN_TARGET");
+});
+test("PROG7 review blocks automatic reuse of an old reference while preserving manual recording", async (t) => {
+  const value = sample();
+  value.exercises[0].preparation = preparation("REVIEW_REQUIRED");
+  value.exercises[0].lastReference = {
+    performedOn: "2026-01-01",
+    gapDays: 318,
+    sessions: [
+      {
+        sessionId: other,
+        taskId: other,
+        performedOn: "2026-01-01",
+        timeZone: "UTC",
+        sessionStatus: "COMPLETED",
+        sets: [
+          {
+            setNumber: 1,
+            load: "40",
+            loadUnit: "KG",
+            repetitions: 8,
+            rpe: null,
+            status: "COMPLETED",
+            kind: "WORK",
+            isCompleted: true,
+          },
+        ],
+      },
+    ],
+  };
+  const { state } = await setup(
+    t,
+    "WorkoutLivePanel",
+    async (config) => response(config, value),
+    liveProps(),
+  );
+  assert.equal(state.draft, undefined);
+  assert.equal(state.activeReference, undefined);
+});
+test("PROG7 comparison confirmation uses v2 and records only the returned verified pair", async (t) => {
+  const requests = [];
+  const value = sample();
+  value.exercises[0].progressiveContext = progressive;
+  const { state } = await setup(
+    t,
+    "WorkoutRepetitionGuide",
+    async (config) => {
+      requests.push(JSON.parse(config.data));
+      return response(config, value);
+    },
+    { query: { activityId: id }, exerciseId: id, context: progressive },
+  );
+  assert.equal(requests.length, 0, "an unconfirmed pair never auto-calculates");
+  await state.calculate();
+  assert.equal(requests[0].policyContract, "session-repetition-preview-v2");
+  assert.deepEqual(requests[0].declaration, {
+    sameVariant: true,
+    sameEquipment: true,
+    sameLoadConvention: true,
+  });
+});
+
+test("PROG7 preparation presents a practical plan draft and translates the actual review blocker", async () => {
+  const { createSSRApp } = await import("vue");
+  const { renderToString } = await import("vue/server-renderer");
+  const Component = (
+    await server.ssrLoadModule(
+      "/src/components/workouts/WorkoutPreparationSummary.vue",
+    )
+  ).default;
+  const exercise = { ...sample().exercises[0], preparation: preparation() };
+  let html = await renderToString(createSSRApp(Component, { exercise }));
+  for (const label of [
+    "Antes",
+    "Objetivo del plan",
+    "Para esta sesión",
+    "Por qué",
+    "42.125 LB",
+    "Borrador editable",
+  ])
+    assert.ok(html.includes(label), label);
+  assert.ok(
+    !html.includes("Propuesta calculada"),
+    "plan/history must not be portrayed as calculated progress",
+  );
+  exercise.preparation = {
+    ...preparation("REVIEW_REQUIRED"),
+    why: ["PARTIAL_SESSION_REFERENCE"],
+    blockers: [{ category: "evidence", code: "PARTIAL_SESSION_REFERENCE" }],
+  };
+  html = await renderToString(createSSRApp(Component, { exercise }));
+  assert.ok(html.includes("sesión parcial"));
+  assert.ok(html.includes("Revisa la referencia"));
+});
+
+test("PROG7 a plan without a prescribed load still prepares repetitions without inventing a load", async () => {
+  const { initialSetDraft } = await import("../src/utils/workout-set-draft.ts");
+  const draft = initialSetDraft(
+    [],
+    undefined,
+    {
+      load: null,
+      unit: null,
+      repetitions: 8,
+      origin: "PLAN_TARGET",
+      prepared: true,
+    },
+    1,
+  );
+  assert.equal(draft?.repetitions, "8");
+  assert.equal(draft?.load, "");
+  assert.equal(draft?.loadUnit, "");
+});
+
+test("PROG7 preparation keeps contextual history provenance and the original objective accessible", async () => {
+  const { createSSRApp } = await import("vue");
+  const { renderToString } = await import("vue/server-renderer");
+  const Component = (
+    await server.ssrLoadModule(
+      "/src/components/workouts/WorkoutPreparationSummary.vue",
+    )
+  ).default;
+  const exercise = {
+    ...sample().exercises[0],
+    originalTarget: target,
+    preparation: preparation(),
+  };
+  exercise.preparation.before = {
+    performedOn: "2026-11-14",
+    gapDays: 1,
+    scope: "FREE_SESSION",
+    sessions: [],
+  };
+  const html = await renderToString(createSSRApp(Component, { exercise }));
+  assert.ok(html.includes("Referencia de entrenamiento libre"));
+  assert.ok(html.includes("Objetivo original conservado"));
+});
+
+test("PROG7 load math failure remains a separate diagnostic while repetition preparation stays usable", async () => {
+  const { createSSRApp } = await import("vue");
+  const { renderToString } = await import("vue/server-renderer");
+  const Component = (
+    await server.ssrLoadModule(
+      "/src/components/workouts/WorkoutPreparationSummary.vue",
+    )
+  ).default;
+  const value = sample();
+  value.exercises[0].preparation = {
+    ...preparation("REPETITION_READY"),
+    diagnostics: {
+      repetition: { ready: true, reasons: [] },
+      load: {
+        ready: false,
+        reasons: [{ category: "math", code: "GRID_HAS_NO_POSITIVE_INCREMENT" }],
+      },
+    },
+  };
+  value.exercises[0].progressiveContext = progressive;
+  const exercise = workoutGuideSchema.parse(value).exercises[0];
+  assert.equal(
+    exercise.preparation?.diagnostics?.load.reasons[0].code,
+    "GRID_HAS_NO_POSITIVE_INCREMENT",
+  );
+  assert.equal(exercise.preparation.stage, "REPETITION_READY");
+  assert.equal(exercise.progressiveContext.ready, true);
+  assert.equal(exercise.preparation.draft.reps, 8);
+  const html = await renderToString(createSSRApp(Component, { exercise }));
+  assert.ok(html.includes("Qué falta para otros métodos"));
+  assert.ok(html.includes("GRID_HAS_NO_POSITIVE_INCREMENT"));
+  assert.ok(html.includes("salto de peso disponible"));
+  assert.ok(html.includes('data-stage="REPETITION_READY"'));
+  assert.ok(html.includes("Borrador editable"));
+});
+
+test("PROG7 review with unordered history never claims there are no prior records", async () => {
+  const { createSSRApp } = await import("vue");
+  const { renderToString } = await import("vue/server-renderer");
+  const Component = (
+    await server.ssrLoadModule(
+      "/src/components/workouts/WorkoutPreparationSummary.vue",
+    )
+  ).default;
+  const exercise = {
+    ...sample().exercises[0],
+    preparation: {
+      ...preparation("REVIEW_REQUIRED"),
+      before: null,
+      why: ["SAME_DAY_NOT_ORDERED"],
+      blockers: [{ category: "temporal", code: "SAME_DAY_NOT_ORDERED" }],
+    },
+  };
+  const html = await renderToString(createSSRApp(Component, { exercise }));
+  assert.ok(!html.includes("primera referencia"));
+  assert.ok(!html.includes("Sin resultados anteriores"));
+  assert.ok(
+    html.includes("referencia anterior ordenada/verificada para esta fecha"),
   );
 });

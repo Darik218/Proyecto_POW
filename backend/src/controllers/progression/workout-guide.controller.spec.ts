@@ -223,6 +223,10 @@ describe('daily guide HTTP contract', () => {
         .set('Authorization', 'Bearer owned')
         .set('Origin', 'http://localhost:5173')
         .send(payload as object);
+    await send({
+      ...body,
+      policyContract: 'session-repetition-preview-v2',
+    }).expect(200);
     const response = await send(body).expect(200);
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.body.executionAuthorized).toBe(false);

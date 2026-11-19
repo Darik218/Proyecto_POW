@@ -1,3 +1,7 @@
+import { WorkoutProgressService } from './workout-progress.service';
+import { WorkoutProgressPresenter } from '../views/workout-sessions/workout-progress.presenter';
+import { WORKOUT_PROGRESS_REPOSITORY } from './workout-progress.repository';
+import { PrismaWorkoutProgressRepository } from './prisma-workout-progress.repository';
 import { WorkoutInsightsPresenter } from '../views/workout-sessions/workout-insights.presenter';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
@@ -14,6 +18,12 @@ import { PrismaWorkoutSessionsRepository } from './prisma-workout-sessions.repos
   controllers: [WorkoutSessionsController],
   providers: [
     WorkoutSessionsService,
+    WorkoutProgressService,
+    WorkoutProgressPresenter,
+    {
+      provide: WORKOUT_PROGRESS_REPOSITORY,
+      useClass: PrismaWorkoutProgressRepository,
+    },
     WorkoutSessionsPresenter,
     WorkoutInsightsPresenter,
     {

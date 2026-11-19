@@ -18,7 +18,11 @@ import { recommendationIdentity } from './recommendation-evidence.policy';
  * represents those dates while locating ISO Monday week boundaries. */
 export function guidePreviewPeriodReasons(
   source: WorkoutGuideSnapshot['source'],
-  reference: ReturnType<typeof referenceGuidance>['lastReference'],
+  reference: {
+    performedOn: string;
+    sessions: { timeZone: string | null }[];
+    gapDays?: number | null;
+  } | null,
 ) {
   if (!reference || !source.performedOn) return [];
   if (
@@ -179,15 +183,26 @@ export function referenceGuidance(
   history: GuideHistoryTask[],
   performedOn: string | null,
   truncated: boolean,
+  source?: Pick<WorkoutGuideSnapshot['source'], 'trainingPlanId' | 'planDayId'>,
 ) {
   const actual = history.filter((t) => t.sets.length > 0),
     reasons: string[] = [];
-  const eligible = actual.filter(
+  const earlier = actual.filter(
     (t) =>
       t.performedOn !== null &&
       performedOn !== null &&
       t.performedOn < performedOn,
   );
+  // These coordinates rank context only. They never declare the same variant,
+  // equipment or load convention, nor attach a free session to a plan.
+  const sameDay = earlier.filter(
+    (t) =>
+      source?.trainingPlanId &&
+      source.planDayId &&
+      t.trainingPlanId === source.trainingPlanId &&
+      t.planDayId === source.planDayId,
+  );
+  const eligible = sameDay.length ? sameDay : earlier;
   const latest = eligible.reduce<string | null>(
     (date, t) =>
       date === null || t.performedOn! > date ? t.performedOn : date,
@@ -195,18 +210,36 @@ export function referenceGuidance(
   );
   const sessions = eligible
     .filter((t) => t.performedOn === latest)
-    .map(({ sessionId, taskId, performedOn, timeZone, sets }) => ({
-      sessionId,
-      taskId,
-      performedOn,
-      timeZone,
-      sets,
-    }));
+    .map(
+      ({
+        sessionId,
+        sessionStatus,
+        taskId,
+        performedOn,
+        timeZone,
+        trainingPlanId,
+        planDayId,
+        planExerciseId,
+        sets,
+      }) => ({
+        sessionId,
+        sessionStatus: sessionStatus ?? null,
+        taskId,
+        performedOn,
+        timeZone,
+        trainingPlanId: trainingPlanId ?? null,
+        planDayId: planDayId ?? null,
+        planExerciseId: planExerciseId ?? null,
+        sets,
+      }),
+    );
   if (actual.some((t) => t.performedOn === null) || performedOn === null)
     reasons.push('DATE_UNKNOWN');
   if (actual.some((t) => t.performedOn === performedOn))
     reasons.push('SAME_DAY_NOT_ORDERED');
   if (sessions.length > 1) reasons.push('INTRADAY_ORDER_UNKNOWN');
+  if (sessions.some((t) => t.sessionStatus === 'IN_PROGRESS'))
+    reasons.push('PARTIAL_SESSION_REFERENCE');
   if (
     sessions.some((t) =>
       t.sets.some((s) => s.load !== null && s.loadUnit === null),
@@ -219,7 +252,17 @@ export function referenceGuidance(
       ? Math.round((Date.parse(performedOn) - Date.parse(latest)) / 86400000)
       : null;
   if (gapDays !== null)
-    reasons.push('GAP_DESCRIPTIVE_ONLY', 'REVIEW_REFERENCE_BEFORE_TRAINING');
+    reasons.push(
+      'GAP_DESCRIPTIVE_ONLY',
+      'REVIEW_REFERENCE_BEFORE_TRAINING',
+      'CONTEXTUAL_HISTORY_ONLY',
+    );
+  const scope = sameDay.length
+    ? ('SAME_PLAN_DAY' as const)
+    : sessions.length &&
+        sessions.every((t) => t.trainingPlanId === null && t.planDayId === null)
+      ? ('FREE_SESSION' as const)
+      : ('OTHER_CONTEXT' as const);
   const state =
     actual.length === 0 && !truncated
       ? 'FIRST_BASELINE'
@@ -227,7 +270,9 @@ export function referenceGuidance(
         ? 'REFERENCE_AVAILABLE'
         : 'INSUFFICIENT_DATA';
   return {
-    lastReference: latest ? { performedOn: latest, sessions, gapDays } : null,
+    lastReference: latest
+      ? { performedOn: latest, sessions, gapDays, scope }
+      : null,
     guidance: {
       state,
       reasons,

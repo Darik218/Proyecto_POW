@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import ExerciseReferenceComparison from "./ExerciseReferenceComparison.vue";
-import { insightReason } from "../../utils/insight-messages";
 import { ref, watch, onMounted, onUnmounted } from "vue";
 import { useAuthStore } from "../../stores/auth.store";
 import {
@@ -16,11 +15,10 @@ const props = defineProps<{ sessionId: string }>(),
 const result = ref<WorkoutInsights | null>(null),
   error = ref(""),
   busy = ref(false);
-const declarations = ref<Record<string, boolean>>({});
 let mounted = false,
   generation = 0,
   controller: AbortController | undefined;
-async function load(externalId?: string) {
+async function load() {
   if (!auth.isAuthenticated) return;
   controller?.abort();
   controller = new AbortController();
@@ -30,19 +28,9 @@ async function load(externalId?: string) {
   error.value = "";
   busy.value = true;
   try {
-    const value = await workoutInsightsService.get(session, externalId, signal);
+    const value = await workoutInsightsService.get(session, undefined, signal);
     if (n !== generation || signal.aborted) return;
-    if (externalId && result.value) {
-      const updated = value.exercises.find(
-        (e) => e.workoutExerciseId === externalId,
-      );
-      result.value = {
-        ...value,
-        exercises: result.value.exercises.map((e) =>
-          e.workoutExerciseId === externalId && updated ? updated : e,
-        ),
-      };
-    } else result.value = value;
+    result.value = value;
   } catch (cause) {
     if (n === generation && !signal.aborted)
       error.value = workoutErrorMessage(
@@ -69,7 +57,6 @@ watch(
     generation++;
     controller?.abort();
     result.value = null;
-    declarations.value = {};
     error.value = "";
     busy.value = false;
     if (mounted && auth.isAuthenticated) void load();
@@ -87,15 +74,16 @@ onUnmounted(() => {
     aria-labelledby="workout-insights-title"
     :aria-busy="busy"
   >
-    <h2 id="workout-insights-title">Tu referencia para la próxima sesión</h2>
-    <p class="ui-muted">
-      Orientación descriptiva basada en lo que registraste. Consultarla no
-      cambia tu rutina ni activa automatización.
-    </p>
+    <header class="insight-heading">
+      <h2 id="workout-insights-title">Referencia para la próxima sesión</h2>
+      <p class="ui-muted">Orientación basada en tus resultados registrados.</p>
+    </header>
     <p v-if="busy" role="status">Preparando tu referencia…</p>
     <p v-if="error" role="alert">
       {{ error }}
-      <button class="text-button" @click="load()">Volver a consultar</button>
+      <button class="text-button" type="button" @click="load()">
+        Volver a consultar
+      </button>
     </p>
     <article
       v-for="exercise in result?.exercises"
@@ -137,71 +125,6 @@ onUnmounted(() => {
         :current="exercise.actualSets"
         :reference="exercise.reference"
       />
-      <details>
-        <summary>Estimación de fuerza y calidad de los datos</summary>
-        <div
-          v-if="exercise.loadMeaning === 'UNKNOWN'"
-          class="insight-declaration"
-        >
-          <p>
-            Para estimar 1RM necesitamos saber qué significa la carga. No
-            podemos deducirlo de KG/LB o del nombre del ejercicio.
-          </p>
-          <label
-            ><input
-              v-model="declarations[exercise.workoutExerciseId]"
-              type="checkbox"
-              :disabled="busy"
-            />Confirmo que las cargas registradas en este ejercicio corresponden
-            a la carga externa total, sin asistencia ni peso corporal.</label
-          >
-          <button
-            class="secondary-button"
-            :disabled="busy || !declarations[exercise.workoutExerciseId]"
-            @click="load(exercise.workoutExerciseId)"
-          >
-            Calcular estimaciones descriptivas
-          </button>
-        </div>
-        <div
-          v-for="rm in exercise.oneRm"
-          :key="rm.setId"
-          class="insight-estimate"
-        >
-          <template v-if="rm.calculation"
-            ><p
-              v-for="estimate in rm.calculation.estimates"
-              :key="estimate.formula"
-            >
-              <strong
-                >{{ estimate.formula }}: {{ estimate.estimatedOneRm }}
-                {{ estimate.unit }}</strong
-              >
-              estimados · {{ rm.calculation.load.originalLoad }}
-              {{ rm.calculation.load.originalUnit }} ×
-              {{ rm.calculation.repetitions }}
-            </p>
-            <p class="ui-muted">
-              El esfuerzo máximo no está verificado. Una estimación no mide tu
-              máximo real ni autoriza un aumento de carga.
-            </p></template
-          >
-          <p v-else class="ui-muted">
-            Esta serie no permite estimar 1RM:
-            {{
-              rm.eligibility.reasons.map(insightReason).join(" · ") ||
-              "faltan datos elegibles"
-            }}.
-          </p>
-        </div>
-        <p
-          v-if="exercise.loadMeaningSource === 'REQUEST_DECLARATION'"
-          class="ui-muted"
-        >
-          Interpretación declarada para esta consulta; no modifica el registro
-          histórico ni persiste una estimación oficial.
-        </p>
-      </details>
     </article>
     <p v-if="result && !result.exercises.length">
       No hay ejercicios registrados. Para obtener una referencia, completa una
@@ -212,45 +135,41 @@ onUnmounted(() => {
 <style scoped>
 .workout-insights {
   margin: 1.25rem 0;
+  overflow-wrap: anywhere;
+}
+.insight-heading h2 {
+  font-size: 1.25rem;
+  margin: 0 0 0.35rem;
+}
+.insight-heading p {
+  margin: 0 0 1rem;
 }
 .insight-exercise {
   border-top: 1px solid var(--color-border);
-  padding: 1rem 0;
+  padding-top: 0.85rem;
+}
+.insight-exercise + .insight-exercise {
+  margin-top: 0.9rem;
 }
 .insight-exercise h3 {
-  margin: 0.25rem 0 1rem;
+  margin: 0 0 0.6rem;
+  font-size: 1rem;
 }
 .insight-sets {
-  padding-left: 1.25rem;
-  line-height: 1.8;
+  padding-left: 1.1rem;
+  margin: 0.6rem 0;
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+}
+.insight-sets strong {
+  color: var(--color-text-primary);
 }
 .insight-orientation {
-  padding: 1rem;
-  border-left: 3px solid var(--color-primary);
-  background: rgba(49, 230, 197, 0.05);
-}
-details {
-  margin-top: 1rem;
-}
-summary {
-  cursor: pointer;
-  color: var(--color-primary);
-  padding: 0.5rem 0;
-}
-.insight-declaration {
-  display: grid;
-  gap: 1rem;
-}
-.insight-declaration label {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-inline-start: 2px solid var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
   line-height: 1.5;
-}
-.insight-declaration input {
-  flex-shrink: 0;
-}
-.insight-estimate {
-  margin: 1rem 0;
 }
 </style>
