@@ -1,0 +1,3 @@
+interface:
+  display_name: "Pulso Architecture Review"
+  short_description: "Verify PULSO MVC layers, contracts, and module boundaries"
