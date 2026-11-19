@@ -19,6 +19,7 @@ const props = defineProps<{
     | WorkoutGuide["exercises"][number]["progressiveContext"]
   >;
   disabled?: boolean;
+  compact?: boolean;
 }>();
 const emit = defineEmits<{ calculated: [value: WorkoutGuide] }>();
 const auth = useAuthStore(),
@@ -143,9 +144,13 @@ async function calculate(explicit = true) {
 }
 </script>
 <template>
-  <div v-if="context.ready" class="repetition-guidance">
+  <div
+    v-if="context.ready"
+    class="repetition-guidance"
+    :class="{ 'repetition-guidance--compact': compact }"
+  >
     <p v-if="missing.length">{{ question }}</p>
-    <p v-else class="field-hint">
+    <p v-else-if="!compact || loading" class="field-hint">
       Comparabilidad confirmada para estos registros.
       {{
         loading
@@ -167,12 +172,12 @@ async function calculate(explicit = true) {
             : "Actualizar orientación"
       }}
     </button>
-    <p class="field-hint">
+    <p v-if="!compact" class="field-hint">
       Sin registrar esfuerzo ni configurar incrementos. Solo propone
       repeticiones dentro del rango del plan, con el mismo peso; tú puedes
       cambiarlas.
     </p>
-    <details class="repetition-evidence">
+    <details v-if="!compact" class="repetition-evidence">
       <summary>Registros y criterio de comparación</summary>
       <p v-if="context.baselineSource === 'RECORDED_HISTORY'">
         El plan no fija un peso: se mantiene la carga y unidad que registraste
@@ -209,6 +214,15 @@ async function calculate(explicit = true) {
   border-left: 3px solid var(--color-primary);
   background: var(--color-surface-subtle);
   border-radius: 0.4rem;
+}
+.repetition-guidance--compact {
+  margin-block: 0.1rem 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.repetition-guidance--compact .text-button {
+  min-height: 44px;
 }
 p {
   margin: 0.3rem 0;

@@ -1,17 +1,21 @@
 :root {
   color-scheme: dark;
-  --color-background: #0f1513;
-  --color-surface: #18211e;
-  --color-surface-elevated: #222e29;
-  --color-surface-subtle: #131b18;
-  --color-primary: #59ebbd;
-  --color-primary-hover: #86f5d2;
-  --color-secondary: #c7ed99;
-  --color-text-primary: #f1f7f3;
-  --color-text-secondary: #b0c0b7;
-  --color-border: #abc7b723;
-  --color-border-strong: #abc7b74d;
-  --color-accent-surface: #20372e;
+  --color-background: #0b1020;
+  --color-surface: #141c2e;
+  --color-surface-elevated: #1b263b;
+  --color-surface-subtle: #101728;
+  --color-primary: #31e6c5;
+  --color-primary-hover: #68f2d8;
+  --color-secondary: #b8ff65;
+  --color-text-primary: #f5f7fb;
+  --color-text-secondary: #a4b0c3;
+  --color-border: #ffffff17;
+  --color-border-strong: #ffffff2e;
+  --color-accent-surface: color-mix(
+    in srgb,
+    var(--color-primary) 10%,
+    var(--color-surface-subtle)
+  );
   --color-success: #69e4b3;
   --color-warning: #ffbf69;
   --color-danger: #ff8597;
@@ -30,7 +34,7 @@
   --space-12: 3rem;
   --radius-control: 10px;
   --radius-card: 18px;
-  --shadow-raised: 0 18px 44px #070d0a52;
+  --shadow-raised: 0 18px 46px #03071338;
   --target-size: 48px;
   --bottom-nav-height: 68px;
   --duration-fast: 140ms;

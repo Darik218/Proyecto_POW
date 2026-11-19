@@ -40,9 +40,14 @@ assert.equal(
   await realpath(cfg.dataDirectory),
 );
 const uiFinal = process.argv.includes("--ui-final");
+const hotfix = uiFinal && process.env.PULSO_BROWSER_HOTFIX === "1";
 const evidenceRoot = resolve(
   "../..",
-  uiFinal ? "ui-final-validation/browser" : "prog7-validation/browser",
+  hotfix
+    ? "hotfix-1-validation/browser"
+    : uiFinal
+      ? "ui-final-validation/browser"
+      : "prog7-validation/browser",
 );
 await mkdir(evidenceRoot, { recursive: true });
 const evidence = await mkdtemp(join(evidenceRoot, "run-")),
@@ -384,7 +389,7 @@ async function observeRequests() {
 
 async function recordWholeSession(
   id,
-  { offset = 0, reps = 8, beforeFirstSet, afterFirstSet } = {},
+  { offset = 0, reps = 8, beforeFirstSet, afterFirstSet, beforeSet } = {},
 ) {
   const session = await api("get", `/workout-sessions/${id}`);
   for (let i = 0; i < session.exercises.length; i++) {
@@ -407,9 +412,13 @@ async function recordWholeSession(
           ),
         "series " + n,
       );
+      await beforeSet?.(i, n);
       await field('.quick-set-form select[id$="-unit"]', "KG");
       await field('.quick-set-form input[id$="-load"]', 40 + i + offset);
-      await field('.quick-set-form input[id$="-reps"]', reps);
+      await field(
+        '.quick-set-form input[id$="-reps"]',
+        typeof reps === "function" ? reps(i, n) : reps,
+      );
       await textClick(".quick-set-form button", "Registrar serie");
       await until(
         async () =>
@@ -1124,6 +1133,7 @@ try {
       field,
       go,
       health,
+      hotfix,
       immutableHistory,
       immutablePlans,
       navigate,

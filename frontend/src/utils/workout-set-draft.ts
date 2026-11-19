@@ -8,6 +8,7 @@ export type WorkoutSetDraft = {
   load: string | null;
   unit: "KG" | "LB" | null;
   repetitions: number | null;
+  repsBySet?: readonly number[];
   origin: string;
   reason?: string;
   prepared?: boolean;
@@ -27,8 +28,21 @@ export function initialSetDraft(
   setNumber: number,
 ) {
   const today = actualValuesToCopy(lastCompletedWorkSet(current));
+  const workSlot = draft?.repsBySet
+    ? (current ?? []).filter(
+        (set) => set.kind === "WORK" && set.setNumber < setNumber,
+      ).length
+    : 0;
+  const slotReps = draft?.repsBySet?.[workSlot];
+  const load = draft?.unit ? recordableLoad(draft.load) : null;
+  if (slotReps !== undefined && load !== null && draft?.unit)
+    return {
+      load,
+      loadUnit: draft.unit,
+      repetitions: String(slotReps),
+      origin: draft.origin,
+    };
   if (today) return { ...today, origin: "CURRENT_RESULTS" };
-  const load = recordableLoad(draft?.load ?? null);
   if (draft?.prepared) {
     const repetitions =
       Number.isSafeInteger(draft.repetitions) &&

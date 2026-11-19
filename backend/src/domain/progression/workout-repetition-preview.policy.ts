@@ -277,7 +277,7 @@ function evaluateRepetitionEvidence(
     return no(['INTRADAY_ORDER_UNKNOWN']);
   if (new Set(slice.map((t) => t.sessionId)).size !== slice.length)
     return no(['DUPLICATE_SESSION_REFERENCE']);
-  const values: number[] = [];
+  const sessionRepetitions: number[][] = [];
   let effort = false;
   const baseline = repetitionLoadBaseline(
     context,
@@ -323,7 +323,15 @@ function evaluateRepetitionEvidence(
       new Set(sets.map((s) => s.setNumber)).size !== sets.length
     )
       return no(['DUPLICATE_SET_REFERENCE']);
-    for (const set of sets) {
+    if (
+      progressive &&
+      sets.some(
+        (set) => !Number.isSafeInteger(set.setNumber) || set.setNumber < 1,
+      )
+    )
+      return no(['WORK_SLOT_MAPPING_INCOMPLETE']);
+    const repetitions: number[] = [];
+    for (const set of sets.sort((a, b) => a.setNumber - b.setNumber)) {
       if (set.status !== 'COMPLETED' || !set.isCompleted)
         return no(['WORK_SET_NOT_COMPLETED']);
       if (
@@ -356,24 +364,46 @@ function evaluateRepetitionEvidence(
         if (cap.ok && rpe.value.gt(cap.value))
           return no(['RECORDED_EFFORT_ABOVE_TARGET'], 'REVIEW_REQUIRED');
       }
-      values.push(set.repetitions!);
+      repetitions.push(set.repetitions!);
     }
+    sessionRepetitions.push(repetitions);
   }
-  if (!values.length || new Set(values).size !== 1)
+  const latestRepetitions = sessionRepetitions[0];
+  if (
+    !latestRepetitions?.length ||
+    sessionRepetitions.some((repetitions) =>
+      repetitions.some(
+        (value, index) => value !== latestRepetitions[progressive ? index : 0],
+      ),
+    )
+  )
     return no(['HISTORY_REPETITIONS_INCONSISTENT']);
-  const previous = values[0],
+
+  const mixed = new Set(latestRepetitions).size > 1;
+  const previous = mixed
+      ? Math.min(...latestRepetitions)
+      : latestRepetitions[0],
     next = Math.min(previous + 1, target.targetRepsMax!);
+  // A stable work-set pattern can progress one slot without raising the load,
+  // reducing the other targets, or claiming that all sets reached the upper bound.
+  const slot = latestRepetitions.indexOf(previous);
+  const repsBySet = mixed
+    ? latestRepetitions.map((value, index) => (index === slot ? next : value))
+    : undefined;
   const advance = next > previous;
   return {
     origin: 'CALCULATED',
     action: 'MAINTAIN',
     load: targetLoad.ok ? targetLoad.value.toFixed(6) : null,
     unit: baseline.unit,
-    reps: next,
+    reps: mixed ? null : next,
+    ...(repsBySet ? { repsBySet } : {}),
     sets: target.targetSets,
-    reason: advance
-      ? `Completaste ${previous} repeticiones por serie con esta carga. Puedes intentar ${next}, dentro del rango de tu plan, y ajustar el objetivo si lo necesitas.`
-      : 'Completaste el extremo superior del rango. Mantén esta referencia; aumentar peso requiere un incremento disponible y una política de carga explícitos.',
+    reason: repsBySet
+      ? `Lograste ${latestRepetitions.join(' / ')} repeticiones con esta carga. Puedes intentar una repetición más en la serie ${slot + 1} y conservar las demás metas dentro del rango del plan.`
+      : advance
+        ? `Completaste ${previous} repeticiones por serie con esta carga. Puedes intentar ${next}, dentro del rango de tu plan, y ajustar el objetivo si lo necesitas.`
+        : 'Completaste el extremo superior del rango. Mantén esta referencia; aumentar peso requiere un incremento disponible y una política de carga explícitos.',
     reasons: [
       advance ? 'REPETITION_TARGET_ADVANCE' : 'REPETITION_RANGE_COMPLETED',
       ...(advance ? [] : ['LOAD_INCREMENT_REQUIRES_EXPLICIT_POLICY']),

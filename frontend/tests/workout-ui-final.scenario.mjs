@@ -17,6 +17,7 @@ export async function runUiFinal({
   field,
   go,
   health,
+  hotfix = false,
   immutableHistory,
   immutablePlans,
   navigate,
@@ -35,6 +36,9 @@ export async function runUiFinal({
 }) {
   const name = "PPL seis días · UI FINAL";
   const visualFaults = [];
+  const priorLoad = hotfix ? 60 : 40;
+  const priorReps = hotfix ? [12, 11, 9] : [8, 8, 8];
+  const nextReps = hotfix ? [12, 11, 10] : [9, 9, 9];
   const firstOffset = -(
     (new Date(today + "T00:00:00Z").getUTCDay() + 4) % 7 || 7
   );
@@ -378,12 +382,35 @@ export async function runUiFinal({
     "UI03 Inicio abre Legs A real, registra y corrige una serie sin RPE/RIR, y finaliza",
     async () => {
       await calendar(firstDate);
+      if (hotfix) {
+        const initial = ".daily-guide .guide-exercise .workout-preparation";
+        await waitVisible(initial);
+        const card = await sync(
+          "const e = document.querySelector(arguments[0]);return {stage:e.dataset.stage, text:e.textContent, details:e.querySelectorAll('details').length}",
+          [initial],
+        );
+        assert.equal(card.stage, "PLAN_ONLY");
+        assert.equal(card.details, 0);
+        assert.match(card.text, /objetivo/i);
+        assert.doesNotMatch(
+          card.text,
+          /NO_ELIGIBLE_HISTORY|KNOWN_LOAD_BASELINE_REQUIRED|INCREMENT_REQUIRED|SETTING_REQUIRED/,
+        );
+        assert.deepEqual(
+          await sync(
+            "const style=getComputedStyle(document.documentElement);return ['--color-background','--color-primary','--color-secondary'].map(x=>style.getPropertyValue(x).trim())",
+          ),
+          ["#0b1020", "#31e6c5", "#b8ff65"],
+        );
+      }
       await sweep("inicio-calendario-legs-a");
       firstSession = await startCalendar(
         firstActivity,
         "Registrar entrenamiento anterior",
       );
       const complete = await recordWholeSession(firstSession, {
+        offset: priorLoad - 40,
+        reps: (index, n) => (index === 0 ? priorReps[n - 1] : 8),
         beforeFirstSet: async () => {
           await sweep("entrenamiento-en-curso");
           await viewport(320, 800);
@@ -405,8 +432,8 @@ export async function runUiFinal({
         },
         afterFirstSet: async (task) => {
           const before = (await sessionRows(firstSession))[0];
-          assert.equal(Number(before.load), 40);
-          assert.equal(before.repetitions, 8);
+          assert.equal(Number(before.load), priorLoad);
+          assert.equal(before.repetitions, priorReps[0]);
           const editButton =
             '.live-review button[aria-label^="Editar serie 1"]';
           const summary = ".live-review:not(.live-overview) > summary";
@@ -422,10 +449,11 @@ export async function runUiFinal({
           );
           await waitVisible(editButton);
           await click(editButton);
-          await field(edit + ' input[id$="-reps"]', 8);
+          await field(edit + ' input[id$="-reps"]', priorReps[0]);
           await textClick(edit + " button", "Guardar cambios");
           await until(
-            async () => (await sessionRows(firstSession))[0].repetitions === 8,
+            async () =>
+              (await sessionRows(firstSession))[0].repetitions === priorReps[0],
             "referencia reproducible",
           );
           assert.equal(
@@ -446,13 +474,13 @@ export async function runUiFinal({
           0,
         ),
       );
+      assert.deepEqual(
+        firstRows.slice(0, 3).map((row) => row.repetitions),
+        priorReps,
+      );
       assert.ok(
         firstRows.every(
-          (r) =>
-            r.repetitions === 8 &&
-            r.load_unit === "KG" &&
-            r.rpe === null &&
-            r.rir === null,
+          (r) => r.load_unit === "KG" && r.rpe === null && r.rir === null,
         ),
       );
       assert.equal(await immutablePlans(), startingPlans);
@@ -483,9 +511,11 @@ export async function runUiFinal({
       );
       assert.equal(actual.estimates.length, 0);
       assert.equal(actual.series.length, 1);
-      assert.equal(Number(actual.series[0].load), 40);
+      assert.equal(Number(actual.series[0].load), priorLoad);
       assert.ok(
-        actual.series[0].points.every(({ repetitions }) => repetitions === 8),
+        actual.series[0].points.every(
+          ({ repetitions }) => repetitions === priorReps[2],
+        ),
       );
       await waitVisible("svg[data-testid^=progress-]");
       await sweep("progreso-resultados-reales");
@@ -499,7 +529,7 @@ export async function runUiFinal({
             [chart + " [role=status]"],
           ),
         ),
-        new RegExp(firstDate + ".*8"),
+        new RegExp(firstDate + ".*" + priorReps[2]),
       );
       const chartWidths = await sweep(
         "progreso-grafica-repeticiones",
@@ -531,9 +561,26 @@ export async function runUiFinal({
       );
       const first = guide.exercises[0];
       assert.equal(first.guidanceSuggested.origin, "HISTORICAL_REFERENCE");
-      assert.equal(Number(first.lastReference.sessions[0].sets[0].load), 40);
-      assert.equal(first.lastReference.sessions[0].sets[0].repetitions, 8);
+      assert.equal(
+        Number(first.lastReference.sessions[0].sets[0].load),
+        priorLoad,
+      );
+      assert.deepEqual(
+        first.lastReference.sessions[0].sets.map((row) => row.repetitions),
+        priorReps,
+      );
       assert.equal(first.progressiveContext.ready, true);
+      if (hotfix) {
+        const card = await sync(
+          'const e=document.querySelector(".guide-exercise");return {details:e.querySelectorAll("details").length,text:e.textContent}',
+        );
+        assert.equal(card.details, 1);
+        assert.match(normalized(card.text), /60 kg.*12\s*[/]\s*11\s*[/]\s*9/i);
+        assert.doesNotMatch(
+          card.text,
+          /HISTORY_REPETITIONS_INCONSISTENT|NO_ELIGIBLE_HISTORY|TARGET_UNIT_REQUIRED|INCREMENT_REQUIRED|SETTING_REQUIRED|60\.000/,
+        );
+      }
       await sweep("legs-a-programacion-detalle");
       await observeRequests();
       await click(".guide-exercise .repetition-preview-button");
@@ -547,7 +594,10 @@ export async function runUiFinal({
       const calculated = await sync(
         'return document.querySelector(".guide-exercise .preparation-draft").textContent',
       );
-      assert.match(normalized(calculated), /40.*9/);
+      assert.match(
+        normalized(calculated),
+        hotfix ? /60.*12\s*\/\s*11\s*\/\s*10/i : /40.*9/,
+      );
       const previews = await sync(
         'return window.__prog7Requests.filter(r=>r.method==="POST"&&r.path.endsWith("/repetition-preview"))',
       );
@@ -558,7 +608,16 @@ export async function runUiFinal({
       );
       assert.equal(await immutableHistory(), startingHistory);
       assert.equal(await immutablePlans(), startingPlans);
-      await shot("legs-a-propuesta-40-kg-9");
+      await shot(
+        hotfix ? "legs-a-propuesta-60-kg-series" : "legs-a-propuesta-40-kg-9",
+      );
+      if (hotfix) {
+        await sweep(
+          "orientacion-60-kg-por-serie",
+          undefined,
+          ".guide-exercise",
+        );
+      }
       return {
         points: actual.series[0].points.length,
         nextActivity: secondActivity.id,
@@ -661,7 +720,7 @@ export async function runUiFinal({
         "Comenzar entrenamiento",
       );
       const done = await recordWholeSession(secondSession, {
-        offset: 1,
+        offset: priorLoad - 39,
         reps: 10,
         beforeFirstSet: async () => {
           const preparation = ".workout-live .workout-preparation";
@@ -688,11 +747,12 @@ export async function runUiFinal({
           await until(
             () =>
               sync(
-                'return document.querySelector(".quick-set-form input[id$=-load]")?.value==="40"&&document.querySelector(".quick-set-form input[id$=-reps]")?.value==="9"',
+                'return document.querySelector(".quick-set-form input[id$=-load]")?.value===arguments[0]&&document.querySelector(".quick-set-form input[id$=-reps]")?.value===arguments[1]',
+                [String(priorLoad), String(nextReps[0])],
               ),
-            "borrador 40 kg × 9, editable",
+            "borrador calculado editable",
           );
-          await field('.quick-set-form input[id$="-load"]', 41);
+          await field('.quick-set-form input[id$="-load"]', priorLoad + 1);
           await field('.quick-set-form input[id$="-reps"]', 10);
           assert.equal(await immutableHistory(), startingHistory);
           assert.equal(await immutablePlans(), startingPlans);
@@ -700,12 +760,27 @@ export async function runUiFinal({
           await sync(
             "document.querySelector('.quick-set-form').scrollIntoView({block:'center'})",
           );
-          await health("registro-borrador-41-kg-10-sin-guardar");
+          await health(
+            hotfix
+              ? "registro-borrador-61-kg-10"
+              : "registro-borrador-41-kg-10-sin-guardar",
+          );
+        },
+        beforeSet: async (index, n) => {
+          if (!hotfix || index !== 0 || n === 1) return;
+          await until(
+            () =>
+              sync(
+                'return document.querySelector(".quick-set-form input[id$=-load]")?.value==="60"&&document.querySelector(".quick-set-form input[id$=-reps]")?.value===arguments[0]',
+                [String(nextReps[n - 1])],
+              ),
+            "borrador conservado en serie de trabajo " + n,
+          );
         },
       });
       const actual = await sessionRows(secondSession);
       assert.equal(done.status, "COMPLETED");
-      assert.equal(Number(actual[0].load), 41);
+      assert.equal(Number(actual[0].load), priorLoad + 1);
       assert.equal(actual[0].repetitions, 10);
       assert.ok(actual.every((row) => row.rpe === null && row.rir === null));
       assert.deepEqual(await sessionRows(firstSession), firstRows);
@@ -724,8 +799,8 @@ export async function runUiFinal({
       return {
         secondSession,
         sets: actual.length,
-        draft: [40, 9],
-        written: [41, 10],
+        draft: [priorLoad, ...(hotfix ? nextReps : nextReps.slice(0, 1))],
+        written: [priorLoad + 1, 10],
         automatic,
       };
     },
@@ -808,7 +883,7 @@ export async function runUiFinal({
             [loadChart + " [role=status]"],
           ),
         ),
-        new RegExp(firstDate + ".*40"),
+        new RegExp(firstDate + ".*" + priorLoad),
       );
       await health("progreso-grafica-carga-teclado-390");
       await navigate("Inicio");

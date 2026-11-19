@@ -345,6 +345,84 @@ describe('versioned comparable prescription evidence', () => {
       policyContract: 'session-repetition-preview-v2',
     } as never);
   };
+  function variableSets() {
+    const f = fixture();
+    Object.assign(f.c.target.targets!, {
+      targetSets: 3,
+      targetRepsMin: 8,
+      targetRepsMax: 12,
+      targetLoad: null,
+      targetLoadUnit: null,
+    });
+    f.c.history.tasks.forEach((task) => {
+      task.planExerciseId = 'prior-week-' + task.id;
+      task.availableSets = 3;
+      task.adjustedTargets = { ...f.c.target.targets! };
+    });
+    // Supply slots out of order, since neither array order nor set ID defines
+    // the progression target of each recorded work set.
+    f.c.history.sets = f.c.history.sets.flatMap((set) =>
+      [3, 1, 2].map((setNumber) => ({
+        ...set,
+        id: set.id + '-' + setNumber,
+        setNumber,
+        repetitions: [12, 11, 9][setNumber - 1],
+        load: '60.000',
+        loadUnit: 'KG',
+      })),
+    );
+    return f;
+  }
+  it('advances one ordered work slot after 60 kg × 12/11/9 with stable comparable evidence', () => {
+    const f = variableSets();
+    const before = JSON.stringify(f.c);
+    expect(prepareV2(f)).toMatchObject({
+      ready: true,
+      minimumSessions: 2,
+      reasons: [],
+    });
+    expect(previewV2(f)).toMatchObject({
+      origin: 'CALCULATED',
+      action: 'MAINTAIN',
+      load: '60.000000',
+      unit: 'KG',
+      sets: 3,
+      reps: null,
+      repsBySet: [12, 11, 10],
+      reasons: expect.arrayContaining(['REPETITION_TARGET_ADVANCE']),
+      executionAuthorized: false,
+    });
+    expect(JSON.stringify(f.c)).toBe(before);
+  });
+  it('uses one complete mixed session only under the initial plan-bound policy', () => {
+    const f = variableSets();
+    f.c.history.tasks.shift();
+    f.c.history.sets = f.c.history.sets.filter(
+      (set) => set.workoutExerciseId === 'b',
+    );
+    expect(previewV2(f)).toMatchObject({
+      load: null,
+      reasons: ['MINIMUM_NOT_REACHED'],
+    });
+    f.c.settings = [];
+    expect(previewV2(f)).toMatchObject({ repsBySet: [12, 11, 10] });
+  });
+  it.each([
+    ['partial', 'WORK_SET_NOT_COMPLETED'],
+    ['range', 'REPETITIONS_OUTSIDE_PRESCRIBED_RANGE'],
+    ['load', 'RECORDED_LOAD_DIFFERS'],
+    ['unit', 'RECORDED_LOAD_DIFFERS'],
+    ['different patterns', 'HISTORY_REPETITIONS_INCONSISTENT'],
+  ])('keeps mixed work sets ineligible with %s', (mode, reason) => {
+    const f = variableSets();
+    const first = f.c.history.sets[0];
+    if (mode === 'partial') first.isCompleted = false;
+    if (mode === 'range') first.repetitions = 7;
+    if (mode === 'load') first.load = '61';
+    if (mode === 'unit') first.loadUnit = 'LB';
+    if (mode === 'different patterns') first.repetitions = 10;
+    expect(previewV2(f)).toMatchObject({ load: null, reasons: [reason] });
+  });
   it('uses captured comparable evidence across generated week prescription IDs without rewriting historical identities or relaxing v1', () => {
     const f = fixture();
     f.c.history.tasks.forEach((t, index) => {

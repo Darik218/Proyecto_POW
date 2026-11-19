@@ -67,6 +67,8 @@ export type GuideSuggestion = {
   load: string | null;
   unit: 'KG' | 'LB' | null;
   reps: number | null;
+  /** Repetition targets in work-set order when a scalar would lose detail. */
+  repsBySet?: number[];
   sets: number | null;
   reason: string;
   reasons: string[];
@@ -240,6 +242,7 @@ export type GuidePreparation = {
     load: string | null;
     unit: 'KG' | 'LB' | null;
     reps: number | null;
+    repsBySet?: number[];
     sets: number | null;
     executionAuthorized: false;
   } | null;

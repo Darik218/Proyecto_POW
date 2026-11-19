@@ -158,6 +158,10 @@ const preparation = z.object({
       load: decimal,
       unit,
       reps: z.number().int().nullable(),
+      repsBySet: z
+        .array(z.number().int().positive().max(10000))
+        .nonempty()
+        .optional(),
       sets: z.number().int().nullable(),
       executionAuthorized: z.literal(false),
     })
@@ -218,6 +222,10 @@ export const workoutGuideSchema = z.object({
           load: decimal,
           unit,
           reps: z.number().int().nullable(),
+          repsBySet: z
+            .array(z.number().int().positive().max(10000))
+            .nonempty()
+            .optional(),
           sets: z.number().int().nullable(),
           reason: z.string(),
           reasons: z.array(z.string()),

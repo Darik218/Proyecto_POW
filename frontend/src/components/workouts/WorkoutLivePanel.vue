@@ -24,7 +24,11 @@ import type { useWorkoutSession } from "../../composables/useWorkoutSessions";
 import { lastCompletedWorkSet } from "../../utils/workout-set-reference";
 import type { PreviousWorkoutReference } from "../../utils/workout-set-reference";
 import type { WorkoutSetDraft } from "../../utils/workout-set-draft";
-import { recordableLoad } from "../../utils/workout-set-draft";
+import {
+  formatGuideLoad,
+  guideRepetitions,
+  workoutGuideReason,
+} from "../../utils/workout-guide-presentation";
 import WorkoutSetForm from "./WorkoutSetForm.vue";
 import WorkoutExerciseCard from "./WorkoutExerciseCard.vue";
 import RestTimer from "./RestTimer.vue";
@@ -156,9 +160,10 @@ const exerciseGuide = computed(() =>
   guide.value?.exercises.find((e) => e.id === active.value?.id),
 );
 const activeReference = computed<PreviousWorkoutReference | undefined>(() => {
-  if (!guide.value)
-    return active.value ? props.previousReferences[active.value.id] : undefined;
-  if (exerciseGuide.value?.preparation?.stage === "REVIEW_REQUIRED")
+  if (
+    !guide.value ||
+    exerciseGuide.value?.preparation?.stage === "REVIEW_REQUIRED"
+  )
     return undefined;
   const reference = exerciseGuide.value?.lastReference;
   // Several records on one civil date have no verified order. Display them in
@@ -190,21 +195,31 @@ const draft = computed<WorkoutSetDraft | undefined>(() => {
     s = g?.guidanceSuggested;
   if (g?.preparation) {
     const prepared = g.preparation.draft;
-    if (g.preparation.stage === "REVIEW_REQUIRED" || !prepared)
-      return undefined;
+    if (!prepared) {
+      const plan = g.preparation.plan;
+      return {
+        load: plan.targetLoad,
+        unit: plan.targetLoadUnit,
+        repetitions: plan.targetRepsMin ?? plan.targetRepsMax,
+        origin: "PLAN_TARGET",
+        prepared: true,
+      };
+    }
     return {
       load: prepared.load,
       unit: prepared.unit,
       repetitions: prepared.reps,
+      repsBySet: prepared.repsBySet,
       origin: prepared.origin,
       prepared: true,
     };
   }
-  if (s?.load !== null && s?.load !== undefined && s.unit && s.reps)
+  if (s?.load != null && s.unit && (s.reps || s.repsBySet))
     return {
       load: s.load,
       unit: s.unit,
       repetitions: s.reps,
+      repsBySet: s.repsBySet,
       origin: s.origin,
       reason: s.reason,
     };
@@ -559,7 +574,12 @@ onUnmounted(() => {
           @cancel="closeExerciseChange"
         />
         <div v-show="!changing">
-          <div class="live-context" v-if="active.targets || previousSet">
+          <div
+            class="live-context"
+            v-if="
+              active.targets || (!exerciseGuide?.preparation && previousSet)
+            "
+          >
             <p
               class="live-target"
               v-if="
@@ -581,27 +601,25 @@ onUnmounted(() => {
               >
               <span v-if="active.targets.targetLoad !== null"
                 >{{ active.targets.targetRepsMin !== null ? " · " : ""
-                }}{{ active.targets.targetLoad }}
-                {{
-                  active.targets.targetLoadUnit ?? "(unidad no registrada)"
+                }}{{
+                  formatGuideLoad(
+                    active.targets.targetLoad,
+                    active.targets.targetLoadUnit,
+                  )
                 }}</span
               >
             </p>
-            <p v-if="previousSet" class="live-previous">
+            <p
+              v-if="previousSet && !exerciseGuide?.preparation"
+              class="live-previous"
+            >
               Anterior:
               <strong
-                >{{ previousSet.load ?? "—" }}
-                {{ previousSet.loadUnit ?? "(unidad no registrada)" }} ×
+                >{{ formatGuideLoad(previousSet.load, previousSet.loadUnit) }} ×
                 {{ previousSet.repetitions ?? "—" }}</strong
               >
             </p>
           </div>
-          <p
-            v-if="exerciseGuide?.preparation?.stage === 'REVIEW_REQUIRED'"
-            class="field-hint"
-          >
-            Revisa la referencia antes de reutilizarla.
-          </p>
           <KeepAlive :max="10"
             ><WorkoutSetForm
               v-if="!reached(active) || extra"
@@ -651,18 +669,34 @@ onUnmounted(() => {
               Cambiar ejercicio
             </button>
           </div>
-          <details
+          <WorkoutPreparationSummary
             v-if="exerciseGuide?.preparation"
             class="live-preparation"
-            :open="
-              ['REVIEW_REQUIRED', 'REPETITION_DRAFT', 'LOAD_DRAFT'].includes(
-                exerciseGuide.preparation.stage,
-              )
-            "
+            :exercise="exerciseGuide"
           >
-            <summary>Referencia y orientación</summary>
-            <WorkoutPreparationSummary :exercise="exerciseGuide" />
-          </details>
+            <template
+              v-if="
+                exerciseGuide.preparation.stage === 'REPETITION_READY' &&
+                (
+                  exerciseGuide.progressiveContext ??
+                  exerciseGuide.repetitionContext
+                )?.ready
+              "
+              #comparison
+            >
+              <WorkoutRepetitionGuide
+                :query="{ sessionId: session.id }"
+                :exercise-id="active.exercise.id"
+                :context="
+                  (exerciseGuide.progressiveContext ??
+                    exerciseGuide.repetitionContext)!
+                "
+                :disabled="busy || calculating"
+                compact
+                @calculated="applyGuide"
+              />
+            </template>
+          </WorkoutPreparationSummary>
           <div v-else class="live-context">
             <p
               v-if="exerciseGuide?.lastReference?.scope === 'FREE_SESSION'"
@@ -696,11 +730,18 @@ onUnmounted(() => {
                 }}:</strong
               >
               {{
-                recordableLoad(exerciseGuide.guidanceSuggested.load) ??
-                exerciseGuide.guidanceSuggested.load
+                formatGuideLoad(
+                  exerciseGuide.guidanceSuggested.load,
+                  exerciseGuide.guidanceSuggested.unit,
+                )
               }}
-              {{ exerciseGuide.guidanceSuggested.unit }} ×
-              {{ exerciseGuide.guidanceSuggested.reps }}. Editable.
+              ·
+              {{
+                guideRepetitions(
+                  exerciseGuide.guidanceSuggested.reps,
+                  exerciseGuide.guidanceSuggested.repsBySet,
+                )
+              }}. Editable.
             </p>
             <p
               v-if="exerciseGuide?.guidanceSuggested?.origin === 'CALCULATED'"
@@ -771,12 +812,12 @@ onUnmounted(() => {
           </button>
           <WorkoutRepetitionGuide
             v-if="
-              (exerciseGuide?.progressiveContext ??
-                exerciseGuide?.repetitionContext) &&
-              exerciseGuide?.preparation?.stage !== 'REVIEW_REQUIRED' &&
-              (exerciseGuide?.preparation
-                ? exerciseGuide.preparation.stage === 'REPETITION_READY'
-                : exerciseGuide?.guidanceSuggested?.load == null)
+              !exerciseGuide?.preparation &&
+              (
+                exerciseGuide?.progressiveContext ??
+                exerciseGuide?.repetitionContext
+              )?.ready &&
+              exerciseGuide?.guidanceSuggested?.load == null
             "
             :query="{ sessionId: session.id }"
             :exercise-id="active.exercise.id"
@@ -944,14 +985,23 @@ onUnmounted(() => {
             >
             <details v-if="exerciseGuide?.guidanceSuggested">
               <summary>Detalles del resultado</summary>
-              <p>
-                Contrato
+              <p
+                v-if="
+                  exerciseGuide.guidanceSuggested.reasons.some(
+                    workoutGuideReason,
+                  )
+                "
+              >
                 {{
-                  exerciseGuide.guidanceSuggested.policyVersion ??
-                  "Sin política aplicable"
-                }}.
+                  [
+                    ...new Set(
+                      exerciseGuide.guidanceSuggested.reasons
+                        .map(workoutGuideReason)
+                        .filter(Boolean),
+                    ),
+                  ].join(" ")
+                }}
               </p>
-              <p>{{ exerciseGuide.guidanceSuggested.reasons.join(" · ") }}</p>
               <RouterLink
                 v-if="exerciseGuide.proposal"
                 :to="exerciseGuide.proposal.href"

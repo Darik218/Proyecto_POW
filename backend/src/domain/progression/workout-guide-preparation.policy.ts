@@ -113,6 +113,7 @@ export function prepareExerciseGuidance(
         load: suggestion.load,
         unit: suggestion.unit,
         reps: suggestion.reps,
+        ...(suggestion.repsBySet ? { repsBySet: suggestion.repsBySet } : {}),
         sets: suggestion.sets,
         executionAuthorized: false,
       };
@@ -126,39 +127,60 @@ export function prepareExerciseGuidance(
         sets: target.targetSets,
         executionAuthorized: false,
       };
-      const prior = reference.lastReference?.sessions;
+      const history = reference.lastReference;
+      const prior = history?.sessions.length === 1 ? history.sessions[0] : null;
       const sets =
-        prior?.length === 1 && prior[0].sessionStatus === 'COMPLETED'
-          ? prior[0].sets.filter((set) => set.kind === 'WORK')
+        prior?.sessionStatus === 'COMPLETED' &&
+        history?.scope === 'SAME_PLAN_DAY' &&
+        exercise.prescriptionId &&
+        prior.planExerciseId === exercise.prescriptionId &&
+        prior.sets.every((set) => set.kind !== null)
+          ? prior.sets
+              .filter((set) => set.kind === 'WORK')
+              .sort((a, b) => a.setNumber - b.setNumber)
           : [];
       const first = sets[0];
-      const knownLoad = readDecimal(first?.load);
+      const knownLoad = readDecimal(first?.load),
+        prescribedLoad = readDecimal(target.targetLoad);
       if (
-        target.targetLoad === null &&
-        target.targetLoadUnit === null &&
         first &&
         knownLoad.ok &&
         knownLoad.value.gt(0) &&
         (first.loadUnit === 'KG' || first.loadUnit === 'LB') &&
+        ((target.targetLoad === null && target.targetLoadUnit === null) ||
+          (prescribedLoad.ok &&
+            prescribedLoad.value.eq(knownLoad.value) &&
+            target.targetLoadUnit === first.loadUnit)) &&
+        target.targetRepsMin !== null &&
+        target.targetRepsMax !== null &&
         sets.length === target.targetSets &&
+        new Set(sets.map((set) => set.setNumber)).size === sets.length &&
         sets.every((set) => {
           const load = readDecimal(set.load);
           return (
             set.status === 'COMPLETED' &&
             set.isCompleted &&
+            Number.isSafeInteger(set.setNumber) &&
+            set.setNumber > 0 &&
             load.ok &&
             load.value.eq(knownLoad.value) &&
             set.loadUnit === first.loadUnit &&
-            set.repetitions === first.repetitions
+            set.repetitions !== null &&
+            Number.isSafeInteger(set.repetitions) &&
+            set.repetitions >= target.targetRepsMin! &&
+            set.repetitions <= target.targetRepsMax!
           );
         })
       ) {
+        const repsBySet = sets.map((set) => set.repetitions!);
+        const uniform = repsBySet.every((reps) => reps === repsBySet[0]);
         draft = {
           ...draft,
           origin: 'HISTORICAL_REFERENCE',
           load: first.load,
           unit: first.loadUnit,
-          reps: first.repetitions,
+          reps: uniform ? repsBySet[0] : null,
+          ...(uniform ? {} : { repsBySet }),
         };
       }
     }

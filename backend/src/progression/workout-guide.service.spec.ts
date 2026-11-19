@@ -229,6 +229,81 @@ describe('on-demand workout recommendations', () => {
 });
 
 describe('progressive exercise preparation', () => {
+  function mixedReference() {
+    const f = fixture();
+    f.exercise.calculations = [];
+    Object.assign(f.exercise.target, {
+      targetSets: 3,
+      targetRepsMin: 8,
+      targetRepsMax: 12,
+      targetLoad: null,
+      targetLoadUnit: null,
+    });
+    f.exercise.history = f.exercise.history.map((task) => ({
+      ...task,
+      sessionStatus: 'COMPLETED',
+      trainingPlanId: f.snapshot.source.trainingPlanId,
+      planDayId: f.snapshot.source.planDayId,
+      planExerciseId: f.exercise.prescriptionId,
+      sets: [9, 12, 11].map((repetitions, index) => ({
+        ...task.sets[0],
+        setNumber: [3, 1, 2][index],
+        repetitions,
+        load: '60.000',
+        loadUnit: 'KG',
+      })),
+    }));
+    Object.assign(f.exercise, {
+      progressiveContext: { ready: false, reasons: ['MINIMUM_NOT_REACHED'] },
+    });
+    return f;
+  }
+  it('keeps a full same-prescription record as a descriptive per-set draft while the minimum is unmet', async () => {
+    const f = mixedReference();
+    expect((await read(f)).exercises[0]).toMatchObject({
+      guidanceSuggested: { origin: 'HISTORICAL_REFERENCE', load: null },
+      preparation: {
+        stage: 'PLAN_WITH_REFERENCE',
+        draft: {
+          origin: 'HISTORICAL_REFERENCE',
+          load: '60.000',
+          unit: 'KG',
+          sets: 3,
+          reps: null,
+          repsBySet: [12, 11, 9],
+          executionAuthorized: false,
+        },
+      },
+    });
+  });
+  it.each(['same-day other prescription', 'other day', 'free session'])(
+    'shows %s without auto-copying it into the plan draft',
+    async (scope) => {
+      const f = mixedReference();
+      for (const task of f.exercise.history) {
+        Object.assign(task, {
+          planExerciseId:
+            scope === 'free session' ? null : 'another-prescription',
+          planDayId:
+            scope === 'same-day other prescription'
+              ? 'day'
+              : scope === 'other day'
+                ? 'another-day'
+                : null,
+          trainingPlanId: scope === 'free session' ? null : 'plan',
+        });
+        for (const set of task.sets) set.repetitions = 9;
+      }
+      expect((await read(f)).exercises[0]).toMatchObject({
+        guidanceSuggested: { origin: 'HISTORICAL_REFERENCE', load: null },
+        preparation: {
+          before: { performedOn: '2026-01-06' },
+          draft: { origin: 'PLAN_TARGET', load: null, reps: 8 },
+        },
+      });
+    },
+  );
+
   it('provides a practical plan draft without claiming a calculation when there is no history', async () => {
     const f = fixture();
     f.exercise.history = [];

@@ -553,7 +553,9 @@ test("PROG7 review blocks automatic reuse of an old reference while preserving m
     async (config) => response(config, value),
     liveProps(),
   );
-  assert.equal(state.draft, undefined);
+  assert.equal(state.draft?.origin, "PLAN_TARGET");
+  assert.equal(state.draft?.load, "42.125");
+  assert.equal(state.draft?.repetitions, 8);
   assert.equal(state.activeReference, undefined);
 });
 test("PROG7 comparison confirmation uses v2 and records only the returned verified pair", async (t) => {
@@ -579,7 +581,7 @@ test("PROG7 comparison confirmation uses v2 and records only the returned verifi
   });
 });
 
-test("PROG7 preparation presents a practical plan draft and translates the actual review blocker", async () => {
+async function renderGuideCard(exercise) {
   const { createSSRApp } = await import("vue");
   const { renderToString } = await import("vue/server-renderer");
   const Component = (
@@ -587,15 +589,37 @@ test("PROG7 preparation presents a practical plan draft and translates the actua
       "/src/components/workouts/WorkoutPreparationSummary.vue",
     )
   ).default;
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: "/", component: { render: () => null } },
+      {
+        path: "/workout/:sessionId",
+        name: "workout-session-detail",
+        component: { render: () => null },
+      },
+      {
+        path: "/settings",
+        name: "progression-settings",
+        component: { render: () => null },
+      },
+    ],
+  });
+  const app = createSSRApp(Component, { exercise });
+  app.use(router);
+  await router.push("/");
+  return renderToString(app);
+}
+
+test("PROG7 preparation presents a practical plan draft and translates the actual review blocker", async () => {
   const exercise = { ...sample().exercises[0], preparation: preparation() };
-  let html = await renderToString(createSSRApp(Component, { exercise }));
+  let html = await renderGuideCard(exercise);
   for (const label of [
-    "Antes",
     "Objetivo del plan",
     "Para esta sesión",
-    "Por qué",
-    "42.125 LB",
-    "Borrador editable",
+    "Ver explicación",
+    "42,125 lb",
+    "borrador editable",
   ])
     assert.ok(html.includes(label), label);
   assert.ok(
@@ -607,9 +631,9 @@ test("PROG7 preparation presents a practical plan draft and translates the actua
     why: ["PARTIAL_SESSION_REFERENCE"],
     blockers: [{ category: "evidence", code: "PARTIAL_SESSION_REFERENCE" }],
   };
-  html = await renderToString(createSSRApp(Component, { exercise }));
+  html = await renderGuideCard(exercise);
   assert.ok(html.includes("sesión parcial"));
-  assert.ok(html.includes("Revisa la referencia"));
+  assert.ok(html.includes("Guíate por el objetivo del plan"));
 });
 
 test("PROG7 a plan without a prescribed load still prepares repetitions without inventing a load", async () => {
@@ -632,13 +656,6 @@ test("PROG7 a plan without a prescribed load still prepares repetitions without 
 });
 
 test("PROG7 preparation keeps contextual history provenance and the original objective accessible", async () => {
-  const { createSSRApp } = await import("vue");
-  const { renderToString } = await import("vue/server-renderer");
-  const Component = (
-    await server.ssrLoadModule(
-      "/src/components/workouts/WorkoutPreparationSummary.vue",
-    )
-  ).default;
   const exercise = {
     ...sample().exercises[0],
     originalTarget: target,
@@ -650,19 +667,12 @@ test("PROG7 preparation keeps contextual history provenance and the original obj
     scope: "FREE_SESSION",
     sessions: [],
   };
-  const html = await renderToString(createSSRApp(Component, { exercise }));
+  const html = await renderGuideCard(exercise);
   assert.ok(html.includes("Referencia de entrenamiento libre"));
   assert.ok(html.includes("Objetivo original conservado"));
 });
 
 test("PROG7 load math failure remains a separate diagnostic while repetition preparation stays usable", async () => {
-  const { createSSRApp } = await import("vue");
-  const { renderToString } = await import("vue/server-renderer");
-  const Component = (
-    await server.ssrLoadModule(
-      "/src/components/workouts/WorkoutPreparationSummary.vue",
-    )
-  ).default;
   const value = sample();
   value.exercises[0].preparation = {
     ...preparation("REPETITION_READY"),
@@ -683,22 +693,62 @@ test("PROG7 load math failure remains a separate diagnostic while repetition pre
   assert.equal(exercise.preparation.stage, "REPETITION_READY");
   assert.equal(exercise.progressiveContext.ready, true);
   assert.equal(exercise.preparation.draft.reps, 8);
-  const html = await renderToString(createSSRApp(Component, { exercise }));
-  assert.ok(html.includes("Qué falta para otros métodos"));
-  assert.ok(html.includes("GRID_HAS_NO_POSITIVE_INCREMENT"));
+  const html = await renderGuideCard(exercise);
+  assert.ok(html.includes("Ver explicación"));
+  assert.ok(!html.includes("GRID_HAS_NO_POSITIVE_INCREMENT"));
+  assert.equal((html.match(/<details/g) ?? []).length, 1);
   assert.ok(html.includes("salto de peso disponible"));
   assert.ok(html.includes('data-stage="REPETITION_READY"'));
-  assert.ok(html.includes("Borrador editable"));
+  assert.ok(html.includes("borrador editable"));
+});
+
+test("hotfix shows uneven sets and an ordered suggestion without leaking reason codes", async () => {
+  const exercise = {
+    ...sample().exercises[0],
+    preparation: {
+      ...preparation("REPETITION_DRAFT"),
+      plan: { ...target, targetRepsMax: 12, targetLoad: null },
+      before: {
+        performedOn: "2026-11-14",
+        gapDays: 1,
+        scope: "SAME_PLAN_DAY",
+        sessions: [
+          {
+            taskId: other,
+            sessionId: other,
+            sessionStatus: "COMPLETED",
+            sets: [5, 12, 11, 9].map((repetitions, index) => ({
+              setNumber: index + 1,
+              load: index === 0 ? "20.000" : "60.000",
+              loadUnit: "KG",
+              repetitions,
+              status: "COMPLETED",
+              kind: index === 0 ? "WARMUP" : "WORK",
+              isCompleted: true,
+            })),
+          },
+        ],
+      },
+      draft: {
+        origin: "CALCULATED",
+        load: "60.000",
+        unit: "KG",
+        reps: null,
+        repsBySet: [12, 11, 10],
+        sets: 3,
+      },
+      why: ["REPETITION_TARGET_ADVANCE", "EXAMPLE_INTERNAL_FUTURE_CODE"],
+    },
+  };
+  const html = await renderGuideCard(exercise);
+  assert.match(html, /60 kg · 12 \/ 11 \/ 9/);
+  assert.match(html, /60 kg × 12 \/ 11 \/ 10/);
+  assert.match(html, /Propuesta calculada/);
+  assert.doesNotMatch(html, /20 kg|60\.000|EXAMPLE_INTERNAL_FUTURE_CODE/);
+  assert.equal((html.match(/<details/g) ?? []).length, 1);
 });
 
 test("PROG7 review with unordered history never claims there are no prior records", async () => {
-  const { createSSRApp } = await import("vue");
-  const { renderToString } = await import("vue/server-renderer");
-  const Component = (
-    await server.ssrLoadModule(
-      "/src/components/workouts/WorkoutPreparationSummary.vue",
-    )
-  ).default;
   const exercise = {
     ...sample().exercises[0],
     preparation: {
@@ -708,10 +758,31 @@ test("PROG7 review with unordered history never claims there are no prior record
       blockers: [{ category: "temporal", code: "SAME_DAY_NOT_ORDERED" }],
     },
   };
-  const html = await renderToString(createSSRApp(Component, { exercise }));
+  const html = await renderGuideCard(exercise);
   assert.ok(!html.includes("primera referencia"));
   assert.ok(!html.includes("Sin resultados anteriores"));
   assert.ok(
-    html.includes("referencia anterior ordenada/verificada para esta fecha"),
+    html.includes("No se supone qué sesión ocurrió primero en la misma fecha"),
+  );
+});
+
+test("hotfix first exercise shows the plan and weight choice without warnings or disclosures", async () => {
+  const exercise = {
+    ...sample().exercises[0],
+    preparation: {
+      ...preparation("PLAN_ONLY"),
+      plan: { ...target, targetLoad: null, targetLoadUnit: null },
+      blockers: [
+        { category: "evidence", code: "NO_ELIGIBLE_HISTORY" },
+        { category: "configuration", code: "SETTING_REQUIRED" },
+      ],
+    },
+  };
+  const html = await renderGuideCard(exercise);
+  assert.match(html, /3 × 8–10 repeticiones · peso a elegir/);
+  assert.match(html, /Registra lo que hagas/);
+  assert.doesNotMatch(
+    html,
+    /<details|NO_ELIGIBLE_HISTORY|SETTING_REQUIRED|Anterior|Para esta sesión/,
   );
 });

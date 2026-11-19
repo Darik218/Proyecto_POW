@@ -229,6 +229,14 @@ isolated('daily workout guide real PostgreSQL read snapshot', () => {
   });
   it('prepares a different generated week from real no-effort evidence, respects minimums and contradictions, and preserves all historical IDs', async () => {
     const f = await fixture();
+    await db.workoutSession.updateMany({
+      where: { id: { in: f.tasks.map((task) => task.sessionId) } },
+      data: {
+        trainingPlanId: f.target.plan.id,
+        planWeekId: f.target.week.id,
+        planDayId: f.target.day.id,
+      },
+    });
     const week = await db.planWeek.create({
       data: { trainingPlanId: f.target.plan.id, weekNumber: 2 },
     });
@@ -276,7 +284,11 @@ isolated('daily workout guide real PostgreSQL read snapshot', () => {
     const blocked = (await read()).exercises[0];
     expect(blocked.preparation).toMatchObject({
       stage: 'PLAN_WITH_REFERENCE',
-      draft: { origin: 'HISTORICAL_REFERENCE', load: '80.000', reps: 8 },
+      before: {
+        scope: 'OTHER_CONTEXT',
+        sessions: [{ sets: [{ load: '80.000', repetitions: 8 }] }],
+      },
+      draft: { origin: 'PLAN_TARGET', load: null, reps: 6 },
       blockers: expect.arrayContaining([
         { category: 'evidence', code: 'MINIMUM_NOT_REACHED' },
       ]),
@@ -294,7 +306,7 @@ isolated('daily workout guide real PostgreSQL read snapshot', () => {
     const initial = (await read()).exercises[0];
     expect(initial.preparation).toMatchObject({
       stage: 'REPETITION_READY',
-      draft: { origin: 'HISTORICAL_REFERENCE', load: '80.000', reps: 8 },
+      draft: { origin: 'PLAN_TARGET', load: null, reps: 6 },
     });
     expect(initial.progressiveContext!.ready).toBe(true);
     expect(initial.guidanceSuggested.origin).toBe('HISTORICAL_REFERENCE');
@@ -437,6 +449,106 @@ isolated('daily workout guide real PostgreSQL read snapshot', () => {
       reps: 10,
       executionAuthorized: false,
     });
+  });
+  it('keeps a complete 60 kg × 12/11/9 reference separate from a confirmed per-set preview', async () => {
+    const f = await fixture();
+    const targets = {
+      targetSets: 3,
+      targetRepsMin: 8,
+      targetRepsMax: 12,
+      targetLoad: null,
+      targetLoadUnit: null,
+    } as const;
+    await db.planExercise.update({
+      where: { id: f.target.p.id },
+      data: targets,
+    });
+    await db.workoutSession.updateMany({
+      where: { id: { in: f.tasks.map((task) => task.sessionId) } },
+      data: {
+        trainingPlanId: f.target.plan.id,
+        planWeekId: f.target.week.id,
+        planDayId: f.target.day.id,
+      },
+    });
+    for (const task of f.tasks) {
+      await db.workoutExercise.update({
+        where: { id: task.id },
+        data: { ...targets, planExerciseId: f.target.p.id },
+      });
+      await db.setRecord.updateMany({
+        where: { workoutExerciseId: task.id, setNumber: 1 },
+        data: { repetitions: 12, load: '60', loadKg: '60', rpe: null },
+      });
+      await db.setRecord.createMany({
+        data: [11, 9].map((repetitions, index) => ({
+          workoutExerciseId: task.id,
+          setNumber: index + 2,
+          repetitions,
+          load: '60',
+          loadUnit: 'KG',
+          loadKg: '60',
+          kind: 'WORK',
+          status: 'COMPLETED',
+          isCompleted: true,
+        })),
+      });
+    }
+    const source = {
+      planDayId: f.target.day.id,
+      performedOn: '2026-01-14',
+      timeZone: 'UTC',
+    };
+    const snapshots = () =>
+      db.setRecord.findMany({
+        where: { workoutExerciseId: { in: f.tasks.map((task) => task.id) } },
+        orderBy: { id: 'asc' },
+      });
+    const before = await snapshots();
+    const initial = (await guide.forMyWorkout(f.identity, source)).exercises[0];
+    expect(initial).toMatchObject({
+      guidanceSuggested: { origin: 'HISTORICAL_REFERENCE', load: null },
+      progressiveContext: { ready: true, minimumSessions: 2 },
+      preparation: {
+        stage: 'REPETITION_READY',
+        draft: {
+          origin: 'HISTORICAL_REFERENCE',
+          reps: null,
+          repsBySet: [12, 11, 9],
+        },
+      },
+    });
+    const preview = await guide.forMyWorkout(f.identity, source, {
+      source,
+      exerciseId: f.e.id,
+      contextKey: initial.progressiveContext!.contextKey!,
+      declaration: {
+        sameVariant: true,
+        sameEquipment: true,
+        sameLoadConvention: true,
+      },
+      policyContract: 'session-repetition-preview-v2',
+    });
+    expect(preview.exercises[0]).toMatchObject({
+      guidanceSuggested: {
+        origin: 'CALCULATED',
+        load: '60.000000',
+        repsBySet: [12, 11, 10],
+      },
+      preparation: {
+        stage: 'REPETITION_DRAFT',
+        draft: {
+          origin: 'CALCULATED',
+          reps: null,
+          repsBySet: [12, 11, 10],
+          executionAuthorized: false,
+        },
+      },
+    });
+    expect(await snapshots()).toEqual(before);
+    expect(
+      await db.planExercise.findUnique({ where: { id: f.target.p.id } }),
+    ).toMatchObject(targets);
   });
   it('keeps an exact comparison identity across activity to session and invalidates changed occurrence, history and settings', async () => {
     const f = await fixture();
