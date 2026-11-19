@@ -39,3 +39,12 @@ Thumbs.db
 
 # Datos locales y volúmenes
 data/
+
+# Skills
+.agents/
+.codex/
+AGENTS.md
+AGENTS.override.md
+skills-lock.json
+.impeccable/
+graphify-out/

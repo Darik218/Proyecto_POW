@@ -1,0 +1,102 @@
+[
+  {
+    "name": "C01 protected consent URL requires real authentication",
+    "status": "PASS"
+  },
+  {
+    "name": "C02 real login reaches progression and pending consent list",
+    "status": "PASS"
+  },
+  {
+    "name": "C03 structured scope/policy/limits/offset validity and explicit target selection",
+    "status": "PASS"
+  },
+  {
+    "name": "C04 human request confirmation records only PENDING_CONFIRMATION",
+    "status": "PASS"
+  },
+  {
+    "name": "C05 exact stored conditions and immutable CREATE audit are visible",
+    "status": "PASS"
+  },
+  {
+    "name": "C06 reviewing conditions appends version and preserves the earlier snapshot",
+    "status": "PASS"
+  },
+  {
+    "name": "C07 explicit revocation is terminal and auditable",
+    "status": "PASS"
+  },
+  {
+    "name": "C08 reload retains REVOKED and all three versions",
+    "status": "PASS"
+  },
+  {
+    "name": "C09 mobile layout and real keyboard focus preserve readable conditions",
+    "status": "PASS"
+  },
+  {
+    "name": "C10 another account cannot read or revoke the first account request",
+    "status": "PASS"
+  },
+  {
+    "name": "C11 real committed CREATE response is lost and stays uncertain",
+    "status": "PASS"
+  },
+  {
+    "name": "C12 reload recovers by the original intention without replaying a private contract",
+    "status": "PASS"
+  },
+  {
+    "name": "C13 current configuration changes are shown beside immutable original settings",
+    "status": "PASS"
+  },
+  {
+    "name": "C14 lost revocation response recovers the current terminal state",
+    "status": "PASS"
+  },
+  {
+    "name": "C15 revoked session cannot create a request and clears its previous UI context",
+    "status": "PASS"
+  },
+  {
+    "name": "C16 plans/workouts/history untouched and no automatic application or simulated session",
+    "status": "PASS"
+  },
+  {
+    "name": "A01 real login creates a pending request for explicit human acceptance",
+    "status": "PASS"
+  },
+  {
+    "name": "A02 issued exact challenge starts with five unchecked acknowledgments",
+    "status": "PASS"
+  },
+  {
+    "name": "A03 partial confirmation is blocked and a new challenge resets previous marks",
+    "status": "PASS"
+  },
+  {
+    "name": "A04 five explicit acknowledgments commit acceptance despite a lost response",
+    "status": "PASS"
+  },
+  {
+    "name": "A05 reload recovers intention without replaying private acknowledgment payload",
+    "status": "PASS"
+  },
+  {
+    "name": "A06 accepted terms stay immutable with no revision or execution action",
+    "status": "PASS"
+  },
+  {
+    "name": "A07 mobile audit and explicit revocation preserve historical acceptance",
+    "status": "PASS"
+  },
+  {
+    "name": "A08 a fresh intention with old challenge cannot revive a revoked consent",
+    "status": "PASS"
+  },
+  {
+    "name": "A09 terminal reload preserves acceptance audit and leaves plans/workouts untouched",
+    "status": "PASS"
+  }
+]

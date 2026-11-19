@@ -1,0 +1,780 @@
+<script setup lang="ts">
+import WorkoutLivePanel from "../components/workouts/WorkoutLivePanel.vue";
+import DailyWorkoutGuide from "../components/workouts/DailyWorkoutGuide.vue";
+import WorkoutInsightsPanel from "../components/workouts/WorkoutInsightsPanel.vue";
+import { workoutInsightsService } from "../services/workout-insights.service";
+import { useAuthStore } from "../stores/auth.store";
+import type { PreviousWorkoutReference } from "../utils/workout-set-reference";
+import StatusBadge from "../components/ui/StatusBadge.vue";
+import PageHeader from "../components/ui/PageHeader.vue";
+import LoadingState from "../components/ui/LoadingState.vue";
+import EmptyState from "../components/ui/EmptyState.vue";
+import { computed, nextTick, onUnmounted, ref, watch } from "vue";
+import { RouterLink, useRoute } from "vue-router";
+import AddWorkoutExerciseForm from "../components/workouts/AddWorkoutExerciseForm.vue";
+import CompleteWorkoutForm from "../components/workouts/CompleteWorkoutForm.vue";
+import WorkoutExerciseCard from "../components/workouts/WorkoutExerciseCard.vue";
+import WorkoutSessionForm from "../components/workouts/WorkoutSessionForm.vue";
+import SaveWorkoutDayForm from "../components/workouts/SaveWorkoutDayForm.vue";
+import PlanDaySelector from "../components/workouts/PlanDaySelector.vue";
+import {
+  trainingPlansService,
+  type DailyPrescription,
+} from "../services/training-plans.service";
+import { useWorkoutSession } from "../composables/useWorkoutSessions";
+import {
+  workoutDate,
+  workoutErrorMessage,
+  workoutStatusLabel,
+} from "../services/workout-sessions.service";
+import "../assets/training-plans.css";
+import "../assets/workouts.css";
+const route = useRoute();
+const id = computed(() => String(route.params.sessionId ?? ""));
+const actions = useWorkoutSession();
+const {
+  session,
+  loading,
+  saving,
+  editable,
+  error,
+  notice,
+  load,
+  start,
+  complete,
+  addExercise,
+  dispose,
+} = actions;
+const backTo = computed(() => {
+  const workout = session.value;
+  if (!workout?.trainingPlan || !workout.planWeek || !workout.planDay)
+    return { name: "home" };
+  const source = workout.sourceSnapshot;
+  const schedule = source?.schedule;
+  const sameActivity =
+    source?.kind === "PLAN_DAY" &&
+    source.plan?.id === workout.trainingPlan.id &&
+    source.week?.id === workout.planWeek.id &&
+    source.day?.id === workout.planDay.id &&
+    schedule?.id === workout.scheduledActivityId;
+  return {
+    name: "routine-day",
+    params: {
+      planId: workout.trainingPlan.id,
+      weekId: workout.planWeek.id,
+      dayId: workout.planDay.id,
+    },
+    ...(sameActivity && schedule
+      ? {
+          query: {
+            date: schedule.scheduledOn,
+            activityId: schedule.id,
+            timeZone: schedule.timeZone,
+          },
+        }
+      : {}),
+  };
+});
+const auth = useAuthStore(),
+  previousReferences = ref<Record<string, PreviousWorkoutReference>>({}),
+  referenceError = ref("");
+let referenceGeneration = 0,
+  referenceController: AbortController | undefined;
+watch(
+  () => [
+    session.value?.id,
+    session.value?.status,
+    session.value?.exercises.map((e) => e.exercise.id).join(","),
+    auth.user?.id,
+    auth.status,
+    auth.getSessionGeneration(),
+  ],
+  async () => {
+    const current = ++referenceGeneration;
+    referenceController?.abort();
+    referenceController = new AbortController();
+    const signal = referenceController.signal;
+    previousReferences.value = {};
+    referenceError.value = "";
+    const source = session.value;
+    if (
+      !auth.isAuthenticated ||
+      !source ||
+      !["PLANNED", "IN_PROGRESS"].includes(source.status)
+    )
+      return;
+    if (!source.performedOn) {
+      referenceError.value =
+        "Indica la fecha del entrenamiento para consultar una referencia anterior sin mezclar el orden de tus registros.";
+      return;
+    }
+    const before = source.performedOn.slice(0, 10);
+    const results = await Promise.allSettled(
+      source.exercises.map(async (e) => ({
+        id: e.id,
+        value: await workoutInsightsService.reference(
+          e.exercise.id,
+          before,
+          signal,
+        ),
+      })),
+    );
+    if (current !== referenceGeneration || signal.aborted) return;
+    for (const result of results) {
+      if (result.status === "fulfilled" && result.value.value.reference)
+        previousReferences.value[result.value.id] =
+          result.value.value.reference;
+      else if (result.status === "rejected")
+        referenceError.value =
+          "No pudimos consultar algunos registros anteriores. Puedes registrar tus resultados manualmente.";
+    }
+  },
+  { flush: "sync" },
+);
+watch(
+  () =>
+    [auth.user?.id, auth.isAuthenticated, auth.getSessionGeneration()].join(
+      ":",
+    ),
+  () => {
+    dispose();
+    session.value = null;
+    confirming.value = false;
+    adding.value = false;
+    if (auth.isAuthenticated) void load(id.value);
+  },
+  { flush: "sync" },
+);
+onUnmounted(() => {
+  referenceGeneration++;
+  referenceController?.abort();
+});
+async function finishWorkout() {
+  if (saving.value || !session.value) return;
+  if (!session.value.actualSetCount) {
+    confirming.value = true;
+    await nextTick();
+    document
+      .getElementById("empty-workout-close")
+      ?.scrollIntoView({ block: "center" });
+    return;
+  }
+  await run(() => complete(false));
+}
+async function openAdding() {
+  adding.value = true;
+  await nextTick();
+  document
+    .getElementById("live-add-exercise")
+    ?.scrollIntoView({ block: "start" });
+}
+const adding = ref(false);
+const confirming = ref(false);
+const completionTitle = ref<HTMLElement | null>(null);
+watch(
+  () => session.value?.status,
+  (status, previousStatus) => {
+    if (status === "COMPLETED" && previousStatus === "IN_PROGRESS") {
+      completionTitle.value?.focus({ preventScroll: true });
+      completionTitle.value?.scrollIntoView({ block: "start" });
+    }
+  },
+  { flush: "post" },
+);
+const editing = ref(false);
+const associating = ref(false);
+const exporting = ref(false);
+const importing = ref(false);
+const cancelling = ref(false);
+const selection = ref({ trainingPlanId: "", planWeekId: "", planDayId: "" });
+const importId = ref(crypto.randomUUID());
+const importPreview = ref<DailyPrescription[]>([]);
+const importLoading = ref(false);
+let importController: AbortController | undefined;
+let previewVersion = 0;
+const actionError = ref("");
+watch(
+  id,
+  (value) => {
+    adding.value = false;
+    confirming.value = false;
+    editing.value = false;
+    associating.value = false;
+    exporting.value = false;
+    importing.value = false;
+    cancelling.value = false;
+    actionError.value = "";
+    void load(value);
+  },
+  { immediate: true },
+);
+async function run(operation: () => Promise<unknown>) {
+  if (saving.value) return;
+  actionError.value = "";
+  try {
+    await operation();
+  } catch (cause) {
+    actionError.value = workoutErrorMessage(
+      cause,
+      "No se pudo actualizar el entrenamiento.",
+    );
+  }
+}
+async function associate() {
+  await actions.associate(selection.value);
+  associating.value = false;
+  importId.value = crypto.randomUUID();
+  importing.value = false;
+  importPreview.value = [];
+}
+async function previewImport() {
+  if (importing.value) {
+    importing.value = false;
+    return;
+  }
+  if (
+    !session.value?.trainingPlan ||
+    !session.value.planWeek ||
+    !session.value.planDay
+  )
+    return;
+  importing.value = true;
+  importLoading.value = true;
+  importPreview.value = [];
+  actionError.value = "";
+  importController?.abort();
+  importController = new AbortController();
+  const signal = importController.signal;
+  const current = ++previewVersion;
+  const sessionId = session.value.id;
+  try {
+    const plan = await trainingPlansService.getPlanning(
+      session.value.trainingPlan.id,
+      signal,
+    );
+    if (current !== previewVersion || session.value?.id !== sessionId) return;
+    const ids = new Set(
+      session.value.exercises.map((item) =>
+        item.original?.source.kind === "PLAN_DAY"
+          ? item.original.source.id
+          : item.prescription?.id,
+      ),
+    );
+    importPreview.value =
+      plan.weeks
+        .find((week) => week.id === session.value?.planWeek?.id)
+        ?.days.find((day) => day.id === session.value?.planDay?.id)
+        ?.exercises.filter((item) => !ids.has(item.id)) ?? [];
+  } catch (cause) {
+    if (!signal.aborted && current === previewVersion)
+      actionError.value = workoutErrorMessage(
+        cause,
+        "No se pudo revisar el día antes de incorporarlo.",
+      );
+  } finally {
+    if (current === previewVersion) importLoading.value = false;
+  }
+}
+async function importDay() {
+  await actions.importDay(importId.value);
+  importing.value = false;
+  importId.value = crypto.randomUUID();
+}
+function openAssociation() {
+  selection.value = {
+    trainingPlanId: session.value?.trainingPlan?.id ?? "",
+    planWeekId: session.value?.planWeek?.id ?? "",
+    planDayId: session.value?.planDay?.id ?? "",
+  };
+  associating.value = !associating.value;
+}
+onUnmounted(() => {
+  previewVersion++;
+  importController?.abort();
+  dispose();
+});
+</script>
+<template>
+  <section
+    class="page-view training-plans workouts"
+    :class="{ 'workout-live-page': session?.status === 'IN_PROGRESS' }"
+    aria-labelledby="workout-title"
+  >
+    <RouterLink
+      v-if="session?.status !== 'IN_PROGRESS'"
+      class="back-link"
+      :to="backTo"
+      >← Volver a mi rutina</RouterLink
+    ><PageHeader
+      id="workout-title"
+      :title="
+        session?.name ??
+        session?.sourceSnapshot?.day?.name ??
+        'Sesión de entrenamiento'
+      "
+      :description="
+        session?.status === 'IN_PROGRESS'
+          ? undefined
+          : 'Objetivos, series y resultados de tu sesión.'
+      "
+      icon="activity"
+    />
+    <LoadingState v-if="loading" label="Cargando entrenamiento…" :rows="4" />
+    <div v-else-if="error" class="state-card state-card--error" role="alert">
+      <p>{{ error }}</p>
+      <button class="secondary-button" type="button" @click="load(id)">
+        Reintentar
+      </button>
+    </div>
+    <template v-else-if="session">
+      <p v-if="actionError" class="form-error" role="alert">
+        {{ actionError }}
+      </p>
+      <WorkoutLivePanel
+        v-if="session.status === 'IN_PROGRESS'"
+        :key="session.id"
+        :session="session"
+        :busy="saving"
+        :actions="actions"
+        :previous-references="previousReferences"
+        @finish="finishWorkout"
+        @add="openAdding"
+      />
+      <section
+        v-if="session.status === 'COMPLETED'"
+        class="completion-summary ui-panel"
+        aria-labelledby="completion-title"
+      >
+        <div>
+          <h2 id="completion-title" ref="completionTitle" tabindex="-1">
+            Entrenamiento guardado
+          </h2>
+          <dl class="workout-logged-summary">
+            <div>
+              <dt>Series con resultados</dt>
+              <dd>{{ session.actualSetCount ?? 0 }}</dd>
+            </div>
+            <div>
+              <dt>Series completadas</dt>
+              <dd>{{ session.completedSetCount ?? 0 }}</dd>
+            </div>
+          </dl>
+          <p v-if="!session.actualSetCount" class="field-hint">
+            Esta sesión se cerró sin resultados.
+          </p>
+        </div>
+        <div class="completion-actions">
+          <RouterLink class="primary-button" :to="{ name: 'progression' }"
+            >Ver mi progreso</RouterLink
+          >
+          <RouterLink class="back-link" :to="{ name: 'workout-history' }"
+            >Ver historial →</RouterLink
+          >
+        </div>
+      </section>
+      <details class="session-context" :open="session.status === 'PLANNED'">
+        <summary>
+          Datos de la sesión · {{ workoutStatusLabel(session.status) }}
+        </summary>
+        <div class="workout-summary">
+          <StatusBadge
+            :status="session.status"
+            :label="workoutStatusLabel(session.status)"
+          />
+          <p>
+            <strong>Fecha del entrenamiento:</strong>
+            {{
+              session.performedOn?.slice(0, 10) ?? "Fecha local no registrada"
+            }}
+            · {{ session.timeZone ?? "Zona horaria no registrada" }}
+          </p>
+          <p>
+            <strong>Asociación actual:</strong>
+            {{ session.trainingPlan?.name ?? "Entrenamiento independiente"
+            }}{{
+              session.planWeek
+                ? " · Semana " + session.planWeek.weekNumber
+                : ""
+            }}{{
+              session.planDay
+                ? " · " + session.planDay.name
+                : session.planWeek
+                  ? " · Referencia semanal histórica"
+                  : ""
+            }}
+          </p>
+          <p v-if="session.sourceSnapshot?.kind === 'FREE'" class="field-hint">
+            Origen: entrenamiento libre. Una asociación posterior no modifica
+            sus ejercicios.
+          </p>
+          <p v-if="session.sourceSnapshot?.kind === 'SESSION'">
+            Preparado a partir de la estructura de otro entrenamiento. Sin
+            copiar sus resultados.
+          </p>
+          <p
+            v-if="session.sourceSnapshot?.kind === 'PLAN_DAY'"
+            class="field-hint"
+          >
+            Origen conservado: {{ session.sourceSnapshot.plan?.name }} · Semana
+            {{ session.sourceSnapshot.week?.weekNumber }} ·
+            {{ session.sourceSnapshot.day?.name }}
+          </p>
+          <p
+            v-if="session.recordingMode === 'RETROSPECTIVE'"
+            class="field-hint"
+          >
+            Registro de un entrenamiento anterior. Los tiempos siguientes
+            corresponden al registro de datos.
+          </p>
+          <p>
+            {{
+              session.recordingMode === "RETROSPECTIVE"
+                ? "Inicio del registro"
+                : "Inicio"
+            }}: {{ workoutDate(session.startedAt, session.timeZone) }}
+          </p>
+          <p v-if="session.finishedAt">
+            Finalización{{
+              session.recordingMode === "RETROSPECTIVE" ? " del registro" : ""
+            }}:
+            {{
+              workoutDate(
+                session.completedAt ?? session.finishedAt,
+                session.timeZone,
+              )
+            }}
+          </p>
+          <p v-if="!session.timeZone" class="field-hint">
+            Los tiempos históricos se muestran en la zona de este dispositivo;
+            la zona original no está registrada.
+          </p>
+          <p v-if="session.notes" class="plan-copy">{{ session.notes }}</p>
+          <p>
+            {{ session.actualSetCount ?? 0 }} series con resultados ·
+            {{ session.completedSetCount ?? 0 }} completadas
+          </p>
+          <p
+            v-if="session.status === 'COMPLETED' && !session.actualSetCount"
+            class="field-hint"
+          >
+            Entrenamiento finalizado sin resultados registrados.
+          </p>
+        </div>
+      </details>
+      <p
+        v-if="notice && !['IN_PROGRESS', 'COMPLETED'].includes(session.status)"
+        class="success-message"
+        role="status"
+      >
+        {{ notice }}
+      </p>
+      <p v-if="session.status === 'PLANNED'" class="plan-policy">
+        Revisa los ejercicios y ajusta sus objetivos. No se registrarán
+        resultados hasta empezar.
+      </p>
+
+      <p v-if="session.status === 'CANCELLED'" class="plan-policy">
+        Este entrenamiento está cerrado y conserva sus resultados para consulta.
+      </p>
+      <details class="session-context" :open="session.status === 'PLANNED'">
+        <summary>Opciones y organización de la sesión</summary>
+        <div class="plan-actions">
+          <button
+            v-if="session.status === 'PLANNED'"
+            class="primary-button"
+            type="button"
+            :disabled="saving"
+            @click="run(start)"
+          >
+            {{
+              session.recordingMode === "RETROSPECTIVE"
+                ? "Comenzar registro anterior"
+                : "Empezar entrenamiento"
+            }}</button
+          ><button
+            v-if="editable"
+            class="secondary-button"
+            type="button"
+            :disabled="saving"
+            @click="adding = !adding"
+          >
+            Añadir ejercicio</button
+          ><button
+            v-if="editable"
+            class="text-button"
+            type="button"
+            :disabled="saving"
+            @click="editing = !editing"
+          >
+            Datos y fecha</button
+          ><button
+            v-if="editable"
+            class="text-button"
+            type="button"
+            :disabled="saving"
+            @click="openAssociation"
+          >
+            Asociar a plan y día</button
+          ><button
+            v-if="editable && session.planDay"
+            class="text-button"
+            type="button"
+            :disabled="saving"
+            @click="previewImport"
+          >
+            Incorporar prescripciones del día</button
+          ><button
+            v-if="session.status === 'IN_PROGRESS'"
+            class="primary-button"
+            type="button"
+            :disabled="saving"
+            @click="finishWorkout"
+          >
+            Finalizar entrenamiento</button
+          ><button
+            v-if="editable"
+            class="text-button"
+            type="button"
+            :disabled="saving"
+            @click="cancelling = !cancelling"
+          >
+            Cancelar entrenamiento</button
+          ><button
+            v-if="['COMPLETED', 'CANCELLED'].includes(session.status)"
+            class="secondary-button"
+            type="button"
+            @click="exporting = !exporting"
+          >
+            Guardar como día de un plan</button
+          ><RouterLink
+            class="back-link"
+            :to="{
+              name: 'workout-sessions',
+              query: { repeatFromId: session.id },
+            }"
+            >Repetir estructura →</RouterLink
+          ><button
+            class="refresh-button"
+            type="button"
+            :disabled="saving"
+            @click="load(id)"
+          >
+            Actualizar detalle
+          </button>
+        </div>
+      </details>
+      <WorkoutSessionForm
+        v-if="editable && editing"
+        :session="session"
+        :busy="saving"
+        :save="actions.update"
+        @saved="editing = false"
+        @cancel="editing = false"
+      />
+      <form
+        v-if="editable && associating"
+        class="plan-form"
+        @submit.prevent="run(associate)"
+      >
+        <h2>Asociación manual</h2>
+        <p>
+          Asociar no sustituye tus ejercicios ni resultados. Puedes entrenar el
+          bloque en una fecha diferente a su programación.
+        </p>
+        <PlanDaySelector v-model="selection" :disabled="saving" />
+        <div class="plan-actions">
+          <button
+            class="primary-button"
+            type="submit"
+            :disabled="
+              saving ||
+              !selection.trainingPlanId ||
+              !selection.planWeekId ||
+              !selection.planDayId
+            "
+          >
+            Guardar asociación sin cambiar ejercicios</button
+          ><button
+            class="text-button"
+            type="button"
+            @click="associating = false"
+          >
+            Cerrar
+          </button>
+        </div>
+      </form>
+      <div v-if="editable && importing" class="state-card">
+        <h2>Confirmar incorporación de prescripciones</h2>
+        <p>
+          Se añadirán las prescripciones de {{ session.planDay?.name }} que
+          todavía no estén incluidas. Se conservan los ejercicios, objetivos
+          ajustados y resultados existentes. Los ejercicios omitidos no se
+          restauran automáticamente.
+        </p>
+        <p v-if="importLoading" role="status">Revisando prescripciones…</p>
+        <ul v-else>
+          <li v-for="item in importPreview" :key="item.id">
+            {{ item.exercise.name }} · {{ item.targetSets }} series ·
+            {{ item.targetRepsMin }}–{{ item.targetRepsMax }} repeticiones
+          </li>
+        </ul>
+        <p v-if="!importLoading && !importPreview.length">
+          No hay prescripciones nuevas para incorporar.
+        </p>
+        <div class="plan-actions">
+          <button
+            class="primary-button"
+            type="button"
+            :disabled="saving || importLoading || !importPreview.length"
+            @click="run(importDay)"
+          >
+            Confirmar incorporación</button
+          ><button class="text-button" type="button" @click="importing = false">
+            Cerrar
+          </button>
+        </div>
+      </div>
+      <div v-if="editable && cancelling" class="state-card">
+        <p>
+          ¿Cancelar el entrenamiento? Sus registros se conservarán y quedará
+          cerrado.
+        </p>
+        <div class="plan-actions">
+          <button
+            class="secondary-button"
+            type="button"
+            :disabled="saving"
+            @click="run(actions.cancel)"
+          >
+            Confirmar cancelación</button
+          ><button
+            class="text-button"
+            type="button"
+            @click="cancelling = false"
+          >
+            Seguir
+          </button>
+        </div>
+      </div>
+      <AddWorkoutExerciseForm
+        id="live-add-exercise"
+        v-if="editable && adding"
+        :save="addExercise"
+        :expected-version="session.version"
+        :omitted-exercises="session.exercises.filter((item) => item.isOmitted)"
+        :busy="saving"
+        @saved="adding = false"
+        @cancel="adding = false"
+      />
+      <CompleteWorkoutForm
+        id="empty-workout-close"
+        v-if="session.status === 'IN_PROGRESS' && confirming"
+        :save="complete"
+        :has-results="Boolean(session.actualSetCount)"
+        :busy="saving"
+        @saved="confirming = false"
+        @cancel="confirming = false"
+      />
+      <SaveWorkoutDayForm
+        v-if="['COMPLETED', 'CANCELLED'].includes(session.status) && exporting"
+        :session-id="session.id"
+        :busy="saving"
+        @cancel="exporting = false"
+      />
+      <DailyWorkoutGuide
+        v-if="editable && session.status !== 'IN_PROGRESS'"
+        :key="session.id + ':' + session.version"
+        :query="{ sessionId: session.id }"
+      />
+      <WorkoutInsightsPanel
+        v-if="session.status === 'COMPLETED'"
+        :session-id="session.id"
+      />
+      <p v-if="referenceError" class="field-hint" role="status">
+        {{ referenceError }}
+      </p>
+      <div v-if="session.status !== 'IN_PROGRESS'" class="plan-panel-heading">
+        <h2 class="weeks-heading">Ejercicios y resultados</h2>
+        <span class="plan-status"
+          >{{ session.exercises.length }} ejercicios</span
+        >
+      </div>
+      <EmptyState
+        v-if="!session.exercises.length && session.status !== 'IN_PROGRESS'"
+        title="Tu sesión está preparada para crecer"
+        description="Todavía no hay ejercicios en este entrenamiento."
+        icon="dumbbell"
+      />
+      <WorkoutExerciseCard
+        v-for="(item, index) in session.status === 'IN_PROGRESS'
+          ? []
+          : session.exercises"
+        :key="session.id + item.id"
+        :item="item"
+        :previous-reference="previousReferences[item.id]"
+        :status="session.status"
+        :busy="saving"
+        :index="index"
+        :count="session.exercises.length"
+        :actions="actions"
+      />
+    </template>
+  </section>
+</template>
+
+<style scoped>
+.completion-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  margin: 1rem 0;
+  overflow-wrap: anywhere;
+}
+.completion-summary h2 {
+  font-size: clamp(1.3rem, 4vw, 1.7rem);
+  margin: 0 0 1rem;
+  scroll-margin-top: 6rem;
+}
+.completion-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+}
+.completion-actions :is(.primary-button, .back-link) {
+  margin: 0;
+  min-height: 44px;
+  align-content: center;
+}
+@media (max-width: 640px) {
+  .completion-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .completion-actions .primary-button {
+    width: 100%;
+  }
+}
+.workout-live-page :deep(.ui-page-header) {
+  max-width: 53rem;
+  margin: 0 auto 0.75rem;
+}
+.workout-live-page :deep(.ui-page-header h1) {
+  font-size: 1.55rem;
+}
+.workout-live-page :deep(.ui-page-header .pulso-icon) {
+  display: none;
+}
+.session-context {
+  margin: 1rem 0;
+  border-bottom: 1px solid var(--line);
+  padding: 0.6rem 0;
+}
+.session-context > summary {
+  cursor: pointer;
+  min-height: 44px;
+  align-content: center;
+  line-height: 1.5;
+  font-size: 0.9rem;
+}
+</style>

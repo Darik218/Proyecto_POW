@@ -1,0 +1,1431 @@
+openapi: 3.1.0
+info:
+  title: Proyecto_POW API
+  version: 1.0.0-draft
+  description: >-
+    Borrador de contrato REST basado en el modelo Prisma. No se encontró un contrato
+    API anterior en el repositorio; rutas y mutaciones propuestas requieren revisión
+    antes de considerarse aprobadas. No implica que los endpoints estén implementados.
+  contact:
+    name: Proyecto_POW
+servers:
+  - url: /api/v1
+    description: Base URL propuesta, consistente con VITE_API_BASE_URL.
+tags:
+  - name: auth
+  - name: athletes
+  - name: exercises
+  - name: training-plans
+  - name: workouts
+  - name: performance
+  - name: progression
+security:
+  - AccessToken: []
+x-contract-status: draft-pending-owner-review
+x-decisions-pending:
+  - Registro público y política de contraseña/email.
+  - Duración y política de rotación/revocación de tokens; bootstrap CSRF.
+  - Paginación, precisión decimal y unidad histórica de mediciones.
+  - Autorización del catálogo y transiciones de estado.
+  - Escala de fatiga, algoritmo de recomendación y disparador automático.
+paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      security: []
+      summary: Crear cuenta (registro público pendiente de aprobación)
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Cuenta creada; no inicia sesión automáticamente en esta propuesta.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/login:
+    post:
+      tags: [auth]
+      security: []
+      summary: Iniciar sesión
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Access token en cuerpo y refresh token solo en cookie segura.
+          headers:
+            Set-Cookie:
+              description: Cookie HttpOnly, Secure, SameSite y Path restringido; valores nunca se exponen en JSON.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/refresh:
+    post:
+      tags: [auth]
+      security:
+        - RefreshCookie: []
+      summary: Rotar refresh token y emitir access token
+      description: >-
+        Requiere cookie refresh y protección CSRF. El refresh token se rota en cada
+        uso. La detección de reutilización debe revocar la familia; los detalles
+        operativos siguen pendientes.
+      x-contract-status: proposed
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Nuevo access token y nueva cookie refresh.
+          headers:
+            Set-Cookie:
+              description: Cookie refresh rotada; la anterior deja de ser válida.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      security:
+        - RefreshCookie: []
+      summary: Revocar la sesión de refresh actual
+      description: Requiere protección CSRF; revoca la sesión/familia actual y limpia la cookie. No revoca todas las sesiones del usuario.
+      x-contract-status: proposed
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204':
+          description: Sesión revocada (o ya inválida) y cookie limpiada.
+          headers:
+            Set-Cookie:
+              description: Cookie refresh expirada.
+              schema: { type: string }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Consultar usuario autenticado
+      responses:
+        '200':
+          description: Perfil seguro del usuario.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /athletes/me:
+    get:
+      tags: [athletes]
+      summary: Obtener perfil del deportista propio
+      responses:
+        '200':
+          description: Perfil asociado al usuario autenticado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Athlete' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [athletes]
+      summary: Actualizar perfil propio
+      description: userId no es editable ni aceptado como campo de entrada.
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateAthleteRequest' }
+      responses:
+        '200':
+          description: Perfil actualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Athlete' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /athletes/me/body-measurements:
+    get:
+      tags: [athletes]
+      summary: Listar mediciones corporales propias
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Página de mediciones; orden descendente por measuredAt.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/BodyMeasurement' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [athletes]
+      summary: Registrar medición corporal propia
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateBodyMeasurementRequest' }
+      responses:
+        '201':
+          description: Medición registrada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BodyMeasurement' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /exercises:
+    get:
+      tags: [exercises]
+      security: []
+      summary: Listar catálogo activo de ejercicios
+      description: El acceso anónimo y la administración del catálogo requieren decisión.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: query
+          in: query
+          schema: { type: string, maxLength: 160 }
+        - name: muscleGroup
+          in: query
+          schema: { type: string, maxLength: 100 }
+      responses:
+        '200':
+          description: Página ordenada por nombre e id.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Exercise' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /exercises/{exerciseId}:
+    get:
+      tags: [exercises]
+      security: []
+      summary: Obtener ejercicio activo
+      parameters:
+        - $ref: '#/components/parameters/ExerciseId'
+      responses:
+        '200':
+          description: Ejercicio del catálogo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Exercise' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /training-plans:
+    get:
+      tags: [training-plans]
+      summary: Listar planes propios
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/PlanStatus' }
+      responses:
+        '200':
+          description: Página de planes del atleta autenticado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/TrainingPlan' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [training-plans]
+      summary: Crear plan propio
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTrainingPlanRequest' }
+      responses:
+        '201':
+          description: Plan creado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrainingPlan' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /training-plans/{planId}:
+    parameters:
+      - $ref: '#/components/parameters/PlanId'
+    get:
+      tags: [training-plans]
+      summary: Obtener plan propio con semanas/prescripciones
+      responses:
+        '200':
+          description: Plan y estructura planificada; no contiene ejecución.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrainingPlanDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [training-plans]
+      summary: Actualizar metadatos de plan propio
+      description: No permite cambiar owner ni transiciones arbitrarias de estado; reglas de transición pendientes.
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateTrainingPlanRequest' }
+      responses:
+        '200':
+          description: Plan actualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrainingPlan' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /training-plans/{planId}/weeks:
+    parameters:
+      - $ref: '#/components/parameters/PlanId'
+    post:
+      tags: [training-plans]
+      summary: Añadir semana al plan propio
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePlanWeekRequest' }
+      responses:
+        '201':
+          description: Semana creada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanWeek' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /training-plans/{planId}/weeks/{weekId}:
+    parameters:
+      - $ref: '#/components/parameters/PlanId'
+      - $ref: '#/components/parameters/WeekId'
+    get:
+      tags: [training-plans]
+      summary: Obtener semana planificada
+      responses:
+        '200':
+          description: Semana con prescripciones ordenadas por posición.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanWeekDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [training-plans]
+      summary: Actualizar objetivo de semana
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdatePlanWeekRequest' }
+      responses:
+        '200':
+          description: Semana actualizada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanWeek' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /training-plans/{planId}/weeks/{weekId}/exercises:
+    parameters:
+      - $ref: '#/components/parameters/PlanId'
+      - $ref: '#/components/parameters/WeekId'
+    post:
+      tags: [training-plans]
+      summary: Añadir prescripción de ejercicio a semana
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePlanExerciseRequest' }
+      responses:
+        '201':
+          description: Prescripción creada; aún no es un ejercicio ejecutado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanExercise' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /workouts:
+    get:
+      tags: [workouts]
+      summary: Listar sesiones ejecutadas propias
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/WorkoutStatus' }
+        - name: from
+          in: query
+          description: Filtro inclusivo RFC 3339 para startedAt.
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          description: Filtro exclusivo RFC 3339 para startedAt.
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Página de sesiones del atleta autenticado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/WorkoutSession' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    post:
+      tags: [workouts]
+      summary: Crear sesión ejecutada, libre o asociada a semana
+      description: Si se envía planWeekId se debe validar propiedad y pertenencia al plan; el ejercicio realizado se registra aparte.
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateWorkoutSessionRequest' }
+      responses:
+        '201':
+          description: Sesión creada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkoutSession' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /workouts/{sessionId}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [workouts]
+      summary: Obtener sesión ejecutada propia
+      responses:
+        '200':
+          description: Sesión con ejercicios ejecutados, series y feedback si existe.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkoutSessionDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [workouts]
+      summary: Actualizar metadatos/tiempos de sesión
+      description: Transiciones permitidas de estado y edición de sesiones completadas están pendientes; no altera prescripciones.
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateWorkoutSessionRequest' }
+      responses:
+        '200':
+          description: Sesión actualizada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkoutSession' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /workouts/{sessionId}/exercises:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [workouts]
+      summary: Registrar ejercicio ejecutado en sesión
+      description: planExerciseId es opcional y debe corresponder al mismo ejercicio y contexto de semana.
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateWorkoutExerciseRequest' }
+      responses:
+        '201':
+          description: Ejercicio ejecutado creado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkoutExercise' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /workouts/{sessionId}/exercises/{workoutExerciseId}/sets:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+      - $ref: '#/components/parameters/WorkoutExerciseId'
+    post:
+      tags: [workouts]
+      summary: Registrar serie ejecutada
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateSetRecordRequest' }
+      responses:
+        '201':
+          description: Serie registrada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetRecord' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /workouts/{sessionId}/feedback:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [performance]
+      summary: Obtener evaluación global de sesión
+      responses:
+        '200':
+          description: Feedback; puede no existir antes de registrarse.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionFeedback' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [performance]
+      summary: Crear o reemplazar única evaluación global de sesión
+      description: fatigueScore es informado, no calculado; su escala está pendiente.
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpsertSessionFeedbackRequest' }
+      responses:
+        '200':
+          description: Evaluación registrada o reemplazada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionFeedback' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /performance/one-rm-estimates:
+    get:
+      tags: [performance]
+      summary: Consultar historial propio de estimaciones 1RM
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: exerciseId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+      responses:
+        '200':
+          description: Página histórica, no se sobrescriben estimaciones anteriores.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/OneRmEstimate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [performance]
+      summary: Solicitar una estimación Epley o Brzycki
+      description: La fórmula/versionado y el cálculo son del servidor; la validación del set de origen debe comprobar atleta y ejercicio.
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateOneRmEstimateRequest' }
+      responses:
+        '201':
+          description: Nueva estimación añadida al historial.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OneRmEstimate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /performance/one-rm-estimates/{estimateId}:
+    get:
+      tags: [performance]
+      summary: Obtener estimación propia
+      parameters:
+        - $ref: '#/components/parameters/EstimateId'
+      responses:
+        '200':
+          description: Estimación versionada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OneRmEstimate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /progression/settings:
+    get:
+      tags: [progression]
+      summary: Listar ajustes propios de progresión
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Ajustes con alcances válidos.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/ProgressionSetting' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [progression]
+      summary: Crear ajuste propio de progresión
+      description: Debe ser general, por ejercicio o por ejercicio/plan; plan sin ejercicio se rechaza.
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateProgressionSettingRequest' }
+      responses:
+        '201':
+          description: Ajuste creado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgressionSetting' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /progression/settings/{settingId}:
+    parameters:
+      - $ref: '#/components/parameters/SettingId'
+    get:
+      tags: [progression]
+      summary: Obtener ajuste propio
+      responses:
+        '200':
+          description: Ajuste actual.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgressionSetting' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [progression]
+      summary: Actualizar ajuste propio
+      x-contract-status: proposed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateProgressionSettingRequest' }
+      responses:
+        '200':
+          description: Ajuste actualizado; snapshots históricos no cambian.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgressionSetting' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /progression/recommendations:
+    get:
+      tags: [progression]
+      summary: Listar recomendaciones propias
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/RecommendationStatus' }
+        - name: exerciseId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+      responses:
+        '200':
+          description: Página de recomendaciones con snapshot y evidencia asociada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/ProgressionRecommendation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [progression]
+      summary: Solicitar recomendación (existencia y disparador pendientes)
+      description: No expone fórmula. Solo puede generar una recomendación para el atleta autenticado y contexto de su propiedad.
+      x-contract-status: proposed-pending-algorithm-and-trigger
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateRecommendationRequest' }
+      responses:
+        '201':
+          description: Recomendación creada como pendiente o bloqueada por validaciones definidas por producto.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgressionRecommendation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /progression/recommendations/{recommendationId}:
+    parameters:
+      - $ref: '#/components/parameters/RecommendationId'
+    get:
+      tags: [progression]
+      summary: Obtener recomendación propia con evidencia/aplicación
+      responses:
+        '200':
+          description: Recomendación histórica y snapshot efectivo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgressionRecommendation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /progression/recommendations/{recommendationId}/decision:
+    post:
+      tags: [progression]
+      summary: Aprobar o rechazar recomendación propia
+      description: Transiciones válidas y si aprobación basta para aplicación automática están pendientes.
+      x-contract-status: proposed-pending-state-machine
+      parameters:
+        - $ref: '#/components/parameters/RecommendationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecommendationDecisionRequest' }
+      responses:
+        '200':
+          description: Estado revisado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgressionRecommendation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /progression/recommendations/{recommendationId}/apply:
+    post:
+      tags: [progression]
+      summary: Registrar aplicación manual aprobada
+      description: >-
+        Solo origen MANUAL. Requiere propiedad, estado/transición permitidos,
+        recomendación vigente y revalidación de carga/límites en transacción.
+        No habilita ni ejecuta aplicación automática.
+      x-contract-status: proposed
+      parameters:
+        - $ref: '#/components/parameters/RecommendationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApplyRecommendationRequest' }
+      responses:
+        '201':
+          description: Aplicación manual auditada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgressionApplication' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+components:
+  securitySchemes:
+    AccessToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token de acceso de corta duración guardado en memoria del cliente.
+    RefreshCookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+      description: Cookie HttpOnly/Secure/SameSite; requiere además X-CSRF-Token.
+  parameters:
+    CsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      description: Token anti-CSRF emitido por el mecanismo aún pendiente de especificación.
+      schema: { type: string, minLength: 16, maxLength: 512 }
+    Limit:
+      name: limit
+      in: query
+      description: Tamaño de página propuesto, predeterminado 25, máximo 100.
+      schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Cursor opaco de la página anterior.
+      schema: { type: string, minLength: 1, maxLength: 2048 }
+    ExerciseId:
+      name: exerciseId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    PlanId:
+      name: planId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    WeekId:
+      name: weekId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    WorkoutExerciseId:
+      name: workoutExerciseId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    EstimateId:
+      name: estimateId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    SettingId:
+      name: settingId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    RecommendationId:
+      name: recommendationId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+  responses:
+    BadRequest:
+      description: Solicitud mal formada o parámetro inválido.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    Unauthorized:
+      description: Access token ausente/inválido o sesión refresh no válida.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    Forbidden:
+      description: Protección CSRF o permiso insuficiente.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    NotFound:
+      description: Recurso ausente o fuera del ámbito de propiedad.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    Conflict:
+      description: Duplicado o conflicto con el estado actual.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    ValidationError:
+      description: Solicitud válida sintácticamente pero inválida semánticamente.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    RateLimited:
+      description: Límite de solicitudes superado.
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 0 }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    InternalError:
+      description: Error interno genérico sin detalles sensibles.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+    DecimalString:
+      type: string
+      pattern: '^-?\d{1,8}(\.\d{1,3})?$'
+      examples: ['82.500']
+      description: Decimal serializado como string para conservar precisión; formato pendiente de ratificación.
+    PositiveDecimalString:
+      type: string
+      pattern: '^(?=.*[1-9])\d{1,8}(\.\d{1,3})?$'
+      description: Decimal estrictamente positivo; hasta 8 dígitos enteros y 3 decimales.
+    NonNegativeDecimalString:
+      type: string
+      pattern: '^\d{1,8}(\.\d{1,3})?$'
+      description: Decimal mayor o igual a cero; hasta 8 dígitos enteros y 3 decimales.
+    DateOnly:
+      type: string
+      format: date
+    DateTime:
+      type: string
+      format: date-time
+      description: RFC 3339 con zona/offset obligatorio.
+    AccountStatus:
+      type: string
+      enum: [ACTIVE, SUSPENDED, CLOSED]
+    MeasurementUnit:
+      type: string
+      enum: [KG, LB]
+    PlanStatus:
+      type: string
+      enum: [DRAFT, ACTIVE, COMPLETED, ARCHIVED]
+    WorkoutStatus:
+      type: string
+      enum: [PLANNED, IN_PROGRESS, COMPLETED, CANCELLED]
+    RecommendationStatus:
+      type: string
+      enum: [PENDING, APPROVED, REJECTED, APPLIED, BLOCKED, EXPIRED]
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, email, status, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        email: { type: string, format: email, maxLength: 320 }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+      description: Nunca contiene passwordHash, refreshTokenHash ni tokenFamilyId.
+    Athlete:
+      type: object
+      additionalProperties: false
+      required: [id, userId, preferredUnit, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        birthDate: { $ref: '#/components/schemas/DateOnly' }
+        preferredUnit: { $ref: '#/components/schemas/MeasurementUnit' }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    Exercise:
+      type: object
+      additionalProperties: false
+      required: [id, name, muscleGroup, equipment, isActive, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string, maxLength: 160 }
+        muscleGroup: { type: string, maxLength: 100 }
+        equipment: { type: string, maxLength: 100 }
+        description: { type: [string, 'null'] }
+        isActive: { type: boolean }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    BodyMeasurement:
+      type: object
+      additionalProperties: false
+      required: [id, bodyWeight, measuredAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        bodyWeight: { $ref: '#/components/schemas/PositiveDecimalString' }
+        measuredAt: { $ref: '#/components/schemas/DateTime' }
+        notes: { type: [string, 'null'] }
+      description: >-
+        El modelo guarda peso pero no unidad por medición. Aún debe decidirse si se
+        interpreta siempre con preferredUnit actual o si se registra unidad histórica.
+    PlanExercise:
+      type: object
+      additionalProperties: false
+      required: [id, exerciseId, position, targetSets, targetReps]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        exerciseId: { $ref: '#/components/schemas/Uuid' }
+        position: { type: integer, minimum: 1 }
+        targetSets: { type: integer, minimum: 1 }
+        targetReps: { type: integer, minimum: 1 }
+        targetRpe: { $ref: '#/components/schemas/NullableRpe' }
+        targetLoad: { $ref: '#/components/schemas/NullableNonNegativeDecimal' }
+        notes: { type: [string, 'null'] }
+      description: Prescripción planificada, separada de WorkoutExercise y SetRecord ejecutados.
+    PlanWeek:
+      type: object
+      required: [id, weekNumber]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        weekNumber: { type: integer, minimum: 1 }
+        objective: { type: [string, 'null'] }
+    PlanWeekDetail:
+      allOf:
+        - $ref: '#/components/schemas/PlanWeek'
+        - type: object
+          required: [exercises]
+          properties:
+            exercises:
+              type: array
+              items: { $ref: '#/components/schemas/PlanExercise' }
+      unevaluatedProperties: false
+    TrainingPlan:
+      type: object
+      required: [id, name, startsOn, status, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string, maxLength: 160 }
+        startsOn: { $ref: '#/components/schemas/DateOnly' }
+        endsOn: { oneOf: [{ $ref: '#/components/schemas/DateOnly' }, { type: 'null' }] }
+        status: { $ref: '#/components/schemas/PlanStatus' }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    TrainingPlanDetail:
+      allOf:
+        - $ref: '#/components/schemas/TrainingPlan'
+        - type: object
+          required: [weeks]
+          properties:
+            weeks:
+              type: array
+              items: { $ref: '#/components/schemas/PlanWeekDetail' }
+      unevaluatedProperties: false
+    SetRecord:
+      type: object
+      additionalProperties: false
+      required: [id, setNumber, load, repetitions, isCompleted, recordedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        setNumber: { type: integer, minimum: 1 }
+        load: { $ref: '#/components/schemas/NonNegativeDecimalString' }
+        repetitions: { type: integer, minimum: 1 }
+        rpe: { $ref: '#/components/schemas/NullableRpe' }
+        isCompleted: { type: boolean }
+        recordedAt: { $ref: '#/components/schemas/DateTime' }
+        notes: { type: [string, 'null'] }
+    WorkoutExercise:
+      type: object
+      additionalProperties: false
+      required: [id, exerciseId, orderInSession, sets]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        exerciseId: { $ref: '#/components/schemas/Uuid' }
+        planExerciseId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        orderInSession: { type: integer, minimum: 1 }
+        notes: { type: [string, 'null'] }
+        sets:
+          type: array
+          items: { $ref: '#/components/schemas/SetRecord' }
+    WorkoutSession:
+      type: object
+      required: [id, status, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        trainingPlanId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        planWeekId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        status: { $ref: '#/components/schemas/WorkoutStatus' }
+        startedAt: { oneOf: [{ $ref: '#/components/schemas/DateTime' }, { type: 'null' }] }
+        finishedAt: { oneOf: [{ $ref: '#/components/schemas/DateTime' }, { type: 'null' }] }
+        notes: { type: [string, 'null'] }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    WorkoutSessionDetail:
+      allOf:
+        - $ref: '#/components/schemas/WorkoutSession'
+        - type: object
+          required: [exercises]
+          properties:
+            exercises:
+              type: array
+              items: { $ref: '#/components/schemas/WorkoutExercise' }
+            feedback: { oneOf: [{ $ref: '#/components/schemas/SessionFeedback' }, { type: 'null' }] }
+      unevaluatedProperties: false
+    OneRmEstimate:
+      type: object
+      additionalProperties: false
+      required: [id, exerciseId, inputLoad, inputReps, estimatedOneRm, formula, algorithmVersion, calculatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        exerciseId: { $ref: '#/components/schemas/Uuid' }
+        sourceSetId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        inputLoad: { $ref: '#/components/schemas/PositiveDecimalString' }
+        inputReps: { type: integer, minimum: 1 }
+        estimatedOneRm: { $ref: '#/components/schemas/PositiveDecimalString' }
+        formula: { type: string, enum: [EPLEY, BRZYCKI] }
+        algorithmVersion: { type: string, maxLength: 40 }
+        calculatedAt: { $ref: '#/components/schemas/DateTime' }
+    SessionFeedback:
+      type: object
+      additionalProperties: false
+      required: [id, sessionId, recordedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        sessionId: { $ref: '#/components/schemas/Uuid' }
+        globalRpe: { $ref: '#/components/schemas/NullableRpe' }
+        fatigueScore: { $ref: '#/components/schemas/NullableDecimal' }
+        notes: { type: [string, 'null'] }
+        recordedAt: { $ref: '#/components/schemas/DateTime' }
+      description: fatigueScore no tiene fórmula ni escala definida.
+    ProgressionSetting:
+      type: object
+      additionalProperties: false
+      required: [id, minSuccessfulSessions, targetRpeMin, targetRpeMax, maxIncrementPercent, autoApplyAuthorized, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        exerciseId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        trainingPlanId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        minSuccessfulSessions: { type: integer, minimum: 1 }
+        targetRpeMin: { $ref: '#/components/schemas/Rpe' }
+        targetRpeMax: { $ref: '#/components/schemas/Rpe' }
+        incrementPercent: { $ref: '#/components/schemas/NullableNonNegativeDecimal' }
+        incrementAbsolute: { $ref: '#/components/schemas/NullableNonNegativeDecimal' }
+        maxIncrementPercent: { $ref: '#/components/schemas/NonNegativeDecimalString' }
+        maxLoad: { $ref: '#/components/schemas/NullablePositiveDecimal' }
+        autoApplyAuthorized: { type: boolean }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+      description: trainingPlanId requiere exerciseId; una unicidad por alcance evita configuraciones duplicadas.
+    RecommendationEvidence:
+      type: object
+      additionalProperties: false
+      required: [sessionId, role, associatedAt]
+      properties:
+        sessionId: { $ref: '#/components/schemas/Uuid' }
+        role: { type: string, enum: [SATISFACTORY, UNSATISFACTORY, CONTEXT] }
+        associatedAt: { $ref: '#/components/schemas/DateTime' }
+    ProgressionApplication:
+      type: object
+      additionalProperties: false
+      required: [id, recommendationId, appliedLoad, origin, effectiveAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        recommendationId: { $ref: '#/components/schemas/Uuid' }
+        appliedLoad: { $ref: '#/components/schemas/PositiveDecimalString' }
+        origin: { type: string, enum: [MANUAL, AUTOMATIC] }
+        effectiveAt: { $ref: '#/components/schemas/DateTime' }
+    ProgressionRecommendation:
+      type: object
+      additionalProperties: false
+      required: [id, exerciseId, recommendedLoad, justification, status, algorithmVersion, effectiveSettings, createdAt, evidence]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        exerciseId: { $ref: '#/components/schemas/Uuid' }
+        planWeekId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        planExerciseId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        previousLoad: { $ref: '#/components/schemas/NullableNonNegativeDecimal' }
+        recommendedLoad: { $ref: '#/components/schemas/PositiveDecimalString' }
+        justification: { type: string }
+        status: { $ref: '#/components/schemas/RecommendationStatus' }
+        algorithmVersion: { type: string, maxLength: 40 }
+        effectiveSettings: { type: object, additionalProperties: true }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        expiresAt: { oneOf: [{ $ref: '#/components/schemas/DateTime' }, { type: 'null' }] }
+        reviewedAt: { oneOf: [{ $ref: '#/components/schemas/DateTime' }, { type: 'null' }] }
+        evidence:
+          type: array
+          items: { $ref: '#/components/schemas/RecommendationEvidence' }
+        application: { oneOf: [{ $ref: '#/components/schemas/ProgressionApplication' }, { type: 'null' }] }
+    Rpe:
+      type: string
+      pattern: '^(10(\.0)?|[0-9](\.[0-9])?)$'
+      description: RPE de 0 a 10 en pasos de una décima, serializado como string decimal.
+    NullableRpe:
+      oneOf:
+        - $ref: '#/components/schemas/Rpe'
+        - type: 'null'
+    NullableDecimal:
+      oneOf:
+        - $ref: '#/components/schemas/DecimalString'
+        - type: 'null'
+    NullablePositiveDecimal:
+      oneOf:
+        - $ref: '#/components/schemas/PositiveDecimalString'
+        - type: 'null'
+    NullableNonNegativeDecimal:
+      oneOf:
+        - $ref: '#/components/schemas/NonNegativeDecimalString'
+        - type: 'null'
+    Page:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: {} }
+        page:
+          type: object
+          additionalProperties: false
+          required: [nextCursor]
+          properties:
+            nextCursor: { type: [string, 'null'] }
+    ApiError:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, detail, instance, code, requestId]
+      properties:
+        type: { type: string, format: uri-reference }
+        title: { type: string }
+        status: { type: integer, minimum: 400, maximum: 599 }
+        detail: { type: string }
+        instance: { type: string, format: uri-reference }
+        code: { type: string, pattern: '^[A-Z][A-Z0-9_]+$' }
+        requestId: { $ref: '#/components/schemas/Uuid' }
+        errors:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [field, code, message]
+            properties:
+              field: { type: string }
+              code: { type: string }
+              message: { type: string }
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, maxLength: 320 }
+        password: { type: string, format: password, writeOnly: true, minLength: 1 }
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, maxLength: 320 }
+        password: { type: string, format: password, writeOnly: true }
+    TokenResponse:
+      type: object
+      additionalProperties: false
+      required: [accessToken, tokenType, expiresAt]
+      properties:
+        accessToken: { type: string, description: Bearer token de acceso; mantener solo en memoria. }
+        tokenType: { const: Bearer }
+        expiresAt: { $ref: '#/components/schemas/DateTime' }
+    UpdateAthleteRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        birthDate: { oneOf: [{ $ref: '#/components/schemas/DateOnly' }, { type: 'null' }] }
+        preferredUnit: { $ref: '#/components/schemas/MeasurementUnit' }
+    CreateBodyMeasurementRequest:
+      type: object
+      additionalProperties: false
+      required: [bodyWeight, measuredAt]
+      properties:
+        bodyWeight: { $ref: '#/components/schemas/PositiveDecimalString' }
+        measuredAt: { $ref: '#/components/schemas/DateTime' }
+        notes: { type: [string, 'null'] }
+    CreateTrainingPlanRequest:
+      type: object
+      additionalProperties: false
+      required: [name, startsOn]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        startsOn: { $ref: '#/components/schemas/DateOnly' }
+        endsOn: { oneOf: [{ $ref: '#/components/schemas/DateOnly' }, { type: 'null' }] }
+    UpdateTrainingPlanRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        startsOn: { $ref: '#/components/schemas/DateOnly' }
+        endsOn: { oneOf: [{ $ref: '#/components/schemas/DateOnly' }, { type: 'null' }] }
+    CreatePlanWeekRequest:
+      type: object
+      additionalProperties: false
+      required: [weekNumber]
+      properties:
+        weekNumber: { type: integer, minimum: 1 }
+        objective: { type: [string, 'null'] }
+    UpdatePlanWeekRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        objective: { type: [string, 'null'] }
+    CreatePlanExerciseRequest:
+      type: object
+      additionalProperties: false
+      required: [exerciseId, position, targetSets, targetReps]
+      properties:
+        exerciseId: { $ref: '#/components/schemas/Uuid' }
+        position: { type: integer, minimum: 1 }
+        targetSets: { type: integer, minimum: 1 }
+        targetReps: { type: integer, minimum: 1 }
+        targetRpe: { $ref: '#/components/schemas/NullableRpe' }
+        targetLoad: { $ref: '#/components/schemas/NullableNonNegativeDecimal' }
+        notes: { type: [string, 'null'] }
+    CreateWorkoutSessionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        planWeekId: { $ref: '#/components/schemas/Uuid' }
+        startedAt: { $ref: '#/components/schemas/DateTime' }
+        notes: { type: [string, 'null'] }
+      description: Omitir planWeekId crea una sesión libre; trainingPlanId se deriva de la semana.
+    UpdateWorkoutSessionRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        status: { $ref: '#/components/schemas/WorkoutStatus' }
+        startedAt: { oneOf: [{ $ref: '#/components/schemas/DateTime' }, { type: 'null' }] }
+        finishedAt: { oneOf: [{ $ref: '#/components/schemas/DateTime' }, { type: 'null' }] }
+        notes: { type: [string, 'null'] }
+    CreateWorkoutExerciseRequest:
+      type: object
+      additionalProperties: false
+      required: [exerciseId, orderInSession]
+      properties:
+        exerciseId: { $ref: '#/components/schemas/Uuid' }
+        planExerciseId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        orderInSession: { type: integer, minimum: 1 }
+        notes: { type: [string, 'null'] }
+    CreateSetRecordRequest:
+      type: object
+      additionalProperties: false
+      required: [setNumber, load, repetitions]
+      properties:
+        setNumber: { type: integer, minimum: 1 }
+        load: { $ref: '#/components/schemas/NonNegativeDecimalString' }
+        repetitions: { type: integer, minimum: 1 }
+        rpe: { $ref: '#/components/schemas/NullableRpe' }
+        isCompleted: { type: boolean, default: true }
+        recordedAt: { $ref: '#/components/schemas/DateTime' }
+        notes: { type: [string, 'null'] }
+    UpsertSessionFeedbackRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        globalRpe: { $ref: '#/components/schemas/NullableRpe' }
+        fatigueScore: { $ref: '#/components/schemas/NullableDecimal' }
+        notes: { type: [string, 'null'] }
+    CreateOneRmEstimateRequest:
+      type: object
+      additionalProperties: false
+      required: [exerciseId, inputLoad, inputReps, formula]
+      properties:
+        exerciseId: { $ref: '#/components/schemas/Uuid' }
+        sourceSetId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        inputLoad: { $ref: '#/components/schemas/PositiveDecimalString' }
+        inputReps: { type: integer, minimum: 1 }
+        formula: { type: string, enum: [EPLEY, BRZYCKI] }
+    CreateProgressionSettingRequest:
+      type: object
+      additionalProperties: false
+      required: [targetRpeMin, targetRpeMax, maxIncrementPercent]
+      properties:
+        exerciseId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        trainingPlanId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        minSuccessfulSessions: { type: integer, minimum: 1, default: 3 }
+        targetRpeMin: { $ref: '#/components/schemas/Rpe' }
+        targetRpeMax: { $ref: '#/components/schemas/Rpe' }
+        incrementPercent: { $ref: '#/components/schemas/NullableNonNegativeDecimal' }
+        incrementAbsolute: { $ref: '#/components/schemas/NullableNonNegativeDecimal' }
+        maxIncrementPercent: { $ref: '#/components/schemas/NonNegativeDecimalString' }
+        maxLoad: { $ref: '#/components/schemas/NullablePositiveDecimal' }
+        autoApplyAuthorized: { type: boolean, default: false }
+      description: >-
+        La pareja exerciseId/trainingPlanId define alcance. Debe rechazarse
+        trainingPlanId sin exerciseId; ambos nulos representan ajuste general.
+    UpdateProgressionSettingRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        targetRpeMin: { $ref: '#/components/schemas/Rpe' }
+        targetRpeMax: { $ref: '#/components/schemas/Rpe' }
+        minSuccessfulSessions: { type: integer, minimum: 1 }
+        incrementPercent: { $ref: '#/components/schemas/NullableNonNegativeDecimal' }
+        incrementAbsolute: { $ref: '#/components/schemas/NullableNonNegativeDecimal' }
+        maxIncrementPercent: { $ref: '#/components/schemas/NonNegativeDecimalString' }
+        maxLoad: { $ref: '#/components/schemas/NullablePositiveDecimal' }
+        autoApplyAuthorized: { type: boolean }
+    CreateRecommendationRequest:
+      type: object
+      additionalProperties: false
+      required: [exerciseId]
+      properties:
+        exerciseId: { $ref: '#/components/schemas/Uuid' }
+        planWeekId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        planExerciseId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+      description: No permite elegir atleta, carga recomendada ni snapshot calculado por servidor.
+    RecommendationDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [APPROVE, REJECT] }
+        reason: { type: [string, 'null'], maxLength: 2000 }
+    ApplyRecommendationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        appliedLoad:
+          $ref: '#/components/schemas/PositiveDecimalString'
+      description: >-
+        Si appliedLoad se permite o se exige, y cómo interactúa con la carga recomendada,
+        sigue pendiente. La aplicación automática nunca se solicita con este DTO.

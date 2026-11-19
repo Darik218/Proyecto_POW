@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: pulso-academico
+    runtime: node
+    plan: free
+    region: oregon
+    autoDeployTrigger: "off"
+    buildCommand: bash scripts/deploy/render-build.sh
+    startCommand: bash scripts/deploy/render-start.sh
+    healthCheckPath: /api/v1
+    envVars:
+      - key: NODE_VERSION
+        value: "22.22.3"
+      - key: NODE_ENV
+        value: production
+      - key: AUTH_COOKIE_SECURE
+        value: "true"
+      - key: AUTH_ACCESS_TOKEN_SECRET
+        generateValue: true
+      - key: AUTH_REFRESH_TOKEN_PEPPER
+        generateValue: true
+      - key: PULSO_AUTOMATION_ENABLED
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pulso-academico-db
+          property: connectionString
+
+databases:
+  - name: pulso-academico-db
+    plan: free
+    region: oregon
+    postgresMajorVersion: "18"
+    ipAllowList: []

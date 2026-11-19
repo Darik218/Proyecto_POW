@@ -1,12 +1,24 @@
 import { Module } from '@nestjs/common';
 import { createObserveModule } from '@nestjs/observe';
-import { AppController } from './app.controller';
+import { AppController } from './controllers/app.controller';
 import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
+import { AthletesModule } from './athletes/athletes.module';
+import { ExercisesModule } from './exercises/exercises.module';
+import { TrainingPlansModule } from './training-plans/training-plans.module';
+import { WorkoutSessionsModule } from './workout-sessions/workout-sessions.module';
+import { ProgressionModule } from './progression/progression.module';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
 @Module({
   imports: [
+    AuthModule,
+    AthletesModule,
+    ExercisesModule,
+    TrainingPlansModule,
+    WorkoutSessionsModule,
+    ProgressionModule,
     // Distributed tracing, auto-correlated logs, request/job metrics, error
     // telemetry, alarms, and more — out of the box. Sign up at https://observe.nestjs.com
     ObserveModule.forRoot({

@@ -1,0 +1,17 @@
+{
+  "automated": {
+    "backend": 655,
+    "progressionPostgresql": 391,
+    "workoutsPostgresql": 27,
+    "planningPostgresql": 26,
+    "frontend": 178,
+    "distinctTotal": 1277
+  },
+  "firefox": {
+    "managementAndAcceptance": 25,
+    "manualProgressionRegression": 19,
+    "distinctTotal": 44
+  },
+  "executionAuthorized": false,
+  "developmentDatabaseWritten": false
+}

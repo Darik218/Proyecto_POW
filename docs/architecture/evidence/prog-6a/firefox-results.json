@@ -1,0 +1,78 @@
+[
+  {
+    "name": "P01 protected progression route rejects unauthenticated access",
+    "status": "PASS"
+  },
+  {
+    "name": "P02 real login and navigation with one layout",
+    "status": "PASS"
+  },
+  {
+    "name": "P03 explicit plan/week/day/prescription and policy generate, inspect and save",
+    "status": "PASS"
+  },
+  {
+    "name": "P04 no preselected acceptance and one checkbox cannot approve",
+    "status": "PASS"
+  },
+  {
+    "name": "P05 reinspection resets previous human acknowledgments",
+    "status": "PASS"
+  },
+  {
+    "name": "P06 explicit approval produces APPROVED and no load change",
+    "status": "PASS"
+  },
+  {
+    "name": "P07 actual future activity and server application readiness",
+    "status": "PASS"
+  },
+  {
+    "name": "P08 explicit manual application persists one increment and receipt",
+    "status": "PASS"
+  },
+  {
+    "name": "P09 reload restores APPLIED receipt and never applies twice",
+    "status": "PASS"
+  },
+  {
+    "name": "P10 mobile layout, keyboard focus and no horizontal overflow",
+    "status": "PASS"
+  },
+  {
+    "name": "P11 foreign recommendation is inaccessible after account switch",
+    "status": "PASS"
+  },
+  {
+    "name": "P12 second explicit proposal is independent",
+    "status": "PASS"
+  },
+  {
+    "name": "P13 lost committed response preserves pending exact intention",
+    "status": "PASS"
+  },
+  {
+    "name": "P14 reload recovers identifiers bound to the same real session without secret storage",
+    "status": "PASS"
+  },
+  {
+    "name": "P15 receipt recovery confirms original intent and one plan version",
+    "status": "PASS"
+  },
+  {
+    "name": "P16 explicit rejection remains immutable and cannot apply",
+    "status": "PASS"
+  },
+  {
+    "name": "P18 stale plan version cannot be applied from a previously eligible UI",
+    "status": "PASS"
+  },
+  {
+    "name": "P19 revoked session cannot confirm a pending review",
+    "status": "PASS"
+  },
+  {
+    "name": "P17 no historical changes and no recurrent consent activation",
+    "status": "PASS"
+  }
+]

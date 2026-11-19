@@ -1,0 +1,11 @@
+{
+  "filesPreviouslyInventoried": 543,
+  "previousFilesChanged": [],
+  "originalMigrationsUnchanged": 18,
+  "schemaUnchanged": true,
+  "frontendUnchanged": true,
+  "envFilesUnchanged": true,
+  "branch": "feature",
+  "head": "cbd5d3bea27fd38052b37e4adcf0d6d95e5aff98",
+  "operationalExecutionEnabled": false
+}

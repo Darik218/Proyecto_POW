@@ -1,6 +1,8 @@
 # compiled output
 /dist
+/dist-seed
 /node_modules
+/src/generated
 /build
 
 # TypeScript build cache

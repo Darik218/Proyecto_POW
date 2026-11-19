@@ -1,0 +1,56 @@
+{
+  "stage": "FINAL-MVP",
+  "branch": "feature",
+  "head": "cbd5d3bea27fd38052b37e4adcf0d6d95e5aff98",
+  "database": {
+    "development": "No test writes or new migrations; eighteen applied migrations acknowledged from user",
+    "temporaryMigrationCount": 19,
+    "previousMigrationsPreserved": true,
+    "historical18To19": true,
+    "schemaDrift": false,
+    "temporaryResourcesCleaned": true
+  },
+  "automated": {
+    "backendUnitArchitecture": 739,
+    "progressionPostgreSQL": 456,
+    "workoutsPostgreSQL": 27,
+    "planningPostgreSQL": 26,
+    "frontend": 208,
+    "distinctTotal": 1456,
+    "failures": 0
+  },
+  "browser": {
+    "automaticWalkthrough": {
+      "passed": 14,
+      "failed": 0,
+      "mode": "real Firefox; periodic worker applies before one-shot HTTP",
+      "evidence": "/tmp/pulso-final-mvp-evidence-dZGkJO"
+    },
+    "manualRegression": {
+      "passed": 19,
+      "failed": 0,
+      "evidence": "/tmp/pulso-prog6a-evidence-4T7dYK"
+    },
+    "countsAreSeparateNotAdded": true
+  },
+  "checks": {
+    "backendTypeScript": true,
+    "frontendTypeScript": true,
+    "backendLint": true,
+    "backendBuild": true,
+    "frontendBuild": true,
+    "prismaValidate": true,
+    "scopedFormat": true,
+    "gitDiffCheck": true
+  },
+  "review": {
+    "focusedCompleted": true,
+    "findingsFixed": [
+      "bounded batch starvation",
+      "interrupted CHECK recovery"
+    ],
+    "canonicalSecurityScanPerformed": false,
+    "alternativeReviewQuotaLimited": true
+  },
+  "deployment": "Isolated local academic demo; no production certification; no commit or push"
+}

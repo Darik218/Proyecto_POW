@@ -1,0 +1,260 @@
+.page-heading {
+  margin-bottom: 32px;
+}
+.page-heading h1 {
+  font-size: clamp(32px, 4vw, 44px);
+  letter-spacing: -0.035em;
+}
+.page-heading .back-link {
+  float: right;
+}
+.page-heading .intro {
+  max-width: 680px;
+  color: var(--color-text-secondary);
+}
+.athlete-banner {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 28px;
+  margin-bottom: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+}
+.athlete-avatar {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  flex: none;
+  border-radius: 20px;
+  background: var(--color-primary);
+  color: var(--color-background);
+  font-size: 24px;
+  font-weight: 800;
+}
+.athlete-banner h2 {
+  font-size: 20px;
+  overflow-wrap: anywhere;
+  margin: 0 0 6px;
+}
+.athlete-banner p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+.athlete-unit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--color-primary);
+  font-size: 14px;
+  white-space: nowrap;
+}
+.profile-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 24px;
+}
+.measurements-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.25fr);
+  gap: 24px;
+  align-items: start;
+}
+.form-card,
+.details-card,
+.history-card {
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+  padding: 28px;
+  min-width: 0;
+}
+.form-card h2,
+.details-card h2,
+.history-card h2 {
+  font-size: 20px;
+  margin: 0 0 12px;
+}
+.card-intro,
+.unit-note,
+.field-hint {
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  font-size: 14px;
+}
+.unit-note {
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface-elevated);
+}
+.field-label {
+  display: block;
+  margin: 24px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.form-control {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 12px;
+  color: var(--color-text-primary);
+  background: var(--color-background);
+  font: inherit;
+}
+.form-control:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+.form-card .primary-button {
+  margin-top: 24px;
+  min-height: 48px;
+}
+.details-list {
+  margin: 0;
+}
+.details-list > div {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.details-list dt {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.details-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.profile-id {
+  font-family: monospace;
+  font-size: 14px;
+}
+.history-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 16px;
+}
+.refresh-button {
+  min-height: 44px;
+  flex: none;
+}
+.measurement-overview {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr;
+  gap: 24px;
+  margin: 0 0 24px;
+  padding: 24px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+}
+.measurement-overview span {
+  display: block;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin-bottom: 10px;
+}
+.measurement-overview strong {
+  font-size: 28px;
+  letter-spacing: -0.8px;
+  font-variant-numeric: tabular-nums;
+}
+.measurement-overview p {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+.measurement-list {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+}
+.measurement-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.65fr) 1fr;
+  gap: 20px;
+  padding: 24px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.measurement-row__value strong {
+  font-size: 28px;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.measurement-row__value span {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  margin-top: 4px;
+}
+.measurement-row__detail time {
+  font-size: 14px;
+}
+.measurement-row__detail p {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.field-hint--right {
+  text-align: right;
+}
+@media (max-width: 900px) {
+  .profile-grid,
+  .measurements-grid {
+    grid-template-columns: 1fr;
+  }
+  .measurement-overview {
+    grid-template-columns: 1fr 1fr;
+  }
+  .measurement-overview p {
+    grid-column: 1/-1;
+  }
+  .athlete-banner {
+    flex-wrap: wrap;
+  }
+  .athlete-unit {
+    margin-left: 88px;
+  }
+}
+@media (max-width: 520px) {
+  .form-card,
+  .details-card,
+  .history-card {
+    padding: 20px;
+  }
+  .athlete-banner {
+    padding: 20px;
+  }
+  .athlete-banner > div {
+    max-width: calc(100% - 88px);
+  }
+  .page-heading .back-link {
+    float: none;
+    display: inline-block;
+    margin-bottom: 16px;
+  }
+  .measurement-overview {
+    padding: 20px;
+    gap: 20px;
+  }
+  .measurement-overview strong {
+    font-size: 22px;
+  }
+  .history-heading {
+    flex-wrap: wrap;
+  }
+  .measurement-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
