@@ -344,6 +344,37 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
           !exercises.some((e) => e.exerciseId === preview.exerciseId)
         )
           throw new RecommendationError('SOURCE_NOT_FOUND');
+        // A calendar or plan-day read can refer to an already started workout.
+        // Exclude its own records, just as a SESSION read does. Keep ambiguous
+        // or unrelated same-date sessions as evidence that order is unverified.
+        let excludedSessionId = source.sessionId;
+        if (
+          !excludedSessionId &&
+          source.trainingPlanId &&
+          source.planWeekId &&
+          source.planDayId &&
+          source.performedOn &&
+          source.timeZone &&
+          exercises.length
+        ) {
+          const matches = await tx.workoutSession.findMany({
+            where: {
+              athleteId: actor.athleteId,
+              trainingPlanId: source.trainingPlanId,
+              planWeekId: source.planWeekId,
+              planDayId: source.planDayId,
+              performedOn: new Date(source.performedOn + 'T00:00:00Z'),
+              timeZone: source.timeZone,
+              ...(source.activityId
+                ? { scheduledActivityId: source.activityId }
+                : {}),
+              status: { in: ['PLANNED', 'IN_PROGRESS', 'COMPLETED'] },
+            },
+            select: { id: true },
+            take: 2,
+          });
+          if (matches.length === 1) excludedSessionId = matches[0].id;
+        }
         for (const exercise of exercises) {
           const history = await tx.workoutExercise.findMany({
             where: {
@@ -351,7 +382,7 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
               isOmitted: false,
               session: {
                 athleteId: actor.athleteId,
-                id: source.sessionId ? { not: source.sessionId } : undefined,
+                id: excludedSessionId ? { not: excludedSessionId } : undefined,
                 status: { in: ['IN_PROGRESS', 'COMPLETED'] },
                 OR: [
                   { performedOn: { lte: new Date(cutoff + 'T00:00:00Z') } },
@@ -580,6 +611,10 @@ export class PrismaWorkoutGuideRepository implements WorkoutGuideRepository {
                     source.kind !== 'SESSION' ||
                     (captured?.exerciseId === identity.id &&
                       captured.equipment === identity.equipment),
+                  taskScopes: history.slice(0, 100).map((task) => ({
+                    taskId: task.id,
+                    planId: task.session.trainingPlanId,
+                  })),
                   tasks: history.slice(0, 100).flatMap((task) => {
                     const capture = capturedPlanExercise(
                       task.originalSnapshot,

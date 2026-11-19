@@ -11,7 +11,7 @@ import {
 type Exercise = WorkoutGuide["exercises"][number];
 type Reference = NonNullable<Exercise["lastReference"]>;
 type Target = Exercise["target"];
-const props = defineProps<{ exercise: Exercise; verifying?: boolean }>();
+const props = defineProps<{ exercise: Exercise }>();
 const preparation = computed(() => props.exercise.preparation);
 const before = computed(() =>
   preparation.value ? preparation.value.before : props.exercise.lastReference,
@@ -65,7 +65,10 @@ const loadCodes = computed(
 const needsLoadSetup = computed(
   () =>
     !initial.value &&
-    !calculated.value &&
+    (!calculated.value ||
+      preparation.value?.why.includes(
+        "LOAD_INCREMENT_REQUIRES_EXPLICIT_POLICY",
+      )) &&
     loadCodes.value
       .concat(blockerCodes.value)
       .some((code) => setupReasons.has(code)),
@@ -221,10 +224,7 @@ function sessionSets(recorded: Reference["sessions"][number]["sets"]): string {
     <template v-else>
       <p class="preparation-draft" :data-origin="draft?.origin">
         <strong>Para esta sesión</strong>
-        <span v-if="verifying && !calculated" role="status">
-          Verificando la orientación…
-        </span>
-        <template v-else-if="draft && stage !== 'REVIEW_REQUIRED'">
+        <template v-if="draft && stage !== 'REVIEW_REQUIRED'">
           <span class="preparation-draft-values">{{ draftLabel }}</span>
           <span class="preparation-hint">
             {{
@@ -244,13 +244,9 @@ function sessionSets(recorded: Reference["sessions"][number]["sets"]): string {
           realices.</span
         >
       </p>
-      <p
-        v-if="primaryReason && (!verifying || calculated)"
-        class="preparation-hint"
-      >
+      <p v-if="primaryReason" class="preparation-hint">
         <strong>Por qué</strong>{{ primaryReason }}
       </p>
-      <slot name="comparison" />
     </template>
     <details
       v-if="!initial || exercise.originalTarget || proposal"

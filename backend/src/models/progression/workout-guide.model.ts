@@ -179,6 +179,7 @@ export type GuidePlannedComparisonEvidence = {
     resistanceType: string | null;
   };
   destinationCaptured: boolean;
+  taskScopes?: { taskId: string; planId: string | null }[];
   tasks: {
     taskId: string;
     exerciseId: string;

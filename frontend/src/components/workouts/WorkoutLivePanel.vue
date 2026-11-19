@@ -11,7 +11,6 @@ import {
 import { useAuthStore } from "../../stores/auth.store";
 import { workoutGuideService } from "../../services/workout-guide.service";
 import { useWorkoutGuide } from "../../composables/useWorkoutGuide";
-import type { WorkoutGuide } from "../../schemas/workout-guide.schema";
 import type {
   Workout,
   AddWorkoutExercise,
@@ -33,7 +32,6 @@ import {
 import WorkoutSetForm from "./WorkoutSetForm.vue";
 import WorkoutExerciseCard from "./WorkoutExerciseCard.vue";
 import RestTimer from "./RestTimer.vue";
-import WorkoutRepetitionGuide from "./WorkoutRepetitionGuide.vue";
 import WorkoutPreparationSummary from "./WorkoutPreparationSummary.vue";
 import AddWorkoutExerciseForm from "./AddWorkoutExerciseForm.vue";
 const props = defineProps<{
@@ -133,26 +131,6 @@ function revealCurrent() {
 onMounted(() => {
   void nextTick(revealCurrent);
 });
-async function applyGuide(
-  value: WorkoutGuide,
-  occurrenceId: string,
-  contextKey: string,
-) {
-  if (!mergeGuidePreview(value, occurrenceId, contextKey)) return;
-  await nextTick();
-  if (active.value?.id !== occurrenceId) return;
-  if (exerciseGuide.value?.guidanceSuggested?.load != null) {
-    const load = currentCard.value?.querySelector<HTMLInputElement>(
-      '.quick-set-form input[id$="-load"]',
-    );
-    if (load) {
-      load.focus({ preventScroll: true });
-      load.scrollIntoView({ block: "center" });
-      return;
-    }
-  }
-  revealCurrent();
-}
 const evidenceVersion = computed(() =>
   JSON.stringify([
     props.session.performedOn,
@@ -172,15 +150,6 @@ const {
   fallbackError:
     "No se pudo actualizar la orientación. Puedes seguir registrando tus series.",
 });
-const checkingOccurrence = ref<string | null>(null);
-const repetitionChecking = computed(
-  () =>
-    !!checkingOccurrence.value && checkingOccurrence.value === active.value?.id,
-);
-function setChecking(id: string, active: boolean) {
-  if (active) checkingOccurrence.value = id;
-  else if (checkingOccurrence.value === id) checkingOccurrence.value = null;
-}
 const calculating = ref(false),
   guideError = ref(""),
   gridStep = ref(""),
@@ -225,6 +194,7 @@ const draft = computed<WorkoutSetDraft | undefined>(() => {
   const item = active.value,
     g = exerciseGuide.value,
     s = g?.guidanceSuggested;
+  if (!g && guideBusy.value) return undefined;
   if (g?.preparation) {
     const prepared = g.preparation.draft;
     if (!prepared) {
@@ -361,7 +331,6 @@ async function calculate() {
     !c.contextKey ||
     !e ||
     calculating.value ||
-    repetitionChecking.value ||
     guideBusy.value ||
     props.busy
   )
@@ -682,35 +651,7 @@ onUnmounted(() => {
             v-if="exerciseGuide?.preparation"
             class="live-preparation"
             :exercise="exerciseGuide"
-            :verifying="
-              repetitionChecking && !exerciseGuide?.guidanceSuggested?.load
-            "
-          >
-            <template
-              v-if="
-                exerciseGuide.preparation.stage === 'REPETITION_READY' &&
-                (
-                  exerciseGuide.progressiveContext ??
-                  exerciseGuide.repetitionContext
-                )?.ready
-              "
-              #comparison
-            >
-              <WorkoutRepetitionGuide
-                :query="{ sessionId: session.id }"
-                :exercise-id="active.exercise.id"
-                :occurrence-id="active.id"
-                :context="
-                  (exerciseGuide.progressiveContext ??
-                    exerciseGuide.repetitionContext)!
-                "
-                :disabled="busy || calculating || guideBusy"
-                compact
-                @calculated="applyGuide"
-                @checking="setChecking"
-              />
-            </template>
-          </WorkoutPreparationSummary>
+          />
           <div v-else class="live-context">
             <p
               v-if="exerciseGuide?.lastReference?.scope === 'FREE_SESSION'"
@@ -832,26 +773,6 @@ onUnmounted(() => {
           >
             Obtener una propuesta calculada
           </button>
-          <WorkoutRepetitionGuide
-            v-if="
-              !exerciseGuide?.preparation &&
-              (
-                exerciseGuide?.progressiveContext ??
-                exerciseGuide?.repetitionContext
-              )?.ready &&
-              exerciseGuide?.guidanceSuggested?.load == null
-            "
-            :query="{ sessionId: session.id }"
-            :exercise-id="active.exercise.id"
-            :occurrence-id="active.id"
-            :context="
-              (exerciseGuide?.progressiveContext ??
-                exerciseGuide?.repetitionContext)!
-            "
-            :disabled="busy || calculating"
-            @calculated="applyGuide"
-            @checking="setChecking"
-          />
           <details
             v-if="
               !exerciseGuide?.preparation && exerciseGuide?.guidanceSuggested

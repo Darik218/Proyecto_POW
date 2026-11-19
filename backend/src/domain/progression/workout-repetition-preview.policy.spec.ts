@@ -447,6 +447,71 @@ describe('versioned comparable prescription evidence', () => {
       expect(automaticRepetitionPreview(f.c, f.source, prepared)).toBeNull();
     },
   );
+  it('uses recent owned planned evidence instead of an unrelated free session', () => {
+    const f = variableSets();
+    f.c.history.tasks.push({
+      ...f.c.history.tasks[1],
+      id: 'free',
+      sessionId: 'free-session',
+      performedOn: '2026-01-07',
+      planExerciseId: null,
+    });
+    f.c.history.sets = [
+      ...f.c.history.sets,
+      ...f.c.history.sets
+        .filter((set) => set.workoutExerciseId === 'b')
+        .map((set) => ({
+          ...set,
+          id: 'free-' + set.setNumber,
+          workoutExerciseId: 'free',
+          load: '70',
+        })),
+    ];
+    const evidence = {
+      ...plannedSmith(f),
+      taskScopes: f.c.history.tasks.map((task) => ({
+        taskId: task.id,
+        planId: task.id === 'free' ? null : 'plan',
+      })),
+    };
+    evidence.tasks = evidence.tasks.filter((task) => task.taskId !== 'free');
+    const prepared = prepareAutomatic(f, evidence);
+    expect(prepared.comparability?.state).toBe('AUTOMATIC_VERIFIED');
+    expect(prepared.tasks.map((t) => t.id)).toEqual(['b', 'a']);
+    expect(automaticRepetitionPreview(f.c, f.source, prepared)).toMatchObject({
+      load: '60.000000',
+      repsBySet: [12, 11, 10],
+    });
+  });
+
+  it('observes a recent comparable second session even when the default minimum is one', () => {
+    const f = variableSets();
+    f.c.settings = [];
+    f.c.history.sets = f.c.history.sets.map((set) => ({
+      ...set,
+      repetitions:
+        set.workoutExerciseId === 'a'
+          ? [10, 9, 8][set.setNumber - 1]
+          : [11, 10, 9][set.setNumber - 1],
+    }));
+    const prepared = prepareAutomatic(f);
+    expect(prepared.minimumSessions).toBe(1);
+    expect(prepared.tasks.map((task) => task.id)).toEqual(['b', 'a']);
+    expect(automaticRepetitionPreview(f.c, f.source, prepared)).toMatchObject({
+      repsBySet: [11, 10, 10],
+      reasons: expect.arrayContaining(['COMPARABLE_SESSIONS_IMPROVING']),
+    });
+
+    f.c.history.sets = f.c.history.sets.map((set) =>
+      set.workoutExerciseId === 'b' && set.setNumber === 1
+        ? { ...set, repetitions: 9 }
+        : set,
+    );
+    const inconsistent = prepareAutomatic(f);
+    expect(inconsistent.reasons).toContain('HISTORY_REPETITIONS_INCONSISTENT');
+    expect(automaticRepetitionPreview(f.c, f.source, inconsistent)).toBeNull();
+  });
+
   it('uses a verified monotonic trend conservatively and refuses contradictory slots', () => {
     const f = variableSets();
     f.c.history.sets = f.c.history.sets.map((set) => ({

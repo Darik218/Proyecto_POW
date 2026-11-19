@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { AuthenticatedIdentity } from '../auth/auth.types';
 import {
   WORKOUT_GUIDE_REPOSITORY,
@@ -22,6 +22,8 @@ import { inspectReview } from '../domain/progression/recommendation-review.polic
 import { deriveRecommendation } from './recommendation.service';
 @Injectable()
 export class WorkoutGuideService {
+  private readonly logger = new Logger(WorkoutGuideService.name);
+
   constructor(
     @Inject(WORKOUT_GUIDE_REPOSITORY)
     private readonly repository: WorkoutGuideRepository,
@@ -250,6 +252,45 @@ export class WorkoutGuideService {
             ? 'La referencia queda fuera del alcance de esta orientación semanal: semana del objetivo o inmediatamente anterior, de lunes a domingo. Revisa y recalibra la carga antes de entrenar; el tiempo transcurrido no determina una pérdida de fuerza.'
             : 'La referencia y el objetivo no comparten una zona horaria deportiva verificable. Revisa el contexto antes de elegir la carga.';
         }
+        const preparation = prepareExerciseGuidance(
+          exercise,
+          snapshot,
+          reference,
+          suggestion,
+        );
+        if (process.env.PULSO_WORKOUT_GUIDE_TRACE === '1') {
+          const repetition =
+            explicitRepetition &&
+            explicit?.policyContract === 'session-repetition-preview-v1'
+              ? exercise.repetitionContext
+              : exercise.progressiveContext;
+          this.logger.debug({
+            event: 'workout-guide-evaluated',
+            sourceKind: snapshot.source.kind,
+            sourceId: snapshot.source.id,
+            evaluatedOn: snapshot.source.performedOn,
+            historyCutoffOn: snapshot.historyCutoffOn,
+            exerciseId: exercise.exerciseId,
+            prescriptionId: exercise.prescriptionId,
+            referenceTaskIds:
+              reference.lastReference?.sessions.map((value) => value.taskId) ??
+              [],
+            repetitionTaskIds: repetition?.tasks.map(({ id }) => id) ?? [],
+            loadTaskIds:
+              exercise.calculationContext?.tasks.map(({ id }) => id) ?? [],
+            comparability: repetition?.comparability ?? null,
+            policy: suggestion.policyVersion,
+            origin: suggestion.origin,
+            decision: suggestion.action,
+            stage: preparation.stage,
+            reasonCodes: [
+              ...new Set([
+                ...suggestion.reasons,
+                ...preparation.blockers.map(({ code }) => code),
+              ]),
+            ],
+          });
+        }
         return {
           id: exercise.id,
           exerciseId: exercise.exerciseId,
@@ -264,12 +305,7 @@ export class WorkoutGuideService {
           calculationContext: exercise.calculationContext ?? null,
           repetitionContext: exercise.repetitionContext ?? null,
           progressiveContext: exercise.progressiveContext ?? null,
-          preparation: prepareExerciseGuidance(
-            exercise,
-            snapshot,
-            reference,
-            suggestion,
-          ),
+          preparation,
         };
       }),
     };

@@ -41,13 +41,16 @@ assert.equal(
 );
 const uiFinal = process.argv.includes("--ui-final");
 const hotfix = uiFinal && process.env.PULSO_BROWSER_HOTFIX === "1";
+const hotfix3 = uiFinal && process.env.PULSO_BROWSER_HOTFIX === "3";
 const evidenceRoot = resolve(
   "../..",
-  hotfix
-    ? "hotfix-2-validation/browser"
-    : uiFinal
-      ? "ui-final-validation/browser"
-      : "prog7-validation/browser",
+  hotfix3
+    ? "hotfix-3-validation/browser"
+    : hotfix
+      ? "hotfix-2-validation/browser"
+      : uiFinal
+        ? "ui-final-validation/browser"
+        : "prog7-validation/browser",
 );
 await mkdir(evidenceRoot, { recursive: true });
 const evidence = await mkdtemp(join(evidenceRoot, "run-")),
@@ -389,7 +392,7 @@ async function observeRequests() {
 
 async function recordWholeSession(
   id,
-  { offset = 0, reps = 8, beforeFirstSet, afterFirstSet, beforeSet } = {},
+  { offset = 0, load, reps = 8, beforeFirstSet, afterFirstSet, beforeSet } = {},
 ) {
   const session = await api("get", `/workout-sessions/${id}`);
   for (let i = 0; i < session.exercises.length; i++) {
@@ -414,7 +417,10 @@ async function recordWholeSession(
       );
       await beforeSet?.(i, n);
       await field('.quick-set-form select[id$="-unit"]', "KG");
-      await field('.quick-set-form input[id$="-load"]', 40 + i + offset);
+      await field(
+        '.quick-set-form input[id$="-load"]',
+        load ?? 40 + i + offset,
+      );
       await field(
         '.quick-set-form input[id$="-reps"]',
         typeof reps === "function" ? reps(i, n) : reps,
@@ -1123,21 +1129,27 @@ try {
         .toISOString()
         .slice(0, 10);
   if (uiFinal) {
-    const { runUiFinal } = await import("./workout-ui-final.scenario.mjs");
-    await runUiFinal({
+    const run = hotfix3
+      ? (await import("./workout-hotfix3.scenario.mjs")).runHotfix3
+      : (await import("./workout-ui-final.scenario.mjs")).runUiFinal;
+    await run({
       api,
       athleteId,
       check,
       click,
       command,
       field,
+      execute,
       go,
       health,
+      saveEvidence: (filename, value) =>
+        writeFile(join(evidence, filename), JSON.stringify(value, null, 2)),
       hotfix,
       immutableHistory,
       immutablePlans,
       navigate,
       observeRequests,
+      origin: cfg.origin,
       prepareCatalog,
       recordWholeSession,
       shift,

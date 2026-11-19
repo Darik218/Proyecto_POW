@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { before, after, test } from "node:test";
 import { resolve } from "node:path";
 import { createServer } from "vite";
-import { createRenderer, nextTick } from "vue";
+import { createRenderer, nextTick, ref } from "vue";
 import { createPinia } from "pinia";
 import { createRouter, createMemoryHistory } from "vue-router";
 import {
@@ -137,9 +137,11 @@ async function setup(t, name, adapter, props = {}) {
   });
   await router.push("/");
   await router.isReady();
-  const Component = (
-    await server.ssrLoadModule(`/src/components/workouts/${name}.vue`)
-  ).default;
+  const Component =
+    typeof name === "string"
+      ? (await server.ssrLoadModule(`/src/components/workouts/${name}.vue`))
+          .default
+      : name;
   const app = renderer.createApp(
     { ...Component, render: () => null },
     name === "DailyWorkoutGuide"
@@ -558,66 +560,32 @@ test("PROG7 review blocks automatic reuse of an old reference while preserving m
   assert.equal(state.draft?.repetitions, 8);
   assert.equal(state.activeReference, undefined);
 });
-test("PROG7 comparison confirmation uses v2 and records only the returned verified pair", async (t) => {
-  const { workoutComparability, repetitionClaims } = await server.ssrLoadModule(
-    "/src/services/workout-comparability.service.ts",
-  );
-  const requests = [];
+test("HOTFIX-3 ambiguous history remains a reference without a follow-up declaration", async (t) => {
   const value = sample();
-  value.exercises[0].progressiveContext = {
+  const exercise = value.exercises[0];
+  exercise.progressiveContext = {
     ...progressive,
-    comparability: {
-      state: "USER_CONFIRMED",
-      source: "REQUEST_DECLARATION",
-    },
+    comparability: { state: "CONFIRMATION_REQUIRED", source: null },
   };
-  const { state, auth } = await setup(
-    t,
-    "WorkoutRepetitionGuide",
-    async (config) => {
-      requests.push(JSON.parse(config.data));
-      const result = structuredClone(value);
-      if (requests.length === 1)
-        result.exercises[0].progressiveContext.contextKey = "d".repeat(64);
-      return response(config, result);
+  exercise.preparation = preparation("REPETITION_READY");
+  exercise.preparation.blockers = [
+    {
+      category: "comparability",
+      code: "COMPARABILITY_DECLARATION_REQUIRED",
     },
-    { query: { activityId: id }, exerciseId: id, context: progressive },
-  );
-  const scope = JSON.stringify([auth.user.id, auth.getSessionGeneration()]);
-  const missing = () =>
-    workoutComparability.missing(
-      scope,
-      progressive.comparisonKey,
-      repetitionClaims,
-    );
-  assert.equal(requests.length, 0, "an unconfirmed pair never auto-calculates");
-  await state.calculate();
-  assert.equal(requests[0].policyContract, "session-repetition-preview-v2");
-  assert.deepEqual(requests[0].declaration, {
-    sameVariant: true,
-    sameEquipment: true,
-    sameLoadConvention: true,
+  ];
+  const requests = [];
+  const { state } = await setup(t, "DailyWorkoutGuide", async (config) => {
+    requests.push(config.method);
+    return response(config, value);
   });
-  assert.deepEqual(
-    missing(),
-    repetitionClaims,
-    "a different context cannot confirm the pair",
+  const html = await renderGuideCard(state.guide.exercises[0]);
+  assert.match(html, /No se pudo verificar que el equipo/);
+  assert.doesNotMatch(
+    html,
+    /Sí, orientar mis repeticiones|Propuesta calculada|COMPARABILITY_DECLARATION_REQUIRED/,
   );
-  await state.calculate();
-  assert.deepEqual(
-    missing(),
-    [],
-    "the same authenticated context reuses the declaration",
-  );
-  assert.deepEqual(
-    workoutComparability.missing(
-      "other account",
-      progressive.comparisonKey,
-      repetitionClaims,
-    ),
-    repetitionClaims,
-    "another account cannot reuse that declaration",
-  );
+  assert.deepEqual(requests, ["get"]);
 });
 
 async function renderGuideCard(exercise) {
@@ -842,7 +810,17 @@ test("parallel repetition results publish only their own exercise and a same-sco
   const initial = workoutGuideSchema.parse(raw);
   let unblockRead;
   let reads = 0;
-  const { state } = await setup(t, "DailyWorkoutGuide", async (config) => {
+  const { useWorkoutGuide } = await server.ssrLoadModule(
+    "/src/composables/useWorkoutGuide.ts",
+  );
+  const harness = {
+    setup: () =>
+      useWorkoutGuide({
+        query: () => ({ activityId: id }),
+        fallbackError: "Error",
+      }),
+  };
+  const { state } = await setup(t, harness, async (config) => {
     if (++reads === 2)
       await new Promise((resolve) => {
         unblockRead = resolve;
@@ -958,21 +936,94 @@ test("automatic comparability renders the actual work-set rationale and never se
   assert.match(html, /Por qué/);
   assert.match(html, /Intenta 9 repeticiones en la serie 3/);
   assert.match(html, /Comparación verificada automáticamente/);
-  let requests = 0;
+  const requests = [];
+  await setup(t, "DailyWorkoutGuide", async (config) => {
+    requests.push(config.method);
+    return response(config, value);
+  });
+  assert.deepEqual(requests, ["get"]);
+});
+
+test("HOTFIX-3 one in-flight read per unchanged guide context", async (t) => {
+  let unblock;
+  let reads = 0;
+  const responseGate = new Promise((resolve) => {
+    unblock = resolve;
+  });
+  const { state } = await setup(t, "DailyWorkoutGuide", async (config) => {
+    if (++reads > 1) await responseGate;
+    return response(config, sample());
+  });
+  const refreshing = state.load();
+  const sameQuery = state.load();
+  await tick();
+  const count = reads;
+  unblock();
+  await Promise.all([refreshing, sameQuery]);
+  assert.equal(count, 2, "a refresh already in flight should be reused");
+});
+
+test("HOTFIX-3 live leaves an untouched draft unset while the server determines the recommendation", async (t) => {
+  let unblock;
+  const value = sample();
+  value.exercises[0].preparation = preparation("REPETITION_DRAFT");
+  value.exercises[0].preparation.draft.origin = "CALCULATED";
+  value.exercises[0].preparation.draft.reps = 9;
   const { state } = await setup(
     t,
-    "WorkoutRepetitionGuide",
+    "WorkoutLivePanel",
     async (config) => {
-      requests++;
+      await new Promise((resolve) => {
+        unblock = resolve;
+      });
       return response(config, value);
     },
-    {
-      query: { activityId: id },
-      exerciseId: id,
-      occurrenceId: id,
-      context: exercise.progressiveContext,
-    },
+    liveProps(),
   );
-  await state.calculate();
-  assert.equal(requests, 0);
+  const unresolved = state.draft;
+  unblock();
+  await tick();
+  assert.equal(
+    unresolved,
+    undefined,
+    "pending guide cannot populate initial plan values as a draft",
+  );
+  assert.equal(state.draft.origin, "CALCULATED");
+  assert.equal(state.draft.repetitions, 9);
+});
+
+test("HOTFIX-3 answers for a prior day cannot replace the current guide", async (t) => {
+  const { useWorkoutGuide } = await server.ssrLoadModule(
+    "/src/composables/useWorkoutGuide.ts",
+  );
+  const selectedDay = ref("2026-11-15");
+  const harness = {
+    setup: () =>
+      useWorkoutGuide({
+        query: () => ({
+          planDayId: id,
+          performedOn: selectedDay.value,
+          timeZone: "UTC",
+        }),
+        fallbackError: "Error",
+      }),
+  };
+  let releaseOld, oldSignal;
+  const { state } = await setup(t, harness, async (config) => {
+    const date = config.params.performedOn;
+    if (date === "2026-11-15") {
+      oldSignal = config.signal;
+      await new Promise((resolve) => {
+        releaseOld = resolve;
+      });
+    }
+    return response(config, sample(date));
+  });
+  selectedDay.value = "2026-11-16";
+  await tick();
+  assert.ok(oldSignal.aborted);
+  assert.equal(state.guide.source.performedOn, "2026-11-16");
+  releaseOld();
+  await tick();
+  assert.equal(state.guide.source.performedOn, "2026-11-16");
 });

@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { before, after, test } from "node:test";
 import { resolve } from "node:path";
 import { createServer } from "vite";
-import { createRenderer, reactive, nextTick } from "vue";
-import { createPinia } from "pinia";
 import { response } from "./workout-sessions.fixtures.mjs";
 import {
   workoutRepetitionPreviewInputSchema,
@@ -159,106 +157,55 @@ before(async () => {
 after(async () => {
   await server?.close();
 });
-const renderer = createRenderer({
-  createElement: () => ({}),
-  createText: () => ({}),
-  createComment: () => ({}),
-  insert() {},
-  remove() {},
-  setText() {},
-  setElementText() {},
-  patchProp() {},
-  parentNode: () => null,
-  nextSibling: () => null,
-});
-const tick = () => new Promise((accept) => setImmediate(accept));
-async function mount(t, adapter) {
+async function withAdapter(t, adapter) {
   const { api } = await server.ssrLoadModule("/src/services/api.ts");
+  const { workoutGuideService } = await server.ssrLoadModule(
+    "/src/services/workout-guide.service.ts",
+  );
   api.defaults.adapter = adapter;
   t.after(() => {
     api.defaults.adapter = undefined;
   });
-  const pinia = createPinia();
-  const { useAuthStore } = await server.ssrLoadModule(
-    "/src/stores/auth.store.ts",
-  );
-  const auth = useAuthStore(pinia);
-  auth.user = { id, email: "private@example.test" };
-  auth.accessToken = "in-memory-test";
-  auth.status = "authenticated";
-  const Component = (
-    await server.ssrLoadModule(
-      "/src/components/workouts/WorkoutRepetitionGuide.vue",
-    )
-  ).default;
-  const props = reactive({
-    query: { sessionId: id },
-    exerciseId: id,
-    context: { ...context },
-  });
-  const events = [];
-  const app = renderer.createApp(
-    { ...Component, render: () => null },
-    { ...props, onCalculated: (value) => events.push(value) },
-  );
-  app.provide(Symbol.for("v-scx"), { modules: new Set() });
-  app.use(pinia);
-  const instance = app.mount({});
-  t.after(() => app.unmount());
-  await tick();
-  return { state: instance.$.setupState, events, auth, props };
+  return workoutGuideService;
 }
-test("preview is voluntary, single flight and sends only same-task declarations", async (t) => {
-  let finish;
+
+test("legacy preview still sends the explicit comparison through the existing HTTP contract", async (t) => {
   const calls = [];
-  const { state, events } = await mount(t, async (config) => {
+  const service = await withAdapter(t, async (config) => {
     calls.push(config);
-    await new Promise((accept) => {
-      finish = accept;
-    });
     return response(config, guide());
   });
-  assert.equal(calls.length, 0, "mount must not submit a declaration");
-  const pending = state.calculate();
-  await tick();
-  await state.calculate();
+  assert.equal(calls.length, 0);
+  const value = await service.repetitionPreview(input);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "/progression/workout-guide/repetition-preview");
   assert.deepEqual(JSON.parse(calls[0].data), input);
-  finish();
-  await pending;
-  assert.equal(events.length, 1);
-  assert.equal(events[0].exercises[0].guidanceSuggested.reps, 9);
+  assert.equal(value.exercises[0].guidanceSuggested.reps, 9);
 });
-test("a late calculation is discarded after account or session changes", async (t) => {
+
+test("cancelling a pending legacy preview rejects its late response", async (t) => {
+  const controller = new AbortController();
   let finish;
-  const { state, events, auth } = await mount(t, async (config) => {
+  const service = await withAdapter(t, async (config) => {
+    assert.equal(config.signal, controller.signal);
     await new Promise((accept) => {
       finish = accept;
     });
     return response(config, guide());
   });
-  const pending = state.calculate();
-  await tick();
-  auth.clearSession();
-  await nextTick();
+  const pending = assert.rejects(
+    service.repetitionPreview(input, controller.signal),
+    { code: "ERR_CANCELED" },
+  );
+  await new Promise((accept) => setImmediate(accept));
+  controller.abort();
   finish();
   await pending;
-  assert.equal(events.length, 0);
 });
-test("a changed comparison context invalidates an in-flight result", async (t) => {
-  let finish;
-  const { state, events, props } = await mount(t, async (config) => {
-    await new Promise((accept) => {
-      finish = accept;
-    });
-    return response(config, guide());
-  });
-  const pending = state.calculate();
-  await tick();
-  props.context.contextKey = "b".repeat(64);
-  await nextTick();
-  finish();
-  await pending;
-  assert.equal(events.length, 0);
+
+test("legacy preview rejects a response that claims operative authorization", async (t) => {
+  const service = await withAdapter(t, async (config) =>
+    response(config, { ...guide(), executionAuthorized: true }),
+  );
+  await assert.rejects(service.repetitionPreview(input), { name: "ZodError" });
 });

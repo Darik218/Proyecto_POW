@@ -91,6 +91,50 @@ export function prepareRepetitionContext(
         task.performedOn <= cutoff
       : task.planExerciseId === context.target.prescriptionId,
   );
+  const scope = new Map(
+    plannedEvidence?.taskScopes?.map(({ taskId, planId }) => [taskId, planId]),
+  );
+  const usePlanHistory =
+    progressive &&
+    plannedEvidence?.destinationCaptured &&
+    source.trainingPlanId &&
+    applicable.some((task) => scope.get(task.id) === source.trainingPlanId);
+  const candidates = applicable
+    .filter(
+      (task) =>
+        task.performedOn &&
+        source.performedOn &&
+        task.performedOn < source.performedOn &&
+        (!usePlanHistory ||
+          !scope.has(task.id) ||
+          scope.get(task.id) === source.trainingPlanId),
+    )
+    .sort(
+      (a, b) =>
+        b.performedOn!.localeCompare(a.performedOn!) ||
+        a.id.localeCompare(b.id),
+    );
+  const minimumSessions = selected?.minSuccessfulSessions ?? 1;
+  const recentPair = candidates.slice(0, 2);
+  // A minimum is an evidence floor. Inspect a second recent occurrence when
+  // nominal comparability for both is established, even with a floor of one.
+  const considerTrend =
+    progressive &&
+    minimumSessions === 1 &&
+    recentPair.length === 2 &&
+    !guidePreviewPeriodReasons(source, {
+      performedOn: recentPair[1].performedOn!,
+      sessions: [{ timeZone: recentPair[1].timeZone }],
+    }).length &&
+    hasPlannedNominalComparison(
+      context,
+      source,
+      recentPair.map(({ id }) => id),
+      plannedEvidence,
+    );
+  const tasks = candidates.slice(0, considerTrend ? 2 : minimumSessions);
+  const taskIds = tasks.map(({ id }) => id);
+
   const reasons: string[] = [];
   if (resolved.reasons.includes('AMBIGUOUS_SETTING_SCOPE'))
     reasons.push('AMBIGUOUS_SETTING_SCOPE');
@@ -107,7 +151,7 @@ export function prepareRepetitionContext(
     context,
     source,
     t,
-    progressive ? applicable.map((task) => task.id) : undefined,
+    progressive ? taskIds : undefined,
   );
   if (!baseline) reasons.push('KNOWN_LOAD_BASELINE_REQUIRED');
   if (context.target.kind !== 'PRESCRIPTION' || !context.target.prescriptionId)
@@ -138,20 +182,17 @@ export function prepareRepetitionContext(
     reasons.push('SESSION_NOT_TRAINABLE');
   if (Object.values(context.history.truncated).some(Boolean))
     reasons.push('READ_LIMIT_REACHED');
-  const tasks = applicable
-    .filter(
-      (t) =>
-        (progressive || t.planExerciseId === context.target.prescriptionId) &&
-        t.performedOn &&
-        source.performedOn &&
-        t.performedOn < source.performedOn,
+  if (progressive) {
+    const consideredDates = new Set(
+      tasks.map(({ performedOn }) => performedOn),
+    );
+    if (
+      candidates.filter(({ performedOn }) => consideredDates.has(performedOn))
+        .length > consideredDates.size
     )
-    .sort(
-      (a, b) =>
-        b.performedOn!.localeCompare(a.performedOn!) ||
-        a.id.localeCompare(b.id),
-    )
-    .slice(0, selected?.minSuccessfulSessions ?? 1);
+      reasons.push('INTRADAY_ORDER_UNKNOWN');
+  }
+
   const prepared: GuideRepetitionContext = {
     ...(progressive ? { historyCutoffOn: cutoff } : {}),
     comparisonKey: guideComparisonKey(
@@ -159,7 +200,7 @@ export function prepareRepetitionContext(
       source,
       cutoff,
       sourceTargets,
-      tasks.map((t) => t.id),
+      taskIds,
       comparisonSource,
     ),
     contextKey: recommendationIdentity({
@@ -172,7 +213,7 @@ export function prepareRepetitionContext(
     }),
     ready: !reasons.length,
     reasons: [...new Set(reasons)],
-    minimumSessions: selected?.minSuccessfulSessions ?? 1,
+    minimumSessions,
     minimumSource: selected ? 'PERSISTED_SETTING' : 'PLAN_BOUND_INITIAL_POLICY',
     baselineSource: baseline?.baselineSource ?? null,
     tasks: tasks.map((t) => ({
@@ -196,7 +237,6 @@ export function prepareRepetitionContext(
     // owner declaration. This never exposes a calculated target or declares
     // physical comparability on the owner's behalf.
     prepared.ready = !prepared.reasons.length;
-    const taskIds = tasks.map((task) => task.id);
     const verified = hasPlannedNominalComparison(
       context,
       source,
@@ -283,9 +323,11 @@ function evaluateRepetitionEvidence(
     executionAuthorized: false,
   });
   if (!prepared.ready) return no(reasons, 'CONFIGURATION_REQUIRED');
+  const selectedTasks = new Set(prepared.tasks.map(({ id }) => id));
   const relevant = context.history.tasks.filter((t) =>
     progressive
-      ? !!t.performedOn &&
+      ? selectedTasks.has(t.id) &&
+        !!t.performedOn &&
         !!source.performedOn &&
         t.performedOn < source.performedOn &&
         t.performedOn <= prepared.historyCutoffOn!
@@ -301,7 +343,7 @@ function evaluateRepetitionEvidence(
       b.performedOn!.localeCompare(a.performedOn!) || a.id.localeCompare(b.id),
   );
   const latest = tasks[0],
-    slice = tasks.slice(0, prepared.minimumSessions);
+    slice = progressive ? tasks : tasks.slice(0, prepared.minimumSessions);
   const period = guidePreviewPeriodReasons(source, {
     performedOn: latest.performedOn!,
     sessions: [],

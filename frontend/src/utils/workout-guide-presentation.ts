@@ -10,7 +10,7 @@ const labels: Record<string, string> = {
   PLAN_WITH_REFERENCE:
     "El historial sirve como referencia junto al objetivo del plan.",
   COMPARABILITY_DECLARATION_REQUIRED:
-    "Confirma la variante, el equipo y la forma de anotar el peso para comparar.",
+    "No se pudo verificar que el equipo y la forma de anotar el peso coincidan. Usa el registro solo como referencia.",
   REPETITION_TARGET_ADVANCE:
     "Completaste las series comparables: puedes probar una repetición más dentro del rango del plan.",
   REPETITION_RANGE_COMPLETED:

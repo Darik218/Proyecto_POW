@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { computed, shallowRef } from "vue";
+import { computed } from "vue";
 import { useWorkoutGuide } from "../../composables/useWorkoutGuide";
 import type {
   WorkoutGuide,
   WorkoutGuideQuery,
 } from "../../schemas/workout-guide.schema";
-import WorkoutRepetitionGuide from "./WorkoutRepetitionGuide.vue";
 import WorkoutPreparationSummary from "./WorkoutPreparationSummary.vue";
 const props = defineProps<{
   query: WorkoutGuideQuery;
@@ -13,19 +12,12 @@ const props = defineProps<{
   exerciseId?: string;
 }>();
 const emit = defineEmits<{ loaded: [value: WorkoutGuide] }>();
-const { guide, error, loading, load, calculated } = useWorkoutGuide({
+const { guide, error, loading, load } = useWorkoutGuide({
   query: () => props.query,
   fallbackError:
     "No se pudo consultar la guía. Puedes registrar tus resultados manualmente.",
   onUpdate: (value) => emit("loaded", value),
 });
-const checking = shallowRef<ReadonlySet<string>>(new Set());
-function setChecking(id: string, active: boolean) {
-  const next = new Set(checking.value);
-  if (active) next.add(id);
-  else next.delete(id);
-  checking.value = next;
-}
 const visibleExercises = computed(
   () =>
     guide.value?.exercises.filter(
@@ -38,7 +30,7 @@ const visibleExercises = computed(
   <section
     class="daily-guide"
     aria-label="Guía para este entrenamiento"
-    :aria-busy="loading || checking.size > 0"
+    :aria-busy="loading"
   >
     <h3>{{ compact ? "Antes de empezar" : "Tu guía para esta sesión" }}</h3>
     <p class="field-hint">
@@ -87,32 +79,7 @@ const visibleExercises = computed(
         <h4>
           {{ exercise.name }} <span v-if="exercise.isOmitted">· Omitido</span>
         </h4>
-        <WorkoutPreparationSummary
-          :exercise="exercise"
-          :verifying="checking.has(exercise.id)"
-        >
-          <template #comparison>
-            <WorkoutRepetitionGuide
-              v-if="
-                (exercise.progressiveContext ?? exercise.repetitionContext) &&
-                exercise.preparation?.stage !== 'REVIEW_REQUIRED' &&
-                (exercise.preparation
-                  ? exercise.preparation.stage === 'REPETITION_READY'
-                  : exercise.guidanceSuggested?.load == null)
-              "
-              :query="query"
-              :exercise-id="exercise.exerciseId"
-              :occurrence-id="exercise.id"
-              :disabled="loading"
-              :context="
-                (exercise.progressiveContext ?? exercise.repetitionContext)!
-              "
-              compact
-              @calculated="calculated"
-              @checking="setChecking"
-            />
-          </template>
-        </WorkoutPreparationSummary>
+        <WorkoutPreparationSummary :exercise="exercise" />
       </article>
     </template>
   </section>

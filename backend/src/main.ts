@@ -42,7 +42,19 @@ async function bootstrap() {
     if (process.env.RENDER === 'true') {
       app.set('trust proxy', 1);
     }
-    app.useStaticAssets(frontend, { index: false });
+    const release = process.env.RENDER_GIT_COMMIT;
+    if (release && /^[a-f0-9]{40}$/i.test(release)) {
+      app.use((_request: Request, response: Response, next: NextFunction) => {
+        response.set('X-Pulso-Release', release);
+        next();
+      });
+    }
+    app.useStaticAssets(frontend, {
+      index: false,
+      setHeaders(response, file) {
+        if (file === index) response.setHeader('Cache-Control', 'no-store');
+      },
+    });
     app.use((request: Request, response: Response, next: NextFunction) => {
       const isRead = request.method === 'GET' || request.method === 'HEAD';
       const isSpaRoute = /^\/(?:$|(?:login|register)\/?$|app(?:\/|$))/.test(
@@ -52,7 +64,7 @@ async function bootstrap() {
         next();
         return;
       }
-      response.set('Cache-Control', 'no-cache').sendFile(index, (error) => {
+      response.set('Cache-Control', 'no-store').sendFile(index, (error) => {
         if (error) next(error);
       });
     });

@@ -1,4 +1,4 @@
-import { computed, onScopeDispose, shallowRef, watch } from "vue";
+import { computed, onMounted, onScopeDispose, shallowRef, watch } from "vue";
 import type {
   WorkoutGuide,
   WorkoutGuideQuery,
@@ -102,17 +102,28 @@ export function useWorkoutGuide(options: {
   let controller: AbortController | undefined;
   let requestedScope: string | null = null;
   let acceptedEvidenceVersion: string | undefined;
+  let reading: { key: string; promise: Promise<void> } | undefined;
 
   function publish(value: WorkoutGuide, activeScope: string) {
     current.value = { scope: activeScope, value };
     options.onUpdate?.(value);
   }
 
-  async function load() {
-    const n = ++revision;
-    controller?.abort();
+  function load() {
     const newScope = scope.value;
     const evidenceVersion = options.evidenceVersion?.();
+    const key = JSON.stringify([newScope, evidenceVersion]);
+    if (reading?.key === key) return reading.promise;
+    const promise = read(newScope, evidenceVersion).finally(() => {
+      if (reading?.promise === promise) reading = undefined;
+    });
+    reading = { key, promise };
+    return promise;
+  }
+
+  async function read(newScope: string | null, evidenceVersion?: string) {
+    const n = ++revision;
+    controller?.abort();
     if (requestedScope !== newScope) {
       current.value = null;
       previews.clear();
@@ -124,7 +135,10 @@ export function useWorkoutGuide(options: {
     controller = new AbortController();
     const signal = controller.signal;
     const isCurrent = () =>
-      n === revision && newScope === scope.value && !signal.aborted;
+      n === revision &&
+      newScope === scope.value &&
+      evidenceVersion === options.evidenceVersion?.() &&
+      !signal.aborted;
     try {
       const value = await workoutGuideService.get(options.query(), signal);
       if (!isCurrent()) return;
@@ -191,7 +205,16 @@ export function useWorkoutGuide(options: {
   watch([scope, () => options.evidenceVersion?.()], () => void load(), {
     immediate: true,
   });
+  function refreshVisibleGuide() {
+    if (document.visibilityState === "visible" && scope.value) void load();
+  }
+  onMounted(() => {
+    if (typeof document !== "undefined")
+      document.addEventListener("visibilitychange", refreshVisibleGuide);
+  });
   onScopeDispose(() => {
+    if (typeof document !== "undefined")
+      document.removeEventListener("visibilitychange", refreshVisibleGuide);
     revision++;
     controller?.abort();
     previews.clear();

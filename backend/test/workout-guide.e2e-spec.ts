@@ -552,17 +552,35 @@ isolated('daily workout guide real PostgreSQL read snapshot', () => {
       await db.planExercise.findUnique({ where: { id: f.target.p.id } }),
     ).toMatchObject(targets);
   });
-  it('automatically reuses captured Smith practice across scheduled weeks without inferring strength or applying a plan change', async () => {
+  const capturedVariants = [
+    {
+      name: 'Press de hombros en Smith',
+      equipment: 'Máquina Smith',
+      equipmentType: 'SMITH_MACHINE',
+      machineType: 'SMITH',
+      resistanceType: 'PLATE_LOADED',
+    },
+    {
+      name: 'Press de banca plano con barra olímpica',
+      equipment: 'Barra olímpica y banco plano',
+      equipmentType: 'BARBELL',
+      machineType: null,
+      resistanceType: 'FREE_WEIGHT',
+    },
+  ] as const;
+  it.each(capturedVariants)(
+    'keeps automatic $name guidance across weeks and when returning to the same recorded occurrence',
+    verifyScheduledGuide,
+  );
+  async function verifyScheduledGuide(
+    exercise: (typeof capturedVariants)[number],
+  ) {
     const f = await fixture();
     const workouts = new PrismaWorkoutSessionsRepository(db);
     const smith = await db.exercise.create({
       data: {
-        name: 'Press de hombros en Smith',
-        catalogKey: 'press-hombros-smith-' + randomUUID(),
-        equipment: 'Máquina Smith',
-        equipmentType: 'SMITH_MACHINE',
-        machineType: 'SMITH',
-        resistanceType: 'PLATE_LOADED',
+        ...exercise,
+        catalogKey: 'captured-exercise-' + randomUUID(),
         primaryMuscleGroupId: f.e.primaryMuscleGroupId,
       },
     });
@@ -711,6 +729,98 @@ isolated('daily workout guide real PostgreSQL read snapshot', () => {
       await db.planExercise.findUnique({ where: { id: next.id } }),
     ).toEqual(next);
 
+    const currentId = randomUUID();
+    await workouts.create(f.athleteId, {
+      id: currentId,
+      performedOn: '2026-01-14',
+      timeZone: 'UTC',
+      trainingPlanId: f.target.plan.id,
+      planWeekId: week.id,
+      planDayId: day.id,
+      scheduledActivityId: activity.id,
+    });
+    await db.workoutSession.update({
+      where: { id: currentId },
+      data: {
+        status: 'IN_PROGRESS',
+        startedAt: new Date('2026-01-14T12:00:00Z'),
+      },
+    });
+    const currentTask = await db.workoutExercise.findFirstOrThrow({
+      where: { sessionId: currentId },
+    });
+    await db.setRecord.create({
+      data: {
+        workoutExerciseId: currentTask.id,
+        setNumber: 1,
+        repetitions: 10,
+        load: '60',
+        loadUnit: 'KG',
+        loadKg: '60',
+        kind: 'WORK',
+        status: 'COMPLETED',
+        isCompleted: true,
+      },
+    });
+    for (const entry of [
+      { sessionId: currentId },
+      { activityId: activity.id },
+      { planDayId: day.id, performedOn: '2026-01-14', timeZone: 'UTC' },
+    ]) {
+      const reopened = (await guide.forMyWorkout(f.identity, entry))
+        .exercises[0];
+      expect(reopened.guidanceSuggested).toEqual(result.guidanceSuggested);
+      expect(reopened.progressiveContext?.tasks).toEqual(
+        result.progressiveContext?.tasks,
+      );
+    }
+
+    const free = await db.workoutSession.create({
+      data: {
+        athleteId: f.athleteId,
+        status: 'COMPLETED',
+        startedAt: new Date('2026-01-08T12:00:00Z'),
+        finishedAt: new Date('2026-01-08T13:00:00Z'),
+        performedOn: new Date('2026-01-08'),
+        timeZone: 'UTC',
+      },
+    });
+    const freeTask = await db.workoutExercise.create({
+      data: { sessionId: free.id, exerciseId: smith.id, orderInSession: 1 },
+    });
+    await db.setRecord.create({
+      data: {
+        workoutExerciseId: freeTask.id,
+        setNumber: 1,
+        repetitions: 8,
+        load: '70',
+        loadUnit: 'KG',
+        loadKg: '70',
+        kind: 'WORK',
+        status: 'COMPLETED',
+        isCompleted: true,
+      },
+    });
+    expect((await read()).guidanceSuggested).toEqual(result.guidanceSuggested);
+    expect((await read()).progressiveContext?.tasks).toEqual(
+      result.progressiveContext?.tasks,
+    );
+
+    // An unrelated workout on the same date is not silently excluded as the
+    // planned occurrence. The service cannot infer its intra-day order.
+    await db.workoutSession.update({
+      where: { id: free.id },
+      data: { performedOn: new Date('2026-01-14') },
+    });
+    expect((await read()).progressiveContext).toMatchObject({
+      ready: false,
+      reasons: expect.arrayContaining(['INCOMPLETE_WORKOUT_CONTEXT']),
+    });
+    await db.workoutSession.update({
+      where: { id: free.id },
+      data: { performedOn: new Date('2026-01-08') },
+    });
+
     for (const { taskId } of sessions) {
       for (const [index, repetitions] of [12, 11, 9].entries())
         await db.setRecord.updateMany({
@@ -768,7 +878,7 @@ isolated('daily workout guide real PostgreSQL read snapshot', () => {
       comparability: { state: 'NOT_COMPARABLE' },
       reasons: expect.arrayContaining(['RECORDED_LOAD_DIFFERS']),
     });
-  });
+  }
   it('keeps an exact comparison identity across activity to session and invalidates changed occurrence, history and settings', async () => {
     const f = await fixture();
     await db.workoutExercise.updateMany({
